@@ -1,0 +1,32 @@
+--- a/src/mono/mono/mini/mini-runtime.c
++++ b/src/mono/mono/mini/mini-runtime.c
+@@ -1511,6 +1511,7 @@
+ 	case MONO_PATCH_INFO_SWITCH: {
+ #ifndef MONO_ARCH_NO_CODEMAN
+ 		gpointer *jump_table;
++		gboolean code_allocated = TRUE;
+ 		int i;
+ 
+ 		if (method && method->dynamic) {
+@@ -1520,16 +1521,19 @@
+ 			MonoMemoryManager *method_mem_manager = method ? m_method_get_mem_manager (method) : mem_manager;
+ 			if (mono_aot_only) {
+ 				jump_table = (void **)mono_mem_manager_alloc (method_mem_manager, sizeof (gpointer) * patch_info->data.table->table_size);
++				code_allocated = FALSE;
+ 			} else {
+ 				jump_table = (void **)mono_mem_manager_code_reserve (method_mem_manager, sizeof (gpointer) * patch_info->data.table->table_size);
+ 			}
+ 		}
+ 
+-		jump_table = (gpointer*)mono_codeman_enable_write_ex (jump_table, G_STRLOC);
++		if (code_allocated)
++			jump_table = (gpointer*)mono_codeman_enable_write_ex (jump_table, G_STRLOC);
+ 		for (i = 0; i < patch_info->data.table->table_size; i++) {
+ 			jump_table [i] = code + GPOINTER_TO_INT (patch_info->data.table->table [i]);
+ 		}
+-		jump_table = (gpointer*)mono_codeman_disable_write_ex (jump_table, G_STRLOC);
++		if (code_allocated)
++			jump_table = (gpointer*)mono_codeman_disable_write_ex (jump_table, G_STRLOC);
+ 
+ 		target = jump_table;
+ #else

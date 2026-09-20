@@ -1,0 +1,4 @@
+%rename link mono_nx_original_link
+
+*link:
+-T %:getenv(TOPDIR /aot-method-tables.ld) %(mono_nx_original_link)

@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>NxInputDiag</AssemblyName>
+    <RootNamespace>Terraria.NxInputDiag</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="NxInputDiag.cs" />
+    <Reference Include="FNA">
+      <HintPath>$(FNAPath)</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+  <Target Name="ValidateFNAPath" BeforeTargets="ResolveReferences">
+    <Error Condition="'$(FNAPath)' == ''" Text="Provide -p:FNAPath=/absolute/path/to/original/game/FNA.dll" />
+    <Error Condition="'$(FNAPath)' != '' and !Exists('$(FNAPath)')" Text="FNAPath does not exist: $(FNAPath)" />
+  </Target>
+</Project>
