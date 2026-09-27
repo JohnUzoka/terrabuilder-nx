@@ -10,7 +10,7 @@ Release build outputs.
 import hashlib, importlib.util, json, os, struct
 from pathlib import Path
 
-ROOT = Path('/home/juzoka/.cache/terraria-switch-build')
+ROOT = Path(os.environ.get('TERRABUILDER_CACHE', Path.home() / '.cache/terraria-switch-build'))
 OUT = ROOT / 'release58' / os.environ.get('R58_VARIANT', '')
 BASE = ROOT / 'hint52/aot-final'
 CONTROL = ROOT / 'hint52/native/candidate'

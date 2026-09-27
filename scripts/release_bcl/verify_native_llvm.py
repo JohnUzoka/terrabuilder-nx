@@ -4,10 +4,11 @@ Identical checks, except method-table CALL26 entries whose target symbol is unde
 in the module object (LLVM-compiled methods) are resolved through the linked ELF symbol
 table and must land in .text. ab46/verify_pair.py stays untouched for builds 46-59.
 """
+import os
 import struct
 from pathlib import Path
 import sys
-ROOT = Path('/home/juzoka/.cache/terraria-switch-build')
+ROOT = Path(os.environ.get('TERRABUILDER_CACHE', Path.home() / '.cache/terraria-switch-build'))
 sys.path.insert(0, str(ROOT / 'ab46'))
 from verify_pair import sha, ELFFile
 

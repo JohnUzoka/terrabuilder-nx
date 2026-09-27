@@ -6,9 +6,9 @@ between objects of the same archive are reported with all variants (e.g. per-TU 
 definitions); the comparison uses only names with a single consistent layout.
 Usage: dwarf_layouts.py ARCHIVE OUT.json
 """
-import io, json, sys
+import io, json, os, sys
 from concurrent.futures import ProcessPoolExecutor
-sys.path.insert(0, '/home/juzoka/.cache/terraria-switch-build/runtime-fix/python')
+sys.path.insert(0, os.path.join(os.environ.get('TERRABUILDER_CACHE', os.path.expanduser('~/.cache/terraria-switch-build')), 'runtime-fix/python'))
 from elftools.elf.elffile import ELFFile
 
 

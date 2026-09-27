@@ -7,7 +7,7 @@ from pathlib import Path
 import subprocess
 
 ROOT = Path(__file__).resolve().parent
-CACHE = Path('/build') if Path('/build/runtime-source/.dotnet/dotnet').is_file() else Path('/home/juzoka/.cache/terraria-switch-build')
+CACHE = Path('/build') if Path('/build/runtime-source/.dotnet/dotnet').is_file() else Path(os.environ.get('TERRABUILDER_CACHE', Path.home() / '.cache/terraria-switch-build'))
 DOTNET = CACHE / 'runtime-source/.dotnet/dotnet'
 CECIL = CACHE / 'ui48-patcher-final/support/Mono.Cecil.dll'
 FNA = CACHE / 'hint52/aot-final/runtime-romfs/FNA.dll'

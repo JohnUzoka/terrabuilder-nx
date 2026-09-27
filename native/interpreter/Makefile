@@ -72,6 +72,9 @@ MONO_NX_EMBEDDED_BCL		?=	0
 # Fatal Mono errors: flush the log and abort with an Atmosphère crash report
 # (native stack) instead of losing the message or exiting through the applet.
 MONO_NX_FATAL_DIAG		?=	0
+# Frame-timing measurement: NX_PHASE log lines every 5 s plus SDL_PollEvent /
+# FNA3D_SwapBuffers call wrappers. Off by default; set 1 for A/B performance builds.
+MONO_NX_PHASE_TIMING		?=	0
 
 #---------------------------------------------------------------------------------
 # Code generation options
@@ -93,8 +96,11 @@ CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions -std=c++17
 
 ASFLAGS	:=	-g $(ARCH)
 LDFLAGS	=	-specs=$(DEVKITPRO)/libnx/switch.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
+ifeq ($(MONO_NX_PHASE_TIMING),1)
 # Wrap calls and function-address relocations in the static SDL/FNA3D dl-shims.
-LDFLAGS += -Wl,--wrap=SDL_PollEvent -Wl,--wrap=FNA3D_SwapBuffers
+	CFLAGS += -DMONO_NX_PHASE_TIMING=1
+	LDFLAGS += -Wl,--wrap=SDL_PollEvent -Wl,--wrap=FNA3D_SwapBuffers
+endif
 
 #---------------------------------------------------------------------------------
 # Libraries

@@ -70,6 +70,12 @@ typedef struct NxPadSlot {
     bool snapshot_supported;
 } NxPadSlot;
 
+/* Frame timing (NX_PHASE log lines, SDL_PollEvent/FNA3D_SwapBuffers wrappers) is a
+ * measurement build option: make MONO_NX_PHASE_TIMING=1. Default builds keep the
+ * managed hook entry points (patched Terraria calls them every frame) and the input
+ * latch, but do no timing, reporting or call wrapping.
+ */
+#if defined(MONO_NX_PHASE_TIMING)
 typedef struct NxPhase {
     uint64_t begin;
     uint64_t first;
@@ -79,6 +85,7 @@ typedef struct NxPhase {
     uint64_t max;
     bool active;
 } NxPhase;
+#endif
 
 static NxPadSlot slots[NX_INPUT_CONTROLLERS];
 static Mutex input_lock;
@@ -87,6 +94,7 @@ static bool registered;
 static bool worker_attempted;
 static bool worker_running;
 static bool stopping;
+#if defined(MONO_NX_PHASE_TIMING)
 static uint64_t start_tick;
 static uint64_t report_tick;
 static uint64_t tick_frequency;
@@ -100,6 +108,7 @@ static NxPhase swap_phase;
 /* Derived from the public declarations, including their calling convention. */
 extern __typeof__(SDL_PollEvent) __real_SDL_PollEvent;
 extern __typeof__(FNA3D_SwapBuffers) __real_FNA3D_SwapBuffers;
+#endif
 
 static NxPadSample read_pad(unsigned index)
 {
@@ -207,6 +216,7 @@ static void ensure_worker(void)
     io_debugf("NX_INPUT sampler started: 4 pads, 4ms, priority=0x2B; raw buttons latched per update");
 }
 
+#if defined(MONO_NX_PHASE_TIMING)
 static void begin_phase(NxPhase *phase, uint64_t now)
 {
     if (phase->first == UINT64_MAX)
@@ -303,6 +313,10 @@ static void end_tick(void)
     end_phase(&tick_phase, now);
     report_phases(now, false);
 }
+#else
+static void begin_tick(void) { ensure_worker(); }
+static void end_tick(void) {}
+#endif
 
 static void begin_update(void)
 {
@@ -317,11 +331,14 @@ static void begin_update(void)
         }
         mutexUnlock(&input_lock);
     }
+#if defined(MONO_NX_PHASE_TIMING)
     if (tick_phase.active)
         ++updates_in_tick;
     begin_phase(&update_phase, armGetSystemTick());
+#endif
 }
 
+#if defined(MONO_NX_PHASE_TIMING)
 static void end_update(void)
 {
     end_phase(&update_phase, armGetSystemTick());
@@ -336,6 +353,13 @@ static void end_draw(void)
 {
     end_phase(&draw_phase, armGetSystemTick());
 }
+#else
+static void end_update(void) {}
+static void begin_draw(void) {}
+static void end_draw(void) {}
+#endif
+
+#if defined(MONO_NX_PHASE_TIMING)
 
 /* These APIs run on the game/video thread, never the input sampler. The
  * linker also wraps function addresses returned by the static dl-shims.
@@ -368,6 +392,7 @@ void __wrap_FNA3D_SwapBuffers(FNA3D_Device *device,
         overrideWindowHandle);
     record_phase(&swap_phase, begin, armGetSystemTick());
 }
+#endif
 
 /* Matches managed static byte GetButton(IntPtr controller, int button). */
 static uint8_t get_button(SDL_GameController *controller, int button)
@@ -402,10 +427,12 @@ void nx_input_register(void)
         return;
     registered = true;
     mutexInit(&input_lock);
+#if defined(MONO_NX_PHASE_TIMING)
     start_tick = report_tick = armGetSystemTick();
     tick_frequency = armGetSystemTickFreq();
     tick_phase.first = update_phase.first = draw_phase.first = UINT64_MAX;
     poll_phase.first = swap_phase.first = UINT64_MAX;
+#endif
     mono_add_internal_call("Terraria.NxInputDiag.InputDiagnostics::BeginTick", (const void *)begin_tick);
     mono_add_internal_call("Terraria.NxInputDiag.InputDiagnostics::EndTick", (const void *)end_tick);
     mono_add_internal_call("Terraria.NxInputDiag.InputDiagnostics::BeginUpdate", (const void *)begin_update);
@@ -413,7 +440,11 @@ void nx_input_register(void)
     mono_add_internal_call("Terraria.NxInputDiag.InputDiagnostics::BeginDraw", (const void *)begin_draw);
     mono_add_internal_call("Terraria.NxInputDiag.InputDiagnostics::EndDraw", (const void *)end_draw);
     mono_add_internal_call("Terraria.NxInputDiag.InputDiagnostics::GetButton", (const void *)get_button);
+#if defined(MONO_NX_PHASE_TIMING)
     io_debugf("NX_INPUT internal calls registered; NX_PHASE every 5s (count=window/total; first=-1 means not reached; poll/swap=native inclusive wall time, may overlap Tick)");
+#else
+    io_debugf("NX_INPUT internal calls registered; frame timing not built (MONO_NX_PHASE_TIMING=0)");
+#endif
 }
 
 void nx_input_shutdown(void)
@@ -434,5 +465,7 @@ void nx_input_shutdown(void)
         if (R_FAILED(rc))
             io_debugf("NX_INPUT threadClose failed: 0x%08x", (unsigned)rc);
     }
+#if defined(MONO_NX_PHASE_TIMING)
     report_phases(armGetSystemTick(), true);
+#endif
 }
