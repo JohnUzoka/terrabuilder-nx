@@ -65,6 +65,13 @@ MONO_NX_USE_AOT			?=	0
 MONO_NX_AOT_DIR			?=	$(TOPDIR)/aot
 # Leave SDL's known-working profile unchanged unless explicitly comparing GL
 MONO_NX_GL_COMPAT		?=	0
+# Load CoreLib/framework from RomFS (romfs:/mono/...) instead of the shared SD
+# /mono/lib_net9.0 and /mono/framework_net9.0. Lets one NRO ship its own BCL
+# (e.g. a Release build) without breaking other NROs' AOT MVID bindings.
+MONO_NX_EMBEDDED_BCL		?=	0
+# Fatal Mono errors: flush the log and abort with an Atmosphère crash report
+# (native stack) instead of losing the message or exiting through the applet.
+MONO_NX_FATAL_DIAG		?=	0
 
 #---------------------------------------------------------------------------------
 # Code generation options
@@ -110,6 +117,15 @@ ifeq ($(MONO_NX_USE_AOT),1)
 endif
 ifeq ($(MONO_NX_GL_COMPAT),1)
 	CFLAGS += -DMONO_NX_GL_COMPAT=1
+endif
+ifeq ($(MONO_NX_EMBEDDED_BCL),1)
+	ifneq ($(MONO_NX_USE_ROMFS),1)
+		$(error "MONO_NX_EMBEDDED_BCL=1 requires MONO_NX_USE_ROMFS=1")
+	endif
+	CFLAGS += -DMONO_NX_EMBEDDED_BCL=1
+endif
+ifeq ($(MONO_NX_FATAL_DIAG),1)
+	CFLAGS += -DMONO_NX_FATAL_DIAG=1
 endif
 
 LIBS	:=  \

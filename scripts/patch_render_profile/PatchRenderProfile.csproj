@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><Optimize>true</Optimize>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="*.cs" />
+    <Compile Include="../patch_tile_profile/Common.cs" Link="Common.cs" />
+    <Compile Include="../patch_tile_profile/TileFixture.cs" Link="TileFixture.cs" />
+    <Compile Include="../patch_tile_cost_profile/CostFixture.cs" Link="CostFixture.cs" />
+    <Compile Include="../patch_time_logger/PeResources.cs" Link="PeResources.cs" />
+    <Reference Include="PatchFrameProfile"><HintPath>$(FrameToolPath)</HintPath></Reference>
+    <Reference Include="Mono.Cecil"><HintPath>$(CecilPath)</HintPath></Reference>
+  </ItemGroup>
+  <Target Name="ValidateDependencies" BeforeTargets="ResolveReferences">
+    <Error Condition="'$(CecilPath)' == '' or !Exists('$(CecilPath)')" Text="Provide pinned target SDK CecilPath" />
+    <Error Condition="'$(FrameToolPath)' == '' or !Exists('$(FrameToolPath)')" Text="Provide reviewed FrameToolPath" />
+  </Target>
+</Project>

@@ -61,7 +61,17 @@ def read_elf_sections(stream, header: bytes, path: Path):
 
     section_offset = struct.unpack_from("<Q", header, 40)[0]
     section_size, section_count, names_index = struct.unpack_from("<HHH", header, 58)
-    if section_size != 64 or not 0 < names_index < section_count:
+    if section_size != 64 or not section_offset:
+        raise RuntimeError(f"unsupported ELF section header layout: {path}")
+    # ELF extended numbering (LLVM AOT sidecars have >65279 sections): e_shnum==0 and
+    # e_shstrndx==SHN_XINDEX mean the real values sit in section 0's sh_size / sh_link.
+    if section_count == 0 or names_index == 0xffff:
+        first = struct.unpack("<IIQQQQIIQQ", read_at(section_offset, section_size))
+        if section_count == 0:
+            section_count = first[5]
+        if names_index == 0xffff:
+            names_index = first[6]
+    if not 0 < names_index < section_count:
         raise RuntimeError(f"unsupported ELF section header layout: {path}")
     sections = list(struct.iter_unpack("<IIQQQQIIQQ", read_at(section_offset, section_size * section_count)))
     names_section = sections[names_index]
@@ -112,22 +122,27 @@ def inspect_method_table(stream, header: bytes, path: Path) -> dict:
             "read_only_encoded_addresses": True}
 
 
-def inspect_object(path: Path, nm: str, log: Path) -> dict:
+def inspect_object(path: Path, nm: str, log: Path, symbol_object: Path | None = None) -> dict:
+    """symbol_object: where the module's exported info symbol lives (the -llvm.o sidecar
+    in LLVM mode, which also holds image_table/mono_aot_file_info); default: path."""
     with path.open("rb") as stream:
         header = stream.read(64)
         if len(header) != 64 or header[:6] != b"\x7fELF\x02\x01" or struct.unpack_from("<HH", header, 16) != (1, 183):
             raise RuntimeError(f"not an ELF64 little-endian AArch64 relocatable object: {path}")
         method_table = inspect_method_table(stream, header, path)
-    result = subprocess.run([nm, "-g", "--defined-only", str(path)], capture_output=True, text=True)
+    symbol_source = symbol_object or path
+    result = subprocess.run([nm, "-g", "--defined-only", str(symbol_source)], capture_output=True, text=True)
     log.write_text(result.stdout + result.stderr)
     if result.returncode:
         raise RuntimeError(f"nm exited {result.returncode}: {log}")
     matches = MODULE_SYMBOL.findall(result.stdout)
     if len(matches) != 1:
-        raise RuntimeError(f"expected one exported AOT module data symbol, found {matches}: {path}")
-    return {"object": str(path), "object_sha256": sha256(path), "object_size": path.stat().st_size,
-            "architecture": "AArch64", "symbol": matches[0][1], "symbol_type": matches[0][0],
-            "symbol_registration": "value, not address", "nm_log": str(log), "method_table": method_table}
+        raise RuntimeError(f"expected one exported AOT module data symbol, found {matches}: {symbol_source}")
+    result = {"object": str(path), "object_sha256": sha256(path), "object_size": path.stat().st_size,
+              "architecture": "AArch64", "symbol": matches[0][1], "symbol_type": matches[0][0],
+              "symbol_registration": "value, not address", "nm_log": str(log), "method_table": method_table}
+    # symbol_object is recorded (as the final path) by the caller only for LLVM sidecars.
+    return result
 
 
 def read_aot_dependencies(path: Path) -> list[dict]:
@@ -202,7 +217,8 @@ def validate_runtime_metadata(manifest: dict, modules: list[dict], output: Path)
         own_provider = providers.get(module["assembly"]["name"].casefold())
         if not own_provider or own_provider[1]["sha256"] != module["assembly"]["sha256"]:
             errors.append("compiled assembly bytes no longer supplied: " + module["assembly"]["name"])
-        dependencies = read_aot_dependencies(path)
+        # LLVM mode: image_table lives in the -llvm.o sidecar with the module info
+        dependencies = read_aot_dependencies(Path(module.get("symbol_object") or path))
         for dependency in dependencies:
             provider = providers.get(dependency["name"].casefold())
             if provider is None:
@@ -259,6 +275,16 @@ def main() -> int:
     parser.add_argument("--corelib-log", type=Path, help="optional log from the external corelib compilation")
     parser.add_argument("--no-inline-assembly", action="append", default=[], metavar="NAME",
                         help="disable method inlining only for named modules; works around the Terraria SetDisplayMode compiler crash")
+    parser.add_argument("--extra-module", action="append", default=[], metavar="FILE",
+                        help="also AOT-compile this staged RomFS assembly (e.g. System.Linq.dll); it must exist at the RomFS root")
+    parser.add_argument("--llvm-module", action="append", default=[], metavar="NAME",
+                        help="compile this assembly with Mono's LLVM backend (needs --llvm-compiler-dir); "
+                             "emits NAME's object plus a <file>-llvm.o sidecar that must be linked with it")
+    parser.add_argument("--llvm-compiler-dir", type=Path,
+                        help="directory holding an LLVM-enabled mono-aot-cross with its llc/opt/libc++")
+    parser.add_argument("--llvm-aot-extra", default="",
+                        help="extra comma-separated --aot options for --llvm-module assemblies only, "
+                             "e.g. 'llvmopts=-mtriple=aarch64-none-elf -mcpu=cortex-a57,llvmllc=-mcpu=cortex-a57'")
     parser.add_argument("--runtime-metadata-only", action="store_true",
                         help="prepare/validate early runtime metadata using existing objects; do not rebuild or rewrite the header")
     parser.add_argument("--jobs", type=int, default=3)
@@ -300,7 +326,17 @@ def main() -> int:
     staged = {Path(a["path"]).name: a for a in manifest["staged_assemblies"]}
     embedded = {a["name"]: a for a in manifest["embedded_assemblies"]}
     modules = [staged[name] for name in ("Terraria.exe", "FNA.dll", "NxCrypto.dll", "NxInputDiag.dll")]
-    modules += [embedded[name] for name in ("ReLogic", "Newtonsoft.Json") if name in embedded]
+    # A staged copy is what Mono loads at runtime (staged precedes embedded as a
+    # metadata provider), e.g. the patched ReLogic.dll at RomFS root since build50.
+    for name in ("ReLogic", "Newtonsoft.Json"):
+        if name + ".dll" in staged:
+            modules.append(staged[name + ".dll"])
+        elif name in embedded:
+            modules.append(embedded[name])
+    for filename in args.extra_module:
+        if filename not in staged:
+            parser.error(f"--extra-module {filename} is not a staged RomFS assembly")
+        modules.append(staged[filename])
     if args.runtime_metadata_only:
         previous = json.loads((output / "build-manifest.json").read_text())
         if previous["status"] != "complete":
@@ -329,22 +365,62 @@ def main() -> int:
     path_flags = ["--path=" + str(path) for path in references]
     nm = args.tool_prefix + "nm"
 
+    llvm_modules = set(args.llvm_module)
+    unknown = llvm_modules - {assembly["name"] for assembly in modules}
+    if unknown:
+        parser.error("--llvm-module names not requested for compilation: " + ", ".join(sorted(unknown)))
+    if llvm_modules and not args.llvm_compiler_dir:
+        parser.error("--llvm-module requires --llvm-compiler-dir")
+
     def compile_module(assembly: dict) -> dict:
         source = Path(assembly["path"])
         target = output / (source.name + ".o")
         pending = target.with_name(target.name + ".pending")
         log = logs / (source.name + ".log")
         optimizations = ["--optimize=-inline"] if assembly["name"] in no_inline else []
-        command = [args.stdbuf, "-oL", "-eL", args.cross_compiler, *optimizations, *path_flags,
-                   "--aot=full,interp,static,outfile=" + str(pending) + ",tool-prefix=" + args.tool_prefix,
+        llvm = assembly["name"] in llvm_modules
+        compiler, module_env, aot_extra, llvm_target = args.cross_compiler, environment, "", None
+        if llvm:
+            llvm_dir = args.llvm_compiler_dir.resolve()
+            compiler = str(llvm_dir / "mono-aot-cross")
+            module_env = dict(environment, LD_LIBRARY_PATH=str(llvm_dir))
+            llvm_target = output / (source.name + "-llvm.o")
+            # LLVM mode writes fixed names (temp.s/.bc/.opt.bc/.o) into temp-path, so each LLVM
+            # module needs its own directory: parallel LLVM compiles sharing one clobbered each
+            # other's main object (build63 first attempt).
+            module_temp = temporary / ("llvm-" + source.name)
+            module_temp.mkdir(exist_ok=True)
+            aot_extra = f",llvm-path={llvm_dir}/,llvm-outfile={llvm_target}.pending,temp-path={module_temp}"
+            if args.llvm_aot_extra:
+                aot_extra += "," + args.llvm_aot_extra
+            optimizations = ["--llvm", *optimizations]
+        command = [args.stdbuf, "-oL", "-eL", compiler, *optimizations, *path_flags,
+                   "--aot=full,interp,static,outfile=" + str(pending) + aot_extra + ",tool-prefix=" + args.tool_prefix,
                    str(source)]
         result = {"assembly": assembly, "command": command, "log": str(log), "optimizations": optimizations}
         try:
             if sha256(source) != assembly["sha256"]:
                 raise RuntimeError(f"input changed before compilation: {source}")
-            run_logged(command, log, environment)
+            run_logged(command, log, module_env)
             result.update(method_counts(log))
-            result.update(inspect_object(pending, nm, logs / (source.name + ".nm.log")))
+            llvm_pending = None
+            if llvm:
+                llvm_pending = Path(str(llvm_target) + ".pending")
+                with llvm_pending.open("rb") as stream:
+                    head = stream.read(20)
+                if head[:6] != b"\x7fELF\x02\x01" or struct.unpack_from("<HH", head, 16) != (1, 183):
+                    raise RuntimeError(f"LLVM sidecar is not an AArch64 relocatable object: {llvm_pending}")
+            result.update(inspect_object(pending, nm, logs / (source.name + ".nm.log"), llvm_pending))
+            if llvm:
+                # The main object must define this module's own code-range symbol, not a sibling's.
+                prefix = result["symbol"][len("mono_aot_module_"):-len("_info")]
+                own = subprocess.run([nm, "-g", "--defined-only", str(pending)], capture_output=True, text=True)
+                if own.returncode or not re.search(rf"\sT mono_aot_{re.escape(prefix)}jit_code_start$", own.stdout, re.M):
+                    raise RuntimeError(f"LLVM main object does not define mono_aot_{prefix}jit_code_start: {pending}")
+            if llvm:
+                llvm_pending.replace(llvm_target)
+                result.update(llvm_object=str(llvm_target), llvm_object_sha256=sha256(llvm_target),
+                              symbol_object=str(llvm_target))
             if sha256(source) != assembly["sha256"]:
                 raise RuntimeError(f"input changed during compilation: {source}")
             pending.replace(target)
@@ -388,7 +464,9 @@ def main() -> int:
     symbols = [result["symbol"] for result in all_results]
     if len(set(symbols)) != len(symbols):
         raise RuntimeError("duplicate exported AOT registration symbols")
-    unexpected = set(output.glob("*.o")) - {Path(result["object"]) for result in all_results}
+    expected_objects = {Path(result["object"]) for result in all_results}
+    expected_objects |= {Path(result["llvm_object"]) for result in all_results if result.get("llvm_object")}
+    unexpected = set(output.glob("*.o")) - expected_objects
     if unexpected:
         raise RuntimeError("unexpected objects in link directory; move diagnostics elsewhere: " + ", ".join(map(str, sorted(unexpected))))
     # No include guard: the native driver may include this once for extern declarations

@@ -24,6 +24,30 @@ static void ensure_sd_directory(const char *path)
     if (mkdir(path, 0777) != 0 && errno != EEXIST)
         io_debugf("mkdir failed for %s (errno=%d)", path, errno);
 }
+
+#if defined(MONO_NX_FATAL_DIAG)
+// Replaces the SDK's log hook so a fatal Mono error always reaches the log file
+// (flushed) and then aborts through diagAbortWithResult, which makes Atmosphère
+// write a crash report with the native stack. The SDK default otherwise loses
+// the message in the stdio buffer (runtime_logging=false) or exits cleanly via
+// the error applet with no stack (runtime_logging=true).
+static void nx_fatal_diag_log(const char *log_domain, const char *log_level,
+    const char *message, mono_bool fatal, void *user_data)
+{
+    (void)user_data;
+    if (g_config.mono_runtime_logging || fatal)
+        io_debugf("%s %s %s", log_domain ? log_domain : "(null)",
+            log_level ? log_level : "", message ? message : "");
+    if (fatal)
+    {
+        io_debugf("NX_FATAL_DIAG aborting for a native crash report");
+        fflush(stdout);
+        io_stdio_finish();
+        diagAbortWithResult(MAKERESULT(Module_HomebrewLoader, 0x5d));
+    }
+}
+#endif
+
 int main(int argc, char *argv[])
 {
     // Force FNA to use the SDL2 backend instead of SDL3.
@@ -64,6 +88,26 @@ int main(int argc, char *argv[])
 #if defined(MONO_NX_GL_COMPAT)
     io_debugf("NX_GRAPHICS requesting desktop OpenGL compatibility profile");
 #endif
+#if defined(MONO_NX_EMBEDDED_BCL)
+    // This NRO carries its own CoreLib and Release framework. application_initialize()
+    // has already read the SD config and ICU with the SD default device, so
+    // mounting RomFS now (without chdir) keeps those paths intact.
+    // Search order: CoreLib from romfs:/mono/lib_net9.0, then the RomFS root, which
+    // holds the framework plus the game-specific overrides (patched mscorlib facade,
+    // legacy System.Drawing). Both entries are device-absolute: after the entrypoint
+    // the cwd returns to sdmc:/, where a bare "/" would be the SD root, so later
+    // framework loads (System.Runtime, ...) would miss and fall into Terraria's
+    // managed AssemblyResolve handler mid-cctor (build 58c crash). A separate
+    // framework directory ahead of the root would shadow the overrides (58a crash).
+    Result bcl_romfs_result = romfsInit();
+    if (R_FAILED(bcl_romfs_result))
+    {
+        fatal_error("Failed to mount embedded RomFS for the BCL\n");
+        return 1;
+    }
+    mono_set_assemblies_path("romfs:/mono/lib_net9.0;romfs:/");
+    io_debugf("NX_RUNTIME embedded BCL: romfs:/mono/lib_net9.0;romfs:/");
+#endif
 
     MonoDomain *domain = NULL;
 
@@ -92,6 +136,10 @@ int main(int argc, char *argv[])
     io_debugf("NX_RUNTIME EventSource disabled: native EventPipe is unavailable");
 
     application_configure_mono();
+#if defined(MONO_NX_FATAL_DIAG)
+    mono_trace_set_log_handler(nx_fatal_diag_log, NULL);
+    io_debugf("NX_RUNTIME fatal diagnostics: Mono fatal errors abort with a crash report");
+#endif
 
     domain = mono_jit_init("embedded_mono");
     if (!domain)
@@ -105,12 +153,14 @@ int main(int argc, char *argv[])
     // Mount RomFS only after external config, ICU, and the Mono BCL have been
     // initialized from SD:/mono. Changing the default device earlier would
     // make /mono/config.ini resolve against RomFS and fail to load.
+#if !defined(MONO_NX_EMBEDDED_BCL)
     Result romfs_result = romfsInit();
     if (R_FAILED(romfs_result))
     {
         fatal_error("Failed to mount embedded RomFS\n");
         return 1;
     }
+#endif
     chdir("romfs:/");
 #endif
 

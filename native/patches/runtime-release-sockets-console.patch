@@ -1,0 +1,21 @@
+diff --git a/src/libraries/System.Net.Sockets/src/System/Net/Sockets/SocketAsyncEngine.Libnx.cs b/src/libraries/System.Net.Sockets/src/System/Net/Sockets/SocketAsyncEngine.Libnx.cs
+index d11838381..8d473d66b 100644
+--- a/src/libraries/System.Net.Sockets/src/System/Net/Sockets/SocketAsyncEngine.Libnx.cs
++++ b/src/libraries/System.Net.Sockets/src/System/Net/Sockets/SocketAsyncEngine.Libnx.cs
+@@ -19,11 +19,16 @@ internal sealed unsafe class SocketAsyncEngine : IThreadPoolWorkItem
+             1024;
+ #endif
+ 
++        // System.Console is referenced only in Debug (see System.Net.Sockets.csproj).
++#if DEBUG
+         private static bool Logging;
++#endif
+         private static void Log(string str)
+         {
++#if DEBUG
+             if (Logging)
+                 Console.WriteLine(str);
++#endif
+         }
+ 
+         // Socket continuations are dispatched to the ThreadPool from the event thread.
