@@ -54,6 +54,12 @@
 //    Process member in those methods fails the run. Other Process uses (hosting, URLs,
 //    folders, updates, mod development) stay unsupported and only run on explicit actions.
 //
+// 7. Touch as mouse. tModLoader's own screens and parts of its menu need a pointer. The
+//    Switch SDL2 port's SWITCH_InitTouch sets SDL_TOUCH_MOUSE_EVENTS=0 at default priority,
+//    so touches never become mouse input (desktop SDL defaults to 1). Main.Initialize (after
+//    the window exists) now sets it to 1 at override priority; SDL watches this hint, so it
+//    applies immediately. Handheld only: docked Switch has no touchscreen.
+//
 // The output gets a new MVID: a hash of the assembly as written with the stock MVID, so any
 // IL change yields a different MVID. Mono binds an AOT image to its assembly by MVID; the
 // earlier patchers kept the stock MVID while changing IL, so an AOT object compiled from
@@ -328,6 +334,22 @@ foreach (var name in processMemoryMethods)
         throw new InvalidOperationException($"{method.FullName} does not verify after patch: " + string.Join("; ", unrepairable));
 }
 Console.WriteLine($"FIX Process memory reads -> GC.GetTotalMemory in {processMemoryMethods.Length} methods ({processRewrites} instructions)");
+
+var fnaAssembly = resolver.Resolve(module.AssemblyReferences.Single(r => r.Name == "FNA"));
+var sdlType = fnaAssembly.MainModule.GetType("SDL2.SDL");
+var setHint = module.ImportReference(sdlType.Methods.Single(m => m.Name == "SDL_SetHintWithPriority"));
+var overridePriority = sdlType.NestedTypes.Single(t => t.Name == "SDL_HintPriority").Fields.Single(f => f.Name == "SDL_HINT_OVERRIDE");
+var mainInitialize = module.GetType("Terraria.Main").Methods.Single(m => m.Name == "Initialize" && !m.HasParameters && !m.IsStatic);
+var initIl = mainInitialize.Body.GetILProcessor();
+var initFirst = mainInitialize.Body.Instructions[0];
+initIl.InsertBefore(initFirst, initIl.Create(OpCodes.Ldstr, "SDL_TOUCH_MOUSE_EVENTS"));
+initIl.InsertBefore(initFirst, initIl.Create(OpCodes.Ldstr, "1"));
+initIl.InsertBefore(initFirst, initIl.Create(OpCodes.Ldc_I4, Convert.ToInt32(overridePriority.Constant)));
+initIl.InsertBefore(initFirst, initIl.Create(OpCodes.Call, setHint));
+initIl.InsertBefore(initFirst, initIl.Create(OpCodes.Pop));
+if (UnderflowingPops(mainInitialize, unrepairable).Count > 0 || unrepairable.Count > 0)
+    throw new InvalidOperationException("Main.Initialize does not verify after patch: " + string.Join("; ", unrepairable));
+Console.WriteLine($"FIX Main.Initialize: SDL_TOUCH_MOUSE_EVENTS=1 at override priority ({overridePriority.Constant})");
 
 var oldMvid = module.Mvid;
 using (var image = new MemoryStream())
