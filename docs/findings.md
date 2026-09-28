@@ -9118,3 +9118,35 @@ needed): "Mod Load Completed in 13944ms", `RAM physical/virtual` lines logged, *
 shown** (Single Player, Multiplayer, Achievements, Workshop, Settings, Credits, Exit). Two
 caught exceptions remain, both harmless: `GetProcesses` (reported as "Unknown") and the
 news fetch's TLS certificate check (`X509Certificates` unsupported; news shows "Offline").
+
+## tmod07 hardware: main menu works; touch as mouse in tmod08 (2026-09-28)
+
+User report: tmod07 loads to the tModLoader main menu, the controller moves through menus and
+changes settings, but **character creation can't be navigated**. `UICharacterCreation`'s
+`SetupGamepadPoints` and its Draw/BuildPage/button handlers are IL-identical to vanilla
+1.4.4.9; tModLoader changes only the menu builders (`MakeInfoMenu`, `MakeCategoriesBar`,
+`MakeClothStylesMenu`, `MakeHairsylesMenu`, `MakeCharPreview`). The exact controller failure
+is not yet diagnosed.
+
+**Touch.** `libSDL2.a` (devkitPro Switch port, SDL 2.28): `SWITCH_PollTouch` reads
+`hidGetTouchScreenStates` and passes the focused window to `SDL_SendTouch`, but
+`SWITCH_InitTouch` calls `SDL_SetHintWithPriority("SDL_TOUCH_MOUSE_EVENTS", "0", DEFAULT)`,
+so touches never become mouse input. FNA 23.10 reads the mouse with `SDL_GetMouseState`
+(`SupportsGlobalMouse` is false on the Switch driver), which would include synthesized touch
+clicks. NxFix pass 7 sets the hint to `1` at `SDL_HINT_OVERRIDE` (2) at the start of
+`Main.Initialize`; SDL watches the hint, so it takes effect immediately. Docked mode has no
+touchscreen; a right-stick virtual cursor would be needed there.
+
+Compiler: tModLoader builds use Mono's non-LLVM AOT (`--aot=full,interp,static`); vanilla
+60b+ use LLVM for Terraria/FNA/CoreLib.
+
+**tmod08** (`tmodloader08_touch.nro`, SHA256
+`e9fddd1462c7a3aaa87c4e4e385824acbda32c0baa88c8e64ef36df14f64cdcb`, 1,025,052,220 bytes):
+`TMOD_VARIANT=tmod08`. Verified: 152,635 native targets, 13,439 fallback sentinels, no RWX,
+MVID binding, byte-identical compiler inputs, all 15,207 RomFS files, 1.4.4.9 content.
+Host: mod load completes (7,401 ms) and the main menu renders; touch itself is only testable
+on hardware.
+
+Fargo's (MIT, `Fargowilta/Fargowiltas` 3.3.6.7 and `FargowiltasSouls` 1.7.3.7): Mutant Mod
+has 12 `On_` detours, Souls 29 plus one `ILContext` file each, and Souls needs Luminance 1.0.3
+and ships 79 shader effects. Both still need offline hook application and per-mod AOT.

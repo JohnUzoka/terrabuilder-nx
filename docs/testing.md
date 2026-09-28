@@ -56,7 +56,8 @@ performance/input comparison NROs are in `terraria-mono/switch/`:
 | `tmodloader04_ilfix.nro` | **Crashed on hardware** (`logT4.txt`): got past 03's crash, then overflowed the 1 MB main-thread stack in `NPCID.Sets..cctor`. Superseded by 05 |
 | `tmodloader05_bigstack.nro` | **Crashed on hardware** (`logT5.txt`): stack fix worked; then fatal "Audio device already open" in XACT setup. Superseded by 06 |
 | `tmodloader06_noaudio.nro` | **Reached the menu on hardware** (`logT6.txt`); mod loading then failed on `Process.GetCurrentProcess()` in tModLoader's memory diagnostics and left a popup with no controller navigation. Superseded by 07 |
-| `tmodloader07_modload.nro` | **Next tModLoader test; host reaches the main menu with mod loading complete**: 06 + memory diagnostics read GC memory instead of `Process`. tModLoader's own screens (mod list, Workshop, error popups) have no controller navigation; vanilla menus do |
+| `tmodloader07_modload.nro` | **Works on hardware to the main menu**: mod loading completes; menus and settings work with the controller. Character creation can't be navigated with the controller. Superseded by 08 |
+| `tmodloader08_touch.nro` | **Next tModLoader test; host reaches the main menu**: 07 + touchscreen acts as a mouse (handheld only). Goal: create a character and world by touch |
 
 41 removes the growing timing-history overhead; 42's narrower compiler
 workaround improves measured gameplay again. Rendering now accounts for about
