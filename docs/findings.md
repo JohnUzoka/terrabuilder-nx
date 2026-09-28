@@ -8843,3 +8843,91 @@ title `Terraria 68 GC stats + net trace`, SHA256
 `R58_MAIN_DEFINES="-DMONO_NX_GC_STATS=1 -DMONO_NX_NET_TRACE=1"`,
 `R58_EXTRA_LDFLAGS=-Wl,--wrap=connect` (candidate only). `SystemNative_Connect` calls
 `__wrap_connect` in the linked ELF. Build52 replay exact; verify_artifact PASS.
+
+## Build68 hardware results (2026-09-28)
+
+Both captures used `runtime_logging=1` (verbose Mono tracing), so timings include
+diagnostic overhead and are not a clean speed comparison.
+
+- **Baseline `log68.txt`** (default SGen, Frame Skip Off): clean exit. 47 settled
+  `NX_PHASE` windows 76.2-312.3 s: **26.6 Draw/s, 31.9 ms/Draw, 4.93 ms/Update**.
+  Phase counters reconcile; GC counters are monotonic. GC over 85.2-305.3 s: 497 minor
+  collections, 0 major, 1028 ms stop-the-world = **0.47%**. Draw rate matches the 67
+  16m/marksweep runs (26.7), so GC settings did not cause those runs' slowdown.
+  Analysis: `~/.cache/terraria-switch-build/release58/analysis68.json`.
+- **`managed_alloc_mb` is not allocation throughput.** `mono_gc_get_heap_size()` returns
+  SGen's current OS allocation (`sgen-memory-governor.c:455,473` add, `:488` subtracts).
+  It held 806-807 MiB; newlib `malloc_used` held 1076-1078 MiB.
+- **Multiplayer `log68mp.txt`**: 2,164 connects to `192.168.1.138:7777`, each failing in
+  ~0.1 ms with `errno=114 ENETUNREACH`. The sockaddr bytes are correct. Terraria's
+  `TcpConnectLoop` retries without a delay; the TCP client thread then dies with
+  `StackOverflowException` in `SafeSocketHandle` close. A single later connect from the
+  WSL host to that address timed out, so the server's state at capture time is unknown.
+
+### Root cause of the overflow: interpreter stack leak (fixed, host-reproduced)
+
+When interpreted code throws and compiled (AOT) code catches, `interp_throw` jumps
+through `mono_restore_context` and skips the interpreter entry's epilogue, so
+`context->stack_pointer` and `data_stack` are never unwound. Each caught failure leaks
+interpreter stack. Runtime fork `47d1c2190fc` (branch `terrabuilder-nx`) unwinds to the
+live boundary: an outer interpreter handler keeps its resume state; otherwise the LMF
+walk finds the deepest surviving interpreter frame. A first attempt (`daeace6195b`)
+cleared resume state unconditionally and would have dropped exceptions caught by an
+outer interpreter frame. Review caught it before any package.
+
+Host reproduction (`~/.cache/terraria-switch-build/multiplayer-host-repro/`, Linux x64
+Mono from the same fork, x64 CoreLib AOT, AOT caller with an interpreted
+`System.Net.Sockets`, deterministic refused loopback connect):
+
+| Scenario (10,000 iterations) | Before | After |
+|---|---|---|
+| AOT caller catching failed `TcpClient.Connect` | `StackOverflowException` after 2,000-2,999 | pass |
+| Plain / outer-interpreter catch / filter+finally / outer-AOT catch, interpreter-only and mixed | pass | pass |
+
+Proof: `verified-proof.json`. The ARM64 libnx CoreLib cannot be AOT-compiled for x64:
+it recurses in `AdvSimd.get_IsSupported`. The host test uses a Linux x64 CoreLib.
+
+### Build 69
+
+`mono_nx_fna_terraria_nochroma69_netfix.nro`, title `Terraria 69 network fixes`, SHA256
+`e59f4175afbccd1af8226856a9aeaf8596cf9189a37fba47c3ab220f05ca370b`. = 68's AOT set and
+payload + Release runtime from fork `47d1c2190fc` (`libmonosgen` `67223bcc…`) + launcher
+with a non-blocking NIFM request (`MONO_NX_NIFM=1`, logs `NX_NET nifm ...`).
+**[INFERENCE]** The missing NIFM request is the leading ENETUNREACH hypothesis; hardware
+must confirm it. `R58_MAIN_DEFINES="-DMONO_NX_GC_STATS=1 -DMONO_NX_NET_TRACE=1
+-DMONO_NX_NIFM=1"`, `R58_EXTRA_LDFLAGS=-Wl,--wrap=connect`. verify_artifact PASS:
+166,898 native targets, 14,207 fallback sentinels, no RWX.
+
+## tModLoader zero-mod experiment: tmod02 (2026-09-28)
+
+`tmodloader02_zeromod.nro`, SHA256
+`b26a38ece069a91ed71223bfa513fa20a0503be5cca6e062e6467f4d62108bf6` (1,130,351,616 bytes).
+tModLoader v2026.07.3.0 (1.4.4 stable; release zip SHA256 `6f51610f…`), net8.0 assemblies
+on our net9 libnx BCL, user's GOG 1.4.5.8 `Content/` in RomFS, zero mods.
+
+- **Offline patches (Mono.Cecil)**: strip MonoMod detours in `LoggingHooks` and
+  `AssemblyRedirects`; force GOG distribution and skip the install hash check; content
+  root `romfs:/Content`, FNA base directory `romfs:/`; Steam init stubbed and `-nosteam`
+  passed.
+- **Hard blocker for real mods (unchanged)**: MonoMod runtime detours need writable,
+  executable memory. Zero mods only works because vanilla tModLoader uses its own
+  event hooks, not detours.
+- **Launcher**: separate saves in `/switch/tmodloader`, default assembly
+  `tModLoader.dll`. It does not touch `/switch/terraria` or `/mono/config.ini`.
+- **AOT**: tModLoader 59,918/59,955 methods, FNA 12,172/12,221, plus CoreLib; runtime
+  fork `47d1c2190fc`. tmod01 was discarded: its packaged `tModLoader.dll` was patched
+  after AOT compilation. MVIDs matched but the method bodies did not. tmod02 compiles
+  from byte-identical copies of the packaged assemblies.
+- **Verification** (`~/.cache/terraria-switch-build/tmod-final-check/`): 152,622 native
+  targets and 13,448 fallback sentinels, each checked; no RWX; read-only method tables;
+  AOT objects bound to assembly MVIDs; compiler inputs byte-identical to the payload; all
+  32,836 RomFS files match staging; no host logs or saves embedded.
+- **Host smoke (limited)**: under .NET 9 in server mode it reaches `Choose World:`. The
+  client under host Mono (interpreter, Xvfb, llvmpipe) creates the OpenGL device and
+  sets the language, then segfaults in `SystemNative_LowLevelMonitor_TimedWait` from
+  CoreCLR 9.0.1's `libSystem.Native.so`. The Switch statically links the fork's own
+  System.Native, so **[INFERENCE]** this crash is host-specific. **The main menu has not
+  been observed anywhere.**
+- Recipe: `terrabuilder-nx/scripts/tmod/build_tmod02_nro.py`; launcher source
+  `~/.cache/terraria-switch-build/tmod/launcher_build/main_tmod.c`, a copy of `main.c`
+  with only the paths and default assembly changed.

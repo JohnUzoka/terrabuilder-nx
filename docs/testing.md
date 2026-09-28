@@ -49,7 +49,9 @@ performance/input comparison NROs are in `terraria-mono/switch/`:
 | `mono_nx_fna_terraria_nochroma65_release_runtime.nro` | **Superseded by 67; crashes on exit**: 64 + Release native runtime. Gameplay equals 64 (Color: 47.9 vs 48.0 Draw/s). Exit abort `unregister_thread: info` = libnx TLS destructor bug, fixed in 67 |
 | `mono_nx_fna_terraria_nochroma66_gc_params.nro` | **Superseded by 67; `nursery-size=16m` aborts at startup**: 65 + `/mono/gc_params.txt` + `NX_GC` stats. Fake-mmap alignment bug, fixed in 67. (Without a params file it has 65's exit crash) |
 | `mono_nx_fna_terraria_nochroma67_runtime_fixes.nro` | **Exit fix confirmed** (3 clean exits in the GC test): 66 with two runtime fixes (fake-mmap absolute alignment, POSIX TLS destructor semantics). GC test: keep SGen defaults |
-| `mono_nx_fna_terraria_nochroma68_gcstats_nettrace.nro` | **Next hardware test; host verified**: 67 + working `NX_GC` stats thread (priority fix) + `NX_NET` connect trace (address, rc, errno, call count). Use for a default-GC baseline and a multiplayer join attempt |
+| `mono_nx_fna_terraria_nochroma68_gcstats_nettrace.nro` | **Tested**: clean exit; settled 26.6 Draw/s, GC stop-the-world 0.47%. Multiplayer: 2,164 instant `ENETUNREACH` connects, then `StackOverflowException` |
+| `mono_nx_fna_terraria_nochroma69_netfix.nro` | **Next hardware test; host verified**: 68 + interpreter stack-unwind fix (retry overflow reproduced and fixed on host) + non-blocking NIFM network request. Use for a multiplayer join |
+| `tmodloader02_zeromod.nro` | **Experiment; host verified**: tModLoader 1.4.4 (v2026.07.3.0), zero mods, separate saves in `/switch/tmodloader`. Goal: reach the main menu |
 
 41 removes the growing timing-history overhead; 42's narrower compiler
 workaround improves measured gameplay again. Rendering now accounts for about
