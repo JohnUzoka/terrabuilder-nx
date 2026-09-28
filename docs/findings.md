@@ -9080,3 +9080,41 @@ Separately, `fna-nx-test/client-crashlog.txt` (two identical entries, 05:29 and 
 **vanilla** Terraria's Host & Play: `Main.HostAndPlay` starts a dedicated-server process,
 and `System.Diagnostics.Process` is unsupported on Switch. Hosting from the vanilla NRO
 needs a separate fix; joining another server is the path build 69 addresses.
+
+## tmod06 hardware: main menu reached; mod-load failure; tmod07 (2026-09-28)
+
+**tmod06 reached the tModLoader menu on hardware**: first-run language selection worked with
+the controller, and the audio log line appeared as designed (`logT6.txt`,
+`fna-nx-test/tModLoader-Logs/client.log`). Mod loading (built-in `ModLoader` content only)
+then failed at the end: `MemoryTracking.Finish` calls `Process.GetCurrentProcess()`, and
+`System.Diagnostics.Process` throws `PlatformNotSupportedException` on libnx ("An error
+occurred while loading ... tModLoader must be restarted"). `MemoryTracking.InGameUpdate`
+throws the same every minute. The failure opens tModLoader's error popup.
+
+**Controller limitation.** Vanilla Terraria wires gamepad navigation through
+`UILinkPointNavigator` (123 methods); no `Terraria.ModLoader.*` method does, so tModLoader's
+own screens (error popups, mod list, Workshop, mod config) need a pointer. On Switch that
+means touch or a virtual cursor; the user reports touch does not act as a mouse. SDL2's
+touch-to-mouse synthesis defaults on and FNA 23.10 does not set `SDL_TOUCH_MOUSE_EVENTS`
+during init; why touch doesn't reach the mouse on hardware is not yet diagnosed.
+
+**Process uses** (scan of tModLoader.dll): ~25 methods. Only `MemoryTracking.Finish`/`InGameUpdate`
+run unconditionally. The rest are behind explicit actions (Host & Play, dedicated server,
+URLs/folders, updates, mod sources/publishing, Steam) and stay unsupported.
+
+NxFix pass 6: in `MemoryTracking.Finish`, `MemoryTracking.InGameUpdate`,
+`UIMemoryBar.RecalculateMemory` and `Logging.FirstChanceExceptionHandler`, which use the
+current Process only for memory figures, `GetCurrentProcess()` yields null, `Refresh()` is
+dropped and `WorkingSet64`/`PrivateMemorySize64` read `GC.GetTotalMemory(false)` (15
+instructions); any other Process member there fails the run. `Finish`'s
+`GetProcesses()` stays: it is inside a try/catch that reports "Unknown".
+
+**tmod07** (`tmodloader07_modload.nro`, SHA256
+`02233316e33b034ecaba3c02aa1c58526ade8cf2b8dd12977e55fee9211235c4`, 1,025,052,220 bytes):
+`TMOD_VARIANT=tmod07`. Verified: 152,635 native targets, 13,439 fallback sentinels, no RWX,
+MVID binding, byte-identical compiler inputs, all 15,207 RomFS files, 1.4.4.9 content.
+Host (Switch-like layout, config seeded with language + last version so no input is
+needed): "Mod Load Completed in 13944ms", `RAM physical/virtual` lines logged, **main menu
+shown** (Single Player, Multiplayer, Achievements, Workshop, Settings, Credits, Exit). Two
+caught exceptions remain, both harmless: `GetProcesses` (reported as "Unknown") and the
+news fetch's TLS certificate check (`X509Certificates` unsupported; news shows "Offline").
