@@ -87,6 +87,41 @@ static void gc_stats_worker(void *arg)
 }
 #endif
 
+#if defined(MONO_NX_NET_TRACE)
+// Diagnostic build only (MONO_NX_NET_TRACE=1, linked with -Wl,--wrap=connect): log every
+// socket connect made through libSystem.Native with the raw sockaddr, result and errno,
+// and a running call count (shows whether Terraria's retry loop runs before a failure).
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+extern int __real_connect(int fd, const struct sockaddr *addr, socklen_t len);
+int __wrap_connect(int fd, const struct sockaddr *addr, socklen_t len)
+{
+    static int calls;
+    int n = ++calls;
+    uint64_t t0 = armGetSystemTick();
+    int rc = __real_connect(fd, addr, len);
+    int err = rc ? errno : 0;
+    double ms = (double)(armGetSystemTick() - t0) * 1000.0 / (double)armGetSystemTickFreq();
+    char bytes[3 * 16 + 1] = {0};
+    const unsigned char *raw = (const unsigned char *)addr;
+    for (socklen_t i = 0; addr && i < len && i < 16; i++)
+        snprintf(bytes + 3 * i, 4, "%02x ", raw[i]);
+    if (addr && len >= (socklen_t)sizeof(struct sockaddr_in) && addr->sa_family == AF_INET) {
+        const struct sockaddr_in *in = (const struct sockaddr_in *)addr;
+        char ip[INET_ADDRSTRLEN] = "?";
+        inet_ntop(AF_INET, &in->sin_addr, ip, sizeof ip);
+        io_debugf("NX_NET connect #%d fd=%d %s:%u len=%u rc=%d errno=%d (%s) %.1fms bytes=%s", n, fd, ip,
+            (unsigned)ntohs(in->sin_port), (unsigned)len, rc, err, err ? strerror(err) : "ok", ms, bytes);
+    } else {
+        io_debugf("NX_NET connect #%d fd=%d family=%d len=%u rc=%d errno=%d (%s) %.1fms bytes=%s", n, fd,
+            addr ? addr->sa_family : -1, (unsigned)len, rc, err, err ? strerror(err) : "ok", ms, bytes);
+    }
+    errno = err;
+    return rc;
+}
+#endif
+
 #if defined(MONO_NX_FATAL_DIAG)
 // Replaces the SDK's log hook so a fatal Mono error always reaches the log file
 // (flushed) and then aborts through diagAbortWithResult, which makes Atmosphère

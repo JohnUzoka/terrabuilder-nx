@@ -117,6 +117,10 @@ for variant in ('control-replay', 'candidate'):
     folder = OUT / variant
     folder.mkdir()
     flags = [('-Wl,-Map,' + str(OUT / (variant + '.map'))) if f.startswith('-Wl,-Map,') else f for f in recorded['LDFLAGS']]
+    if variant == 'candidate':
+        # R58_EXTRA_LDFLAGS: candidate-only linker flags, e.g. "-Wl,--wrap=connect" with
+        # R58_MAIN_DEFINES=-DMONO_NX_NET_TRACE=1 (build68). The control replay is untouched.
+        flags += os.environ.get('R58_EXTRA_LDFLAGS', '').split()
     objs = [main_obj if (variant == 'candidate' and o.name == 'main.o') else o for o in objects]
     libraries, aot_objects = [], []
     for value in recorded['LIBS']:
