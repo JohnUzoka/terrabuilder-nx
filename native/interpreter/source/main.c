@@ -15,6 +15,16 @@ extern void mono_threads_exit_gc_unsafe_region(void *cookie, void **stackpointer
 #endif
 #include <sys/stat.h>
 #include <errno.h>
+#include <stdio.h>
+#include <string.h>
+#if defined(MONO_NX_GC_STATS)
+#include <malloc.h>
+#include <mono/metadata/mono-gc.h>
+// SGen's cumulative collection counters/times (100 ns units), gc-internal-agnostic.h.
+typedef struct { int32_t minor_gc_count, major_gc_count;
+                 int64_t minor_gc_time, major_gc_time, major_gc_time_concurrent; } NxGcStats;
+extern NxGcStats mono_gc_stats;
+#endif
 // mono_jit_parse_options does not expose --interp=... in this embedding API.
 // The interpreter option bitmask is exported by the bundled Mono runtime.
 extern int mono_interp_opt;
@@ -24,6 +34,58 @@ static void ensure_sd_directory(const char *path)
     if (mkdir(path, 0777) != 0 && errno != EEXIST)
         io_debugf("mkdir failed for %s (errno=%d)", path, errno);
 }
+
+// Optional SD file /mono/gc_params.txt: one line, passed to SGen as MONO_GC_PARAMS
+// (e.g. "nursery-size=16m" or "major=marksweep,nursery-size=32m"). Lets GC settings be
+// compared by editing a text file instead of rebuilding. Absent file = SGen defaults.
+#define GC_PARAMS_PATH "/mono/gc_params.txt"
+static void apply_gc_params_file(void)
+{
+    FILE *f = fopen(GC_PARAMS_PATH, "r");
+    if (!f)
+        return;
+    char line[256] = {0};
+    if (fgets(line, sizeof line, f)) {
+        line[strcspn(line, "\r\n")] = 0;
+        const char *value = line + strspn(line, " \t");
+        if (*value && *value != ';' && *value != '#') {
+            setenv("MONO_GC_PARAMS", value, 1);
+            io_debugf("NX_GC params=%s (from %s)", value, GC_PARAMS_PATH);
+        }
+    }
+    fclose(f);
+}
+
+#if defined(MONO_NX_GC_STATS)
+// Measurement build only (MONO_NX_GC_STATS=1): every 5 s log GC counts/time and memory
+// use of both heap halves. Runs on its own native thread and only reads counters that
+// need no Mono thread attachment (atomics / plain 64-bit loads, newlib mallinfo).
+static Thread gc_stats_thread;
+static volatile bool gc_stats_stop;
+static void gc_stats_log(uint64_t start, bool final)
+{
+    struct mallinfo mi = mallinfo();
+    double elapsed = (double)(armGetSystemTick() - start) / (double)armGetSystemTickFreq();
+    io_debugf("NX_GC%s elapsed=%.3fs minor=%d major=%d minor_ms=%.3f major_ms=%.3f "
+        "major_conc_ms=%.3f managed_alloc_mb=%.1f malloc_used_mb=%.1f malloc_arena_mb=%.1f",
+        final ? " final" : "", elapsed,
+        mono_gc_collection_count(0), mono_gc_collection_count(1),
+        mono_gc_stats.minor_gc_time / 10000.0, mono_gc_stats.major_gc_time / 10000.0,
+        mono_gc_stats.major_gc_time_concurrent / 10000.0,
+        mono_gc_get_heap_size() / 1048576.0,
+        mi.uordblks / 1048576.0, mi.arena / 1048576.0);
+}
+static void gc_stats_worker(void *arg)
+{
+    uint64_t start = (uint64_t)(uintptr_t)arg;
+    while (!gc_stats_stop) {
+        for (int i = 0; i < 50 && !gc_stats_stop; ++i)
+            svcSleepThread(100000000LL);
+        if (!gc_stats_stop)
+            gc_stats_log(start, false);
+    }
+}
+#endif
 
 #if defined(MONO_NX_FATAL_DIAG)
 // Replaces the SDK's log hook so a fatal Mono error always reaches the log file
@@ -141,12 +203,22 @@ int main(int argc, char *argv[])
     io_debugf("NX_RUNTIME fatal diagnostics: Mono fatal errors abort with a crash report");
 #endif
 
+    apply_gc_params_file();
     domain = mono_jit_init("embedded_mono");
     if (!domain)
     {
         fatal_error("Failed to initialize mono domain\n");
         return 1;
     }
+#if defined(MONO_NX_GC_STATS)
+    uint64_t gc_stats_start = armGetSystemTick();
+    // Lowest priority, any core: it must never compete with the game or input threads.
+    bool gc_stats_running = R_SUCCEEDED(threadCreate(&gc_stats_thread, gc_stats_worker,
+        (void *)(uintptr_t)gc_stats_start, NULL, 0x4000, 0x3F, -2)) &&
+        R_SUCCEEDED(threadStart(&gc_stats_thread));
+    io_debugf("NX_GC stats every 5s: %s (counts cumulative; times in ms; managed_alloc = SGen total allocated, malloc = newlib half)",
+        gc_stats_running ? "started" : "thread failed");
+#endif
     // Mono initializes the internal-call table during mono_jit_init.
     nx_input_register();
 #if defined(MONO_NX_USE_ROMFS)
@@ -226,6 +298,14 @@ int main(int argc, char *argv[])
 
     mono_jit_exec(domain, assembly, 1, monoargs);
     nx_input_shutdown();
+#if defined(MONO_NX_GC_STATS)
+    if (gc_stats_running) {
+        gc_stats_stop = true;
+        threadWaitForExit(&gc_stats_thread);
+        threadClose(&gc_stats_thread);
+    }
+    gc_stats_log(gc_stats_start, true);
+#endif
 
     mono_jit_cleanup(domain);
 

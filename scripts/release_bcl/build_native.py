@@ -76,8 +76,10 @@ llvm_objects = sorted(CANDIDATE.glob('*-llvm.o'))
 extra_objects = sorted(p for p in CANDIDATE.glob('*.o') if p.name not in base_objects and p not in llvm_objects)
 assert len(extra_objects) == len(extra_symbols), (extra_objects, extra_symbols)
 main_obj = OUT / 'main.o'
+# R58_MAIN_DEFINES adds launcher-only defines, e.g. "-DMONO_NX_GC_STATS=1" (build66).
 run(['/build/release58/compile_main.sh', '/work/native/interpreter/source/main.c', main_obj,
-     '-DMONO_NX_EMBEDDED_BCL=1', '-DMONO_NX_FATAL_DIAG=1', '-I' + str(CANDIDATE)], 'compile-main')
+     '-DMONO_NX_EMBEDDED_BCL=1', '-DMONO_NX_FATAL_DIAG=1', *os.environ.get('R58_MAIN_DEFINES', '').split(),
+     '-I' + str(CANDIDATE)], 'compile-main')
 
 recorded = {}
 for line in (ROOT / 'recovery46/link-arguments.txt').read_text().splitlines():

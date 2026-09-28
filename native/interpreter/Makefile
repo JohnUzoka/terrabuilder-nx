@@ -75,6 +75,9 @@ MONO_NX_FATAL_DIAG		?=	0
 # Frame-timing measurement: NX_PHASE log lines every 5 s plus SDL_PollEvent /
 # FNA3D_SwapBuffers call wrappers. Off by default; set 1 for A/B performance builds.
 MONO_NX_PHASE_TIMING		?=	0
+# GC/memory measurement: NX_GC log lines every 5 s (collection counts/times, managed
+# allocation, newlib malloc use). Off by default. /mono/gc_params.txt is always honoured.
+MONO_NX_GC_STATS		?=	0
 
 #---------------------------------------------------------------------------------
 # Code generation options
@@ -100,6 +103,9 @@ ifeq ($(MONO_NX_PHASE_TIMING),1)
 # Wrap calls and function-address relocations in the static SDL/FNA3D dl-shims.
 	CFLAGS += -DMONO_NX_PHASE_TIMING=1
 	LDFLAGS += -Wl,--wrap=SDL_PollEvent -Wl,--wrap=FNA3D_SwapBuffers
+endif
+ifeq ($(MONO_NX_GC_STATS),1)
+	CFLAGS += -DMONO_NX_GC_STATS=1
 endif
 
 #---------------------------------------------------------------------------------
