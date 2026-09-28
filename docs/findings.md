@@ -9048,3 +9048,35 @@ MVID binding, byte-identical compiler inputs, all 15,207 RomFS files, 1.4.4.9 co
 Host: same progress as tmod04 (content, audio init, force-load thread) with the game on
 the new thread. Host runs are interpreted, so they cannot reproduce the AOT frame size;
 only hardware confirms the stack fix.
+
+## tmod05 hardware crash and tmod06 (2026-09-28)
+
+`fna-nx-test/logT5.txt`: the 32 MB game thread fixed tmod04's overflow. Startup ran through
+NPC set-up into `Main.LoadContent`, then `FatalExit`: `Engine initialization failed!` from
+XACT's `AudioEngine..ctor` (`LegacyAudioSystem`), `SDL Error: Audio device already open`.
+
+Both Switch launchers force `SDL_AUDIODRIVER=dummy` (`main.c:235`: real audio deferred until
+the port is stable), so ported games are silent. SDL2 allows one open default device on the
+dummy driver, and FNA opens one per engine: FAudio for SoundEffect and FACT for XACT. Both FNA
+versions initialize XACT the same way (own mastering voice, no shared FAudio). In vanilla the
+second, failing open is non-fatal. tModLoader's `SoundEngine.TestAudioSupport` opens a
+SoundEffect first, so the XACT open fails, and that failure is fatal. (On the host, tModLoader's
+own no-audio path is taken when no device opens at all.)
+
+NxFix pass 5: `TestAudioSupport` logs `Switch port: audio disabled ...` and returns false,
+so `LoadContent` never creates `LegacyAudioSystem`; `SoundEngine.Initialize` skips the modal
+"audio not supported" notice (the log carries it). Real audio needs one shared SDL device
+(FACT on FNA's FAudio mastering voice) or a driver allowing two opens; that affects vanilla
+too and remains future work.
+
+**tmod06** (`tmodloader06_noaudio.nro`, SHA256
+`379ada0e77e8519560eb985c81ece73f9728440e75451bf34e5052de0cef0ec4`, 1,025,052,220 bytes):
+`TMOD_VARIANT=tmod06`. Verified: 152,635 native targets, 13,439 fallback sentinels, no RWX,
+MVID binding, byte-identical compiler inputs, all 15,207 RomFS files, 1.4.4.9 content.
+Host (Switch-like layout): passes audio init with the new log line and **reaches
+tModLoader's first-run "Select language" screen**, which precedes the main menu.
+
+Separately, `fna-nx-test/client-crashlog.txt` (two identical entries, 05:29 and 05:30) is
+**vanilla** Terraria's Host & Play: `Main.HostAndPlay` starts a dedicated-server process,
+and `System.Diagnostics.Process` is unsupported on Switch. Hosting from the vanilla NRO
+needs a separate fix; joining another server is the path build 69 addresses.

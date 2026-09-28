@@ -54,7 +54,8 @@ performance/input comparison NROs are in `terraria-mono/switch/`:
 | `tmodloader02_zeromod.nro` | **Superseded**: 1.4.5.8 content; same startup bugs as 03 |
 | `tmodloader03_144content.nro` | **Crashed on hardware** (`logT.txt`): native stack overflow after OpenGL init. Cause: invalid IL from our offline patches (see findings). Superseded by 04 |
 | `tmodloader04_ilfix.nro` | **Crashed on hardware** (`logT4.txt`): got past 03's crash, then overflowed the 1 MB main-thread stack in `NPCID.Sets..cctor`. Superseded by 05 |
-| `tmodloader05_bigstack.nro` | **Next tModLoader test; host verified**: 04 + the game runs on a 32 MB thread instead of the 1 MB main thread. Goal: main menu; keep `/mono/log.txt` |
+| `tmodloader05_bigstack.nro` | **Crashed on hardware** (`logT5.txt`): stack fix worked; then fatal "Audio device already open" in XACT setup. Superseded by 06 |
+| `tmodloader06_noaudio.nro` | **Next tModLoader test; host reaches the first-run language screen**: 05 + tModLoader's no-audio path (silent, like vanilla on this port). Goal: main menu; keep `/mono/log.txt` |
 
 41 removes the growing timing-history overhead; 42's narrower compiler
 workaround improves measured gameplay again. Rendering now accounts for about
