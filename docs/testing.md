@@ -51,7 +51,8 @@ performance/input comparison NROs are in `terraria-mono/switch/`:
 | `mono_nx_fna_terraria_nochroma67_runtime_fixes.nro` | **Exit fix confirmed** (3 clean exits in the GC test): 66 with two runtime fixes (fake-mmap absolute alignment, POSIX TLS destructor semantics). GC test: keep SGen defaults |
 | `mono_nx_fna_terraria_nochroma68_gcstats_nettrace.nro` | **Tested**: clean exit; settled 26.6 Draw/s, GC stop-the-world 0.47%. Multiplayer: 2,164 instant `ENETUNREACH` connects, then `StackOverflowException` |
 | `mono_nx_fna_terraria_nochroma69_netfix.nro` | **Next hardware test; host verified**: 68 + interpreter stack-unwind fix (retry overflow reproduced and fixed on host) + non-blocking NIFM network request. Use for a multiplayer join |
-| `tmodloader02_zeromod.nro` | **Experiment; host verified**: tModLoader 1.4.4 (v2026.07.3.0), zero mods, separate saves in `/switch/tmodloader`. Goal: reach the main menu |
+| `tmodloader02_zeromod.nro` | **Did not launch on hardware** (no log yet): tModLoader 1.4.4 (v2026.07.3.0), zero mods, but with Terraria 1.4.5.8 content. Superseded by 03 |
+| `tmodloader03_144content.nro` | **Next tModLoader test; host verified**: 02's exact code with GOG 1.4.4.9 content + tModLoader's overlay. Separate saves in `/switch/tmodloader`. Goal: reach the main menu; keep `/mono/log.txt` either way |
 
 41 removes the growing timing-history overhead; 42's narrower compiler
 workaround improves measured gameplay again. Rendering now accounts for about

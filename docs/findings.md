@@ -8931,3 +8931,35 @@ on our net9 libnx BCL, user's GOG 1.4.5.8 `Content/` in RomFS, zero mods.
 - Recipe: `terrabuilder-nx/scripts/tmod/build_tmod02_nro.py`; launcher source
   `~/.cache/terraria-switch-build/tmod/launcher_build/main_tmod.c`, a copy of `main.c`
   with only the paths and default assembly changed.
+
+## tmod02 hardware: did not launch; tmod03 uses 1.4.4.9 content (2026-09-28)
+
+The user reported tmod02 did not launch and supplied GOG Terraria **1.4.4.9**
+(`gameinfo` v1.4.4.9, build 60321; `fna-nx-test/1.4.4/`). No launch log exists yet,
+so tmod02's failure point is **unknown**.
+
+Content comparison (tmod02 shipped 1.4.5.8 `Content/` plus tModLoader's 601-file overlay):
+- The overlay replaces 594 of the 595 1.4.5.8-changed textures and sounds with its own
+  1.4.4-compatible versions (0 of them byte-identical to 1.4.4.9).
+- It does **not** cover the 5 fonts (`Fonts/*.xnb`, 33-70% larger in 1.4.5.8),
+  `Sound Bank.xsb`, `Wave Bank.xwb` or `Images/Tiles_650.xnb`; tmod02 shipped the
+  1.4.5.8 versions. It also lacked 1.4.4.9's `gore_240`, `projectile_179` and
+  `projectile_618` and carried 1,636 files 1.4.4 never uses.
+- **[INFERENCE]** 1.4.4 code reading 1.4.5.8 fonts or XACT banks is a plausible launch
+  failure; the log will confirm or rule it out.
+
+Ruled out statically: native entry points. Every FNA 23.10 `SDL2`/`FAudio`/`FNA3D`
+import that our shim can't resolve (21 Android/iOS/WinRT SDL functions, 19
+`stb_vorbis`/`FAPOBase`) is imported by vanilla FNA too, and vanilla runs.
+`CHECK_LIB_NAME` is an exact `strcmp`, so tModLoader's path-based `NativeLibrary`
+attempts fail over to the plain `SDL2`/`FNA3D`/`FAudio` names the shim registers.
+Both tmod02 and build 69 ship an empty icon asset, so that isn't the difference.
+
+**tmod03** (`tmodloader03_144content.nro`, SHA256
+`007d4bf84f80c6820c7b0e9ea9c3dfca912b95bcaffe3e6f6aae62a09c7d1cf5`, 1,025,035,836
+bytes): tmod02's exact ELF, launcher, assemblies and AOT, with `Content/` = GOG
+1.4.4.9 (14,370 files) + tModLoader overlay (14,371 total). Recipe
+`terrabuilder-nx/scripts/tmod/build_tmod03_nro.py`. Verified: 152,622 native targets
+and 13,448 fallback sentinels, no RWX, MVID binding, compiler inputs byte-identical to
+the payload, all 15,207 RomFS files match staging, and `Content/` byte-exact against
+the 1.4.4.9 install plus overlay.
