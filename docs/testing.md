@@ -46,8 +46,9 @@ performance/input comparison NROs are in `terraria-mono/switch/`:
 | `mono_nx_fna_terraria_nochroma62_llvm_terraria_fna.nro` | **Best measured build: ~+6% over 60b** (alternating same-spot A/B, ~43% over 58e): 60b + LLVM-compiled FNA. Boots, no errors; Draw cheaper (21.8 vs 23.6 ms), Update unchanged. RomFS identical to 60b; no RWX/TEXTREL |
 | `mono_nx_fna_terraria_nochroma63_llvm_a57.nro` | **Tested: no measurable gain over 62** (`logD1`–`logD4`): 62 with LLVM tuned for the Cortex-A57. D4 (63) 41.3 Draw/s = D1 (62) 41.3; the two 62 runs differ by 3 Draw/s. One 63 run (D2) sat at exactly 30.0 Draw/s, not repeated in D4. Keep 62 |
 | `mono_nx_fna_terraria_nochroma64_llvm_corelib.nro` | **Boots; loads faster; gameplay unproven** (`logE1`–`logE4`): 62 + LLVM CoreLib (74,748 of 80,517 methods). Startup stall 7.9 vs 10.2 s, world-load stall 3.7 vs 4.3 s, both 64 runs agree. Gameplay: E4 38.4 vs 62's 36.3/35.9 Draw/s, but E2 sat near 30 |
-| `mono_nx_fna_terraria_nochroma65_release_runtime.nro` | **Next hardware test; host verified**: exact 64 with the native Mono runtime built in **Release** (same fork commit and allocator patch). Drops Debug's checked-build asserts (every GC-safe/unsafe transition, class-cache checks) and re-enables the interpreter's computed-goto dispatch. Struct layouts identical to the shipped runtime; AOT objects and RomFS identical to 64 |
-| `mono_nx_fna_terraria_nochroma66_gc_params.nro` | **GC test build; host verified**: exact 65 plus launcher support for `/mono/gc_params.txt` (SGen `MONO_GC_PARAMS`) and `NX_GC` lines every 5 s (GC counts/time, managed allocation, malloc use). AOT objects and RomFS identical to 64/65 |
+| `mono_nx_fna_terraria_nochroma65_release_runtime.nro` | **Superseded by 67; crashes on exit**: 64 + Release native runtime. Gameplay equals 64 (Color: 47.9 vs 48.0 Draw/s). Exit abort `unregister_thread: info` = libnx TLS destructor bug, fixed in 67 |
+| `mono_nx_fna_terraria_nochroma66_gc_params.nro` | **Superseded by 67; `nursery-size=16m` aborts at startup**: 65 + `/mono/gc_params.txt` + `NX_GC` stats. Fake-mmap alignment bug, fixed in 67. (Without a params file it has 65's exit crash) |
+| `mono_nx_fna_terraria_nochroma67_runtime_fixes.nro` | **Next hardware test; host verified**: 66 with two runtime fixes (fake-mmap absolute alignment, POSIX TLS destructor semantics). Use this for the GC test |
 
 41 removes the growing timing-history overhead; 42's narrower compiler
 workaround improves measured gameplay again. Rendering now accounts for about
@@ -513,8 +514,9 @@ Frame Skip Off, stationary ~200 s each):**
 Color is the fastest: drawing is ~3 ms cheaper (cached tile layers) and updates ~0.8 ms
 dearer (colour lighting). Retro ≈ Trippy. Different launches/scene, so ±a few Draw/s.
 
-**GC test (build 66).** Same spot, Frame Skip Off, one launch per setting, stand still
-60–90 s. The setting is a text file on the SD card, `/mono/gc_params.txt`, one line:
+**GC test (build 67, not 66).** Same spot, Color lighting, Frame Skip Off, one launch per
+setting, stand still 60–90 s, then exit normally (also checks the exit fix). The setting is
+a text file on the SD card, `/mono/gc_params.txt`, one line:
 
 1. no file (SGen default: concurrent mark-sweep, 4 MB nursery) → **logGC1.txt**
 2. `nursery-size=16m` → **logGC2.txt**

@@ -8701,3 +8701,79 @@ Release runtime, RomFS) with a new launcher `main.c` from terrabuilder-nx:
   `/work` = terrabuilder-nx (first build from that repo), link-only from v65's AOT set.
 - Test plan (README): default / `nursery-size=16m` / default / `nursery-size=32m` /
   `major=marksweep`, `logGC1`–`logGC5`.
+
+## Build65/66 hardware: two runtime bugs, fixed in 67 (2026-09-28)
+
+User: from 65 on, all tests use Color lighting and Frame Skip Off (Trippy until 59,
+Retro from 60 to 64). Uploads: `log65.txt` + `crash_reports65/`, `log66.txt` +
+`crash_reports66/`, `log64mp.txt` (first multiplayer test).
+
+### 65: gameplay unchanged, abort on exit
+
+- Session 2 of `log65.txt` (session 1 idles for ~24 min at 71 s, no crash):
+  gameplay windows 210–491 s, **47.87 Draw/s, 15.74 ms/Draw, 4.47 ms/Update** — the
+  same as 64 with Color (48.0 / 15.7 / 4.45). The Release native runtime brings no
+  measurable gameplay gain; startup stall 7.85 s = 64.
+- After the world save the log ends with `Assertion at mono-threads.c:589, condition
+  'info' not met, function:unregister_thread`. Symbolized crash stack:
+  `start_wrapper → mono_threads_platform_exit → pthread_exit → libnx threadExit →
+  tls_thread_destructor (mono-tls.c:250) → thread_info_key_dtor → unregister_thread`.
+- Cause: the fork's HEAD commit `289cdaa` "Restore lost TLS destructor bitmap check"
+  makes libnx's emulated TLS run destructors for every key the thread ever set. The
+  SDK (rel-3) runtime used by builds ≤ 64 has the old, inverted check (verified by
+  disassembling `tls_thread_destructor` in both archives), so destructors effectively
+  never ran there. Mono sets `thread_info_key` to NULL when it detaches a thread before
+  `pthread_exit`; the new code then calls `thread_info_key_dtor(NULL)`. The Release
+  runtime is the first shipped build compiled from 289cdaa, so it's the first to hit it.
+
+### 66: `nursery-size=16m` aborts before launch
+
+- `log66.txt`: `NX_GC params=nursery-size=16m`, then `mono_valloc_aligned: returned
+  pointer 0xb01800000 is not aligned to 1000000`; stack `mono_jit_init → mono_gc_base_init
+  → sgen_gc_init → alloc_nursery → sgen_alloc_os_memory_aligned → mono_valloc_aligned`.
+- Cause: libnx fake mmap converted the byte alignment into a page-index stride from
+  `heap_start`. mono-nx's `heap.c` aligns the Mono half to 4 MB only, so requests above
+  the heap start's own alignment could fail. The default 4 MB nursery always fit; this
+  heap started at `…800000` (8 MB-aligned), so 16 MB failed. Also latent for any other
+  large aligned allocation.
+
+### Fixes (dotnet_runtime fork, branch `terrabuilder-nx`)
+
+- `23b25381` mmap: find the first free page whose **address** is aligned.
+- `969ed2ab` TLS: the per-thread bitmap tracks only **non-NULL** values (set to NULL
+  clears the bit). NULL keys skip their destructor as in POSIX, and a destructor may
+  re-set then clear its own key (`thread_info_key_dtor` does).
+- Host regression `native/tests/test_libnx_runtime_fixes.py` compiles the real
+  `mono-mmap-libnx.c` and libnx `mono-tls.c` with stub headers. Before: `mmap-align`
+  aborts with the same g_error as the Switch, `tls-detached-exit` calls the destructor
+  with NULL. After: all 9 checks pass (4/8/16/32 MB alignment from an 8 MB-offset heap,
+  reuse after free, detached and attached thread exit).
+- Rebuilt Release runtime: exactly 2 of 277 archive members differ from 65's
+  (`mono-mmap-libnx.c.obj`, `mono-tls.c.obj`).
+
+### Build67
+
+`fna-nx-test/terraria-mono/switch/mono_nx_fna_terraria_nochroma67_runtime_fixes.nro`,
+title `Terraria 67 runtime fixes`, SHA256
+`aeaae5c82e3e43d3096cbd010262653d946929c3ac60da816173db82a45cd6cc`. = 66 (launcher with
+gc_params + NX_GC stats, AOT set, RomFS) + the fixed Release runtime. Build52 replay exact;
+verify_artifact PASS; no RWX/TEXTREL; RomFS identical to 64. Hardware pending: exit and
+the GC test plan (README) run on 67.
+
+### First multiplayer test (`log64mp.txt`, build 64): join crashes
+
+- Joining a server: `Terraria.Netplay.TcpConnectLoop → TcpClient.Connect` fails, then the
+  TCP client thread dies with `System.StackOverflowException` at
+  `Interop.Sys.Close ← SafeSocketHandle.CloseHandle ← Socket.ReplaceHandle ←
+  ReplaceHandleIfNecessaryAfterFailedConnect`, and the fatal error applet appears
+  (126 s; the connect attempt starts at ~121 s).
+- `TcpConnectLoop` (IL) retries `Connect` in a tight loop with no delay on non-OSX:
+  catch → check `Disconnect`/`gameMenu` → loop.
+- **[INFERENCE]** The stack overflow is the interpreter's own stack check
+  (`interp.c:4102/4379`, 1 MB interp stack): System.Net.Sockets is not AOT-compiled.
+  The trace is shallow, so interpreter stack is most likely not being released on each
+  failed connect's exception path, until it runs out. Two problems to separate: (1) why
+  the connect fails (address/port, BSD socket non-blocking connect on libnx), and
+  (2) the interp stack exhaustion across repeated socket exceptions.
+- Not yet fixed. Needs: what was joined (IP/host, same LAN, Steam vs IP), and a
+  `runtime_logging=true` repro.

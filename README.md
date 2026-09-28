@@ -12,7 +12,7 @@ XNB assets and hardware logs.
 
 | Repo | Pinned revision | Role |
 | --- | --- | --- |
-| `JohnUzoka/dotnet_runtime` (fork of `exelix11/dotnet_runtime`) | branch `terrabuilder-nx` = `289cdaa5` + 2 commits | Mono runtime, CoreLib/framework for libnx. Adds the AOT switch-table allocator fix (build 36) and the Release-build Sockets fix (build 58). |
+| `JohnUzoka/dotnet_runtime` (fork of `exelix11/dotnet_runtime`) | branch `terrabuilder-nx` = `289cdaa5` + 4 commits | Mono runtime, CoreLib/framework for libnx. Adds the AOT switch-table allocator fix, the Release-build Sockets fix, absolute-address fake-mmap alignment and POSIX TLS destructor semantics. |
 | `JohnUzoka/mono-nx` | branch `fna-support` @ `8be547c` | Launcher host, `native/shared` dl-shims (FNA3D/FAudio/SDL3/stub registrations). Mounted as `/mono-nx/native`. |
 | this repo | | FNA launcher overlay (`native/`), managed helpers, Terraria IL patch tooling, AOT/LLVM/link/verify pipeline, docs. |
 

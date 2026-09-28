@@ -29,7 +29,7 @@ The work directory is `~/.cache/terraria-switch-build` (override with
 | What | Where | Revision |
 | --- | --- | --- |
 | This repo | `github.com/JohnUzoka/terrabuilder-nx` | current branch |
-| .NET runtime (libnx port) | `github.com/JohnUzoka/dotnet_runtime`, a fork of `exelix11/dotnet_runtime` | branch `terrabuilder-nx` (`dbe13711`) = upstream `libnx` `289cdaa5` + 2 fixes |
+| .NET runtime (libnx port) | `github.com/JohnUzoka/dotnet_runtime`, a fork of `exelix11/dotnet_runtime` | branch `terrabuilder-nx` (`969ed2ab`) = upstream `libnx` `289cdaa5` + 4 fixes |
 | mono-nx host | `github.com/JohnUzoka/mono-nx` | branch `fna-support` (`8be547c`) |
 | mono-nx prebuilt SDK | mono-nx release `rel-3`, `mono-nx-sdk-rel3-linux-x64.zip` | SHA-256 `3248d136…c098` |
 
