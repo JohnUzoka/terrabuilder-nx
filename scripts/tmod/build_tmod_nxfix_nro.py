@@ -1,4 +1,5 @@
-"""Build tmod04: tmod03 with the NxFix-repaired tModLoader.dll.
+"""Build a tmod candidate (tmod04+, name from TMOD_VARIANT): tmod03 with the NxFix-repaired
+tModLoader.dll.
 
 tModLoader.dll's IL changed (see scripts/tmod/nxfix), so its AOT object is recompiled from
 the exact file that is packaged. FNA.dll, its AOT object, the CoreLib object and the
@@ -6,8 +7,8 @@ launcher object (main_tmod.o) are tmod02's, byte-identical; the link line is tmo
 RomFS = tmod03's (1.4.4.9 Content + tModLoader overlay) with only tModLoader.dll replaced.
 
 Run inside localhost/monobuild:local with /build = ~/.cache/terraria-switch-build and
-/mono-nx = recovery46/sdk-pristine. Input: /build/tmod/tmod04/input/tModLoader.dll from
-    NxFix tmod03/romfs/tModLoader.dll tmod04/input/tModLoader.dll --reference release/tModLoader.dll
+/mono-nx = recovery46/sdk-pristine. Input: /build/tmod/$TMOD_VARIANT/input/tModLoader.dll from
+    NxFix tmod03/romfs/tModLoader.dll $TMOD_VARIANT/input/tModLoader.dll --reference release/tModLoader.dll
 """
 import hashlib, json, os, shlex, shutil, subprocess
 from pathlib import Path
@@ -16,7 +17,8 @@ ROOT = Path('/build')
 TMOD = ROOT / 'tmod'
 SRC = TMOD / 'tmod02'
 PAYLOAD = TMOD / 'tmod03'
-OUT = TMOD / 'tmod04'
+VARIANT = os.environ['TMOD_VARIANT']
+OUT = TMOD / VARIANT
 INPUT = OUT / 'input'
 AOT = OUT / 'aot'
 NATIVE = OUT / 'native'
@@ -100,7 +102,7 @@ shutil.copy2(tml, romfs / 'tModLoader.dll')
 
 # 4. Package with tmod03's NACP, retitled.
 nacp = bytearray((PAYLOAD / 'native/candidate/tmodloader.nacp').read_bytes())
-title = b'tModLoader NX 04 (Zero-Mod)'
+title = f'tModLoader NX {VARIANT[4:]} (Zero-Mod)'.encode()
 for language in range(16):
     nacp[language * 0x300:language * 0x300 + 0x200] = title.ljust(0x200, b'\0')
 (candidate / 'tmodloader.nacp').write_bytes(nacp)
@@ -109,7 +111,7 @@ run(['/opt/devkitpro/tools/bin/elf2nro', candidate / 'tmodloader.elf', candidate
      '--icon=' + str(SRC / 'native/icon.jpg')], 'package-candidate', cwd=NATIVE)
 
 nro = candidate / 'tmodloader.nro'
-manifest = dict(manifest02, candidate='tmod04', content=json.loads((PAYLOAD / 'manifest.json').read_text())['content'])
+manifest = dict(manifest02, candidate=VARIANT, content=json.loads((PAYLOAD / 'manifest.json').read_text())['content'])
 manifest['provenance_and_binding'] = {
     'tModLoader': {'compiler_input_dll': str(tml), 'compiler_input_sha256': tml_sha,
                    'romfs_payload_dll': str(romfs / 'tModLoader.dll'), 'romfs_payload_sha256': sha(romfs / 'tModLoader.dll'),
@@ -121,4 +123,4 @@ manifest['final_deliverables'] = {
     'candidate_nro': {'path': str(nro), 'bytes': nro.stat().st_size, 'sha256': sha(nro)},
     'candidate_elf': {'path': str(candidate / 'tmodloader.elf'), 'sha256': sha(candidate / 'tmodloader.elf')}}
 (OUT / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
-print('PASS tmod04:', json.dumps(manifest['final_deliverables']), flush=True)
+print(f'PASS {VARIANT}:', json.dumps(manifest['final_deliverables']), flush=True)

@@ -27,9 +27,17 @@
 //    A `newobj` whose result is stored straight into a field is rebound to that field's
 //    closed type; any other member reference on an uninstantiated generic type fails the run.
 //
-// The output gets a new MVID derived from the input bytes. Mono binds an AOT image to its
-// assembly by MVID; the earlier patchers kept the stock MVID while changing IL, so an AOT
-// object compiled from different IL (tmod01) still loaded. Now any stale object is rejected.
+// 4. Game thread stack. MonoLaunch.Main runs the game on a new thread only on Windows; elsewhere
+//    it calls Main_End on the calling thread, relying on the OS main-thread stack (~8 MB on
+//    Linux). On Switch that is hbloader's 1 MB main thread, and the AOT-compiled
+//    NPCID.Sets.GetLeinforsEntries frame alone is >100 KB: tmod04 overflowed it inside
+//    NPCID.Sets..cctor. The non-Windows branch now runs the same Action on a 32 MB thread and
+//    joins it (MonoLaunch.NxRunOnLargeStack). The Windows branch is unchanged.
+//
+// The output gets a new MVID: a hash of the assembly as written with the stock MVID, so any
+// IL change yields a different MVID. Mono binds an AOT image to its assembly by MVID; the
+// earlier patchers kept the stock MVID while changing IL, so an AOT object compiled from
+// different IL (tmod01) still loaded. Now a stale object is rejected.
 //
 // Usage: NxFix <in.dll> <out.dll> [--reference <unpatched tModLoader.dll>]
 using Mono.Cecil;
@@ -188,9 +196,51 @@ foreach (var method in AllTypes(new[] { contentManager }).SelectMany(t => t.Meth
     if (UnderflowingPops(method, unrepairable).Count > 0 || unrepairable.Count > 0)
         throw new InvalidOperationException($"{method.FullName} does not verify after patch: " + string.Join("; ", unrepairable));
 
+var monoLaunch = module.GetType("Terraria.MonoLaunch") ?? throw new InvalidOperationException("MonoLaunch not found");
+var launchMain = monoLaunch.Methods.Single(m => m.Name == "Main");
+var launchBody = launchMain.Body.Instructions;
+var threadCtor = launchBody.Select(i => i.Operand).OfType<MethodReference>()
+    .Single(r => r.Name == ".ctor" && r.DeclaringType.FullName == "System.Threading.Thread");
+var threadStart = launchBody.Select(i => i.Operand).OfType<MethodReference>()
+    .Single(r => r.Name == "Start" && r.DeclaringType.FullName == "System.Threading.Thread");
+var threadStartCtor = launchBody.Select(i => i.Operand).OfType<MethodReference>()
+    .Single(r => r.Name == ".ctor" && r.DeclaringType.FullName == "System.Threading.ThreadStart");
+var actionInvoke = (MethodReference)launchBody.Single(i => i.OpCode == OpCodes.Ldftn && i.Operand is MethodReference r
+    && r.Name == "Invoke" && r.DeclaringType.FullName == "System.Action").Operand;
+// The non-Windows branch is the tail `ldloc.2; callvirt Action::Invoke(); ret`.
+var tailCall = launchBody.Where(i => i.OpCode == OpCodes.Callvirt && i.Operand is MethodReference r && r.Name == "Invoke" && r.DeclaringType.FullName == "System.Action").ToList();
+if (tailCall.Count != 1 || tailCall[0].Next.OpCode != OpCodes.Ret)
+    throw new InvalidOperationException("unexpected MonoLaunch.Main shape");
+var sizedThreadCtor = new MethodReference(".ctor", module.TypeSystem.Void, threadCtor.DeclaringType) { HasThis = true };
+sizedThreadCtor.Parameters.Add(new ParameterDefinition(threadStartCtor.DeclaringType));
+sizedThreadCtor.Parameters.Add(new ParameterDefinition(module.TypeSystem.Int32));
+var threadJoin = new MethodReference("Join", module.TypeSystem.Void, threadCtor.DeclaringType) { HasThis = true };
+
+var runLarge = new MethodDefinition("NxRunOnLargeStack", MethodAttributes.Private | MethodAttributes.Static | MethodAttributes.HideBySig, module.TypeSystem.Void);
+runLarge.Parameters.Add(new ParameterDefinition("body", ParameterAttributes.None, actionInvoke.DeclaringType));
+var runIl = runLarge.Body.GetILProcessor();
+runIl.Append(runIl.Create(OpCodes.Ldarg_0));
+runIl.Append(runIl.Create(OpCodes.Ldftn, actionInvoke));
+runIl.Append(runIl.Create(OpCodes.Newobj, threadStartCtor));
+runIl.Append(runIl.Create(OpCodes.Ldc_I4, 32 * 1024 * 1024));
+runIl.Append(runIl.Create(OpCodes.Newobj, sizedThreadCtor));
+runIl.Append(runIl.Create(OpCodes.Dup));
+runIl.Append(runIl.Create(OpCodes.Callvirt, threadStart));
+runIl.Append(runIl.Create(OpCodes.Callvirt, threadJoin));
+runIl.Append(runIl.Create(OpCodes.Ret));
+monoLaunch.Methods.Add(runLarge);
+tailCall[0].OpCode = OpCodes.Call;
+tailCall[0].Operand = runLarge;
+if (UnderflowingPops(runLarge, unrepairable).Count > 0 || UnderflowingPops(launchMain, unrepairable).Count > 0 || unrepairable.Count > 0)
+    throw new InvalidOperationException("MonoLaunch patch does not verify: " + string.Join("; ", unrepairable));
+Console.WriteLine("FIX MonoLaunch.Main: non-Windows branch runs Main_End on a 32 MB thread and joins it");
+
 var oldMvid = module.Mvid;
-var inputHash = System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(input).Concat("nxfix-v1"u8.ToArray()).ToArray());
-module.Mvid = new Guid(inputHash.AsSpan(0, 16));
+using (var image = new MemoryStream())
+{
+    asm.Write(image);
+    module.Mvid = new Guid(System.Security.Cryptography.SHA256.HashData(image.ToArray()).AsSpan(0, 16));
+}
 Console.WriteLine($"MVID {oldMvid} -> {module.Mvid}");
 
 asm.Write(output);
