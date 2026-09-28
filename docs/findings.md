@@ -9015,6 +9015,36 @@ menu, and scripted clicks don't register, so **the main menu is not yet observed
 `9c284ba2641f08881994adaed718d091542e428809251ad1d1ab1b25a74275a7`, 1,025,052,220 bytes):
 tmod03 with the repaired tModLoader.dll, AOT-recompiled from the exact packaged file (same
 compiler/options as tmod02); FNA, CoreLib objects and launcher object are tmod02's. Recipe
-`scripts/tmod/build_tmod04_nro.py`. Verified: 152,634 native targets, 13,439 fallback
+`scripts/tmod/build_tmod_nxfix_nro.py` (`TMOD_VARIANT=tmod04`). Verified: 152,634 native targets, 13,439 fallback
 sentinels, no RWX, MVID binding, compiler inputs byte-identical to payload, all 15,207
 RomFS files, and 1.4.4.9 content byte-exact.
+
+## tmod04 hardware crash and tmod05 (2026-09-28)
+
+`fna-nx-test/logT4.txt` + `crash_reports/01790618737_05446530aca7e000.log`. tmod04 passed
+tmod03's crash point: MonoMod/ModSystem setup, SDL, four controllers, OpenGL (NV120),
+then `Main.Initialize` -> `ContentSamples.Initialize` -> `NPC.SetDefaults` ->
+`NPCID.Sets..cctor` -> `NPCBestiaryDrawOffsetCreation` -> `GetLeinforsEntries` hit a Data
+Abort. SP 0x53a28630 is below the crashed thread's stack region 0x53a2a000-0x53b2a000
+(exactly 1 MB), and FP is only ~120 KB above SP: a single huge AOT (non-LLVM) frame on a
+small stack, not recursion.
+
+That thread is the process main thread. `MonoLaunch.Main` starts the game on a new thread
+only on Windows; on Linux/macOS it calls `Main_End` directly, relying on the OS
+main-thread stack (~8 MB on Linux). Under hbloader the NRO main thread has 1 MB, which
+vanilla fits but tModLoader's static initializers do not.
+
+NxFix pass 4 adds `MonoLaunch.NxRunOnLargeStack(Action)`: `new Thread(body.Invoke, 32 MB)`,
+`Start`, `Join`; the non-Windows tail call uses it. The Windows branch is unchanged. Mono
+forwards the requested size to `pthread_attr_setstacksize`
+(`mono-threads-posix.c:83`). NxFix now derives the output MVID from the written assembly
+itself, so every IL change produces a new MVID.
+
+**tmod05** (`tmodloader05_bigstack.nro`, SHA256
+`adf8f445a76ee95287b940605bf28a6913ae213d91dc6bc2f70372653414f323`, 1,025,056,316 bytes):
+recipe `scripts/tmod/build_tmod_nxfix_nro.py` with `TMOD_VARIANT=tmod05` (replaces the
+tmod04-only script). Verified: 152,635 native targets, 13,439 fallback sentinels, no RWX,
+MVID binding, byte-identical compiler inputs, all 15,207 RomFS files, 1.4.4.9 content.
+Host: same progress as tmod04 (content, audio init, force-load thread) with the game on
+the new thread. Host runs are interpreted, so they cannot reproduce the AOT frame size;
+only hardware confirms the stack fix.
