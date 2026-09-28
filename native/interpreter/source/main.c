@@ -212,12 +212,20 @@ int main(int argc, char *argv[])
     }
 #if defined(MONO_NX_GC_STATS)
     uint64_t gc_stats_start = armGetSystemTick();
-    // Lowest priority, any core: it must never compete with the game or input threads.
-    bool gc_stats_running = R_SUCCEEDED(threadCreate(&gc_stats_thread, gc_stats_worker,
-        (void *)(uintptr_t)gc_stats_start, NULL, 0x4000, 0x3F, -2)) &&
-        R_SUCCEEDED(threadStart(&gc_stats_thread));
-    io_debugf("NX_GC stats every 5s: %s (counts cumulative; times in ms; managed_alloc = SGen total allocated, malloc = newlib half)",
-        gc_stats_running ? "started" : "thread failed");
+    // Lowest priority on application cores (0x3B enables preemptive multithreading;
+    // 0x3F is invalid on cores 0..2 and outside hbloader's allowed 0x1C..0x3B NPDM mask).
+    Result gc_stats_rc = threadCreate(&gc_stats_thread, gc_stats_worker,
+        (void *)(uintptr_t)gc_stats_start, NULL, 0x4000, 0x3B, -2);
+    if (R_SUCCEEDED(gc_stats_rc)) {
+        gc_stats_rc = threadStart(&gc_stats_thread);
+        if (R_FAILED(gc_stats_rc))
+            threadClose(&gc_stats_thread);
+    }
+    bool gc_stats_running = R_SUCCEEDED(gc_stats_rc);
+    if (gc_stats_running)
+        io_debugf("NX_GC stats every 5s: started (counts cumulative; times in ms; managed_alloc = SGen total allocated, malloc = newlib half)");
+    else
+        io_debugf("NX_GC stats every 5s: thread failed (rc=0x%x)", gc_stats_rc);
 #endif
     // Mono initializes the internal-call table during mono_jit_init.
     nx_input_register();
