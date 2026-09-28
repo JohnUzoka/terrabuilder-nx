@@ -8963,3 +8963,58 @@ bytes): tmod02's exact ELF, launcher, assemblies and AOT, with `Content/` = GOG
 and 13,448 fallback sentinels, no RWX, MVID binding, compiler inputs byte-identical to
 the payload, all 15,207 RomFS files match staging, and `Content/` byte-exact against
 the 1.4.4.9 install plus overlay.
+
+## tmod03 hardware crash and tmod04 (2026-09-28)
+
+`fna-nx-test/logT.txt` + Atmosphère report `crash_reports/01790608896_05446530aca7e000.log`
+(tmod03, `runtime_logging=1`). Startup reached OpenGL (`NV120`, Mesa 20.1 nouveau, GL 4.3
+compat), then `Main.InitTMLContentManager`, and died with a Data Abort: SP 0x17e76ef0 is
+below the 1 MB stack region 0x17e77000-0x17f77000, i.e. a native stack overflow.
+
+Reproduced on host Mono (same fork, interpreter-only, cwd without `Content/`), where gdb
+showed 11,165 frames of `interp_throw` -> first-chance dispatch -> tModLoader's
+`Logging.FirstChanceExceptionHandler` (interpreted; AOT had skipped it) -> throw -> ...
+Each nested exception was `System.InvalidProgramException`. **The earlier "host-specific"
+crash in `SystemNative_LowLevelMonitor_TimedWait` was this same bug, not a native-library
+mismatch.**
+
+Root causes, all in our own offline patching (stock tModLoader is fine):
+1. The console patcher replaced `Console.set_Title`/`set_ForegroundColor`/`ResetColor`
+   calls with `pop`. `ResetColor()` takes no argument, so its `pop` underflows: 9 sites in
+   8 methods became invalid IL, including `FirstChanceExceptionHandler`. The handler threw
+   `InvalidProgramException` before its re-entry guard, recursing forever.
+2. `AssemblyRedirects..cctor` (a MonoMod `Hook`) was replaced with `newobj Dictionary`2::.ctor()`
+   on the open generic type: "containing type is not fully instantiated" when tModLoader's
+   force-load thread runs static initializers.
+3. The trigger: tModLoader builds `System.IO` paths from the relative content root
+   `"Content"` (`TMLContentManager` image cache, `TryGetPath`, `OpenStream`, and the root
+   list fed to ReLogic's `XnaDirectContentSource`). The launcher's working directory is
+   `sdmc:/` (saves go to SD), so they looked in `sdmc:/Content`. FNA's own loads use
+   `TitleLocation` = `romfs:/` and were fine.
+
+A full diff of patched vs stock tModLoader.dll (20 changed methods) found no other invalid
+IL. One behaviour change remains as-is: `LoaderManager.AutoLoad` uses `GetExportedTypes()`
+instead of `GetTypes()` (non-public loader types are skipped).
+
+**Fix: `terrabuilder-nx/scripts/tmod/nxfix` (Mono.Cecil), applied to tmod03's DLL.**
+Stack-depth dataflow turns each underflowing `pop` into `nop` (9, matching the 9 stock
+`ResetColor` calls; every other method verifies); the open-generic `newobj` is rebound to
+`Dictionary<string, Assembly>`; a new `TMLContentManager.NxRoot` prefixes `romfs:/` to a
+device-less root, applied to 5 `RootDirectory` reads and the image-cache argument. The
+output gets a deterministic new MVID, so a stale AOT image can no longer bind to changed IL
+(how tmod01 shipped mismatched code unnoticed).
+
+Host check (`~/.cache/terraria-switch-build/tmod-host-observe/switchlayout.sh`: cwd =
+SD stand-in with a `romfs:` link to the payload, launcher XDG paths, `-nosteam`, Xvfb +
+openbox + llvmpipe): startup passes content, audio init and the force-load thread; the
+tModLoader UI renders and stays up for 5+ minutes with the background animating. A
+host-only "No audio hardware found" dialog (the container has no audio device) blocks the
+menu, and scripted clicks don't register, so **the main menu is not yet observed.**
+
+**tmod04** (`tmodloader04_ilfix.nro`, SHA256
+`9c284ba2641f08881994adaed718d091542e428809251ad1d1ab1b25a74275a7`, 1,025,052,220 bytes):
+tmod03 with the repaired tModLoader.dll, AOT-recompiled from the exact packaged file (same
+compiler/options as tmod02); FNA, CoreLib objects and launcher object are tmod02's. Recipe
+`scripts/tmod/build_tmod04_nro.py`. Verified: 152,634 native targets, 13,439 fallback
+sentinels, no RWX, MVID binding, compiler inputs byte-identical to payload, all 15,207
+RomFS files, and 1.4.4.9 content byte-exact.
