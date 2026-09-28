@@ -8777,3 +8777,69 @@ the GC test plan (README) run on 67.
   (2) the interp stack exhaustion across repeated socket exceptions.
 - Not yet fixed. Needs: what was joined (IP/host, same LAN, Steam vs IP), and a
   `runtime_logging=true` repro.
+
+## Build67 GC test results (2026-09-28)
+
+Runs on 67, Color lighting, Frame Skip Off, one launch each, all **exited cleanly**
+(no assert/abort): the TLS exit fix holds. No default-params 67 run exists. The
+periodic `NX_GC` thread failed to start (`thread failed`), so only the final whole-session
+line exists. Machine-readable: `~/.cache/terraria-switch-build/release58/gc-analysis-67.json`.
+
+| Setting | Draw/s | ms/Draw | ms/Update | Median max tick | Minors | Majors (STW ms) | Concurrent mark ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 16m nursery | 26.7 | 32.2 | 4.61 | 51 ms | 243 (7.4 ms avg) | 98 (1,392) | 48,052 |
+| 32m nursery | 42.4 | 18.1 | 4.81 | 38 ms | 206 (8.2 ms avg) | 95 (1,495) | 44,730 |
+| `major=marksweep` | 26.7 | 31.9 | 4.90 | 52 ms | 852 (3.8 ms avg) | 66 (8,865; **134 ms avg**) | 0 |
+| 65/64 defaults (Color) | 47.9 / 48.0 | 15.7 | 4.45–4.47 | — | — | — | — |
+
+- **Non-concurrent `major=marksweep` is harmful**: every major collection stops the world
+  for ~134 ms on average (vs ~14–16 ms with concurrent marking).
+- **Larger nurseries don't help**: minors get rarer (~40/min vs ~67/min) but each takes
+  about twice as long (7.4–8.2 vs 3.8 ms); total minor pause per minute rises.
+- **Draw/s differences are not GC.** 16m and marksweep both sit flat at ~27 Draw/s with
+  Draw ~32 ms, while their Update cost matches the others; 32m sits at ~43. GC cost is
+  <1% of runtime in all three. **[INFERENCE]** Those two runs had a heavier or different
+  scene or settings (Draw-only change). Not attributable to the GC setting.
+- Decision: keep SGen defaults (concurrent mark-sweep, 4 MB nursery). Build 68 adds the
+  missing default-params baseline with working periodic stats.
+- Stats-thread cause: `threadCreate(..., prio 0x3F, core -2)`. libnx `thread.h:37`:
+  0x3F is the special lowest priority on core 3 only; on cores 0..2 it is 0x3B. Fixed
+  (terrabuilder-nx `c25e96c`), and the failure now logs the Result code.
+
+## Multiplayer join: diagnosis so far (2026-09-28)
+
+`log64mpruntimelogging.txt` (64, `runtime_logging=1`, LAN host; the UI showed
+"Connecting"): one `SystemNative_Connect` resolution, then `StrError`,
+`ConvertErrorPalToPlatform`, a `Win32Exception` constructor (SocketException), `GetSockOpt`,
+`FcntlSetIsNonBlocking`, `SetLingerOption`, `ConvertErrorPlatformToPal`, then
+`StackOverflowException` on the TCP client thread at `Interop.Sys.Close ← … ←
+Socket.ReplaceHandleIfNecessaryAfterFailedConnect ← TcpClient.Connect ← TcpConnectLoop`.
+
+- `connect()` **fails**; the log never shows the errno (Terraria catches and retries).
+  "Connecting" is shown before the attempt, so it does not mean the server answered.
+- Native symbol lookups are logged once per process, so later retries are invisible:
+  the log cannot show how many connects happen before the overflow.
+- Rejected hypotheses from the delegated investigation (checked against source):
+  - *sockaddr layout mismatch*: libnx `sys/socket.h:289` has `sa_len` then `sa_family`,
+    and pal_networking writes through `&sockAddr->sa_family` (`pal_networking.c:721-726`),
+    so the field offset is correct; managed code also sets byte 0 to the length
+    (`SocketAddressPal.Unix.cs:180-182`). Not the cause.
+  - *interp stack leak on catch in the same frame* (`interp.c` resume path): the catching
+    frame, `TcpConnectLoop`, is AOT/LLVM code, not interpreted. When the handler is in AOT
+    code, EH sets a NULL resume frame (`mini-exceptions.c:2464`) and the interpreter
+    returns through `interp_entry`, which resets `context->stack_pointer`
+    (`interp.c:2222`). A leak is not established; not excluded either.
+- **Build 68 diagnostic**: `NX_NET connect #n fd ip:port len rc errno (text) ms bytes=…`
+  for every connect via `--wrap=connect`. It shows the failing errno, the sockaddr bytes
+  the kernel got, and how many retries precede the overflow (1 = something on the first
+  failure path; many = per-retry exhaustion).
+
+## Build68: GC stats + connect trace (2026-09-28)
+
+`fna-nx-test/terraria-mono/switch/mono_nx_fna_terraria_nochroma68_gcstats_nettrace.nro`,
+title `Terraria 68 GC stats + net trace`, SHA256
+`9f9c97f101b82f646cf59e37ef7ad7863707188244a68b87052c07b26e169392`. = 67 + launcher
+`main.c` from terrabuilder-nx `d62b22b` (stats-thread priority fix; `MONO_NX_NET_TRACE`),
+`R58_MAIN_DEFINES="-DMONO_NX_GC_STATS=1 -DMONO_NX_NET_TRACE=1"`,
+`R58_EXTRA_LDFLAGS=-Wl,--wrap=connect` (candidate only). `SystemNative_Connect` calls
+`__wrap_connect` in the linked ELF. Build52 replay exact; verify_artifact PASS.
