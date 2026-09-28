@@ -5,7 +5,7 @@
 # /build = ~/.cache/terraria-switch-build and /mono-nx = recovery46/sdk-pristine (ro).
 set -euo pipefail
 cd /build/runtime-source
-git diff --quiet HEAD -- src/mono/mono/mini/mini-runtime.c && { echo 'allocator patch missing'; exit 1; }
+grep -q 'code_allocated' src/mono/mono/mini/mini-runtime.c || { echo 'allocator patch missing (use the terrabuilder-nx fork branch)'; exit 1; }
 export ROOTFS_DIR=/opt/devkitpro
 export ICU_NX_INSTALL_DIR=/mono-nx/icu/libnx
 export NUGET_PACKAGES=/build/runtime-fix/nuget-packages

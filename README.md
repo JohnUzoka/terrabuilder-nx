@@ -47,8 +47,11 @@ Default builds carry no profiling:
   `make MONO_NX_PHASE_TIMING=1`. Without it the managed hook entry points stay (patched
   Terraria calls them every frame) but only drive the input latch. The timing-on object
   is instruction-identical to build 42's `nx_input.o`, which builds 58-65 link.
-- **Profiler IL patches** (`scripts/patch_*_profile`, `patch_time_logger`,
-  `patch_property_diagnostics`): separate measurement builds, never applied by default.
+- **Profiler IL patches** (`scripts/patch_*_profile`): separate measurement builds,
+  never applied by default. `patch_time_logger` is not a profiler: it is the build-41
+  fix that is part of every shipped build.
+- **GC/memory stats** (`NX_GC` lines): `MONO_NX_GC_STATS=1`. The optional SD file
+  `/mono/gc_params.txt` (SGen `MONO_GC_PARAMS`) is honoured by builds from 66 on.
 
 Note: the `release_bcl` pipeline currently replays build 42's launcher objects, which
 were built with frame timing on, so NROs 58-65 all include `NX_PHASE`. The toggle takes
