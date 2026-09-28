@@ -47,6 +47,7 @@ performance/input comparison NROs are in `terraria-mono/switch/`:
 | `mono_nx_fna_terraria_nochroma63_llvm_a57.nro` | **Tested: no measurable gain over 62** (`logD1`–`logD4`): 62 with LLVM tuned for the Cortex-A57. D4 (63) 41.3 Draw/s = D1 (62) 41.3; the two 62 runs differ by 3 Draw/s. One 63 run (D2) sat at exactly 30.0 Draw/s, not repeated in D4. Keep 62 |
 | `mono_nx_fna_terraria_nochroma64_llvm_corelib.nro` | **Boots; loads faster; gameplay unproven** (`logE1`–`logE4`): 62 + LLVM CoreLib (74,748 of 80,517 methods). Startup stall 7.9 vs 10.2 s, world-load stall 3.7 vs 4.3 s, both 64 runs agree. Gameplay: E4 38.4 vs 62's 36.3/35.9 Draw/s, but E2 sat near 30 |
 | `mono_nx_fna_terraria_nochroma65_release_runtime.nro` | **Next hardware test; host verified**: exact 64 with the native Mono runtime built in **Release** (same fork commit and allocator patch). Drops Debug's checked-build asserts (every GC-safe/unsafe transition, class-cache checks) and re-enables the interpreter's computed-goto dispatch. Struct layouts identical to the shipped runtime; AOT objects and RomFS identical to 64 |
+| `mono_nx_fna_terraria_nochroma66_gc_params.nro` | **GC test build; host verified**: exact 65 plus launcher support for `/mono/gc_params.txt` (SGen `MONO_GC_PARAMS`) and `NX_GC` lines every 5 s (GC counts/time, managed allocation, malloc use). AOT objects and RomFS identical to 64/65 |
 
 41 removes the growing timing-history overhead; 42's narrower compiler
 workaround improves measured gameplay again. Rendering now accounts for about
@@ -499,6 +500,30 @@ faster, is never slower, and all three logged 64 runs were clean.
 64 → **logH1.txt**, 65 → **logH2.txt**, 64 → **logH3.txt**, 65 → **logH4.txt**.
 First check 65 boots, reaches the world and exits normally. If it crashes or
 hangs, rerun once with `runtime_logging=true` and send the log plus `crash_reports/*`.
+
+**64 lighting modes (`log64retro.txt`, `log64color.txt`; separate launches,
+Frame Skip Off, stationary ~200 s each):**
+
+| Lighting | Draw/s | ms/Draw | ms/Update |
+| --- | ---: | ---: | ---: |
+| Trippy (64, F2/E4 earlier) | 38–43 | 18.5–21.4 | ~4.0 |
+| Retro | 43.3 | 18.7 | 3.66 |
+| Color | **48.0** | **15.7** | 4.45 |
+
+Color is the fastest: drawing is ~3 ms cheaper (cached tile layers) and updates ~0.8 ms
+dearer (colour lighting). Retro ≈ Trippy. Different launches/scene, so ±a few Draw/s.
+
+**GC test (build 66).** Same spot, Frame Skip Off, one launch per setting, stand still
+60–90 s. The setting is a text file on the SD card, `/mono/gc_params.txt`, one line:
+
+1. no file (SGen default: concurrent mark-sweep, 4 MB nursery) → **logGC1.txt**
+2. `nursery-size=16m` → **logGC2.txt**
+3. no file again → **logGC3.txt**
+4. `nursery-size=32m` → **logGC4.txt**
+5. `major=marksweep` (no concurrent GC worker thread) → **logGC5.txt**
+
+Delete or rename `/mono/log.txt` between runs. The `NX_GC` lines measure GC time
+directly, so these compare well even with some scene drift.
 
 ### L4T profile (plan step 3), when the L4T SD card is in
 

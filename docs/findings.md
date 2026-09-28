@@ -8655,3 +8655,49 @@ archive every build since 36 used.
   writable data; AOT manifest and RomFS identical to 64. The Release build added only
   headers to `artifacts/bin`; CoreLib and all 449 existing Release outputs unchanged.
 - Next: first-boot check, then 64/65/64/65 same-spot capture (`logH1`–`logH4`).
+
+
+## Build64 lighting modes: Retro and Color (2026-09-27)
+
+`log64retro.txt` and `log64color.txt`, one launch each on 64, normal exits, no
+errors, Frame Skip Off, stationary. Settled gameplay (between world entry and the
+exit save; Color's first `MkDir` at 76.7 s is a settings save before entering):
+
+| Lighting | Windows | Draw/s | ms/Draw | ms/Update |
+| --- | ---: | ---: | ---: | ---: |
+| Trippy (64: E4, F2 after step) | — | 38.4 / 43.2 | 21.4 / 18.5 | 3.96 / 4.04 |
+| Retro (77.8–293.2 s) | 44 | 43.3 | 18.7 | 3.66 |
+| Color (111.8–302.2 s) | 39 | **48.0** | **15.7** | 4.45 |
+
+- Color is fastest: ~3 ms cheaper Draw (tiles/walls cached in render targets instead of
+  redrawn each frame, see the Trippy analysis above), ~0.8 ms dearer Update (colour
+  lighting). **[INFERENCE]** Frame Skip On: Color ≈ (1000 − 60×4.45)/15.7 ≈ 47 FPS,
+  Retro ≈ 42, at this spot. Color's advantage should shrink while moving, when the
+  cached layers must be redrawn.
+- Retro ≈ Trippy at this resolution. Separate launches, not within-session switches:
+  scene drift of a few Draw/s is possible.
+
+## Build66 GC params and GC/memory stats (2026-09-27)
+
+**Host verified; hardware pending.** 66 = exact 65 (AOT objects, LLVM sidecars,
+Release runtime, RomFS) with a new launcher `main.c` from terrabuilder-nx:
+
+- `/mono/gc_params.txt` on SD, one line, is set as `MONO_GC_PARAMS` before
+  `mono_jit_init`. Absent = SGen defaults for this build: **concurrent mark-sweep**
+  (`HAVE_CONC_GC_AS_DEFAULT` in libnx config.h) and a **4 MB nursery**
+  (`SGEN_DEFAULT_NURSERY_SIZE`). `nursery-size` must be a power of two.
+- `MONO_NX_GC_STATS=1` (this build): a lowest-priority native thread logs
+  `NX_GC elapsed=… minor=… major=… minor_ms=… major_ms=… major_conc_ms=…
+  managed_alloc_mb=… malloc_used_mb=… malloc_arena_mb=…` every 5 s and a final line at
+  exit. Counts/times are cumulative (`mono_gc_stats`, 100 ns units → ms); managed_alloc
+  is SGen's total allocation (`mono_gc_get_heap_size`), malloc is newlib `mallinfo`.
+  Only lock-free counters are read, so the thread needs no Mono attachment.
+- `fna-nx-test/terraria-mono/switch/mono_nx_fna_terraria_nochroma66_gc_params.nro`,
+  title `Terraria 66 GC params`, SHA256
+  `7de0d928c020daad6b1d91c951c58f287b829ba266515953dc128be3580b0b23`.
+- main.c compiles with `-Wall -Werror` with and without stats; build52 replay exact;
+  166,898 native targets / 14,207 fallbacks; no RWX/TEXTREL; RomFS identical to 64.
+- Recipe: `R58_VARIANT=v66 R58_RUNTIME=release R58_MAIN_DEFINES=-DMONO_NX_GC_STATS=1`,
+  `/work` = terrabuilder-nx (first build from that repo), link-only from v65's AOT set.
+- Test plan (README): default / `nursery-size=16m` / default / `nursery-size=32m` /
+  `major=marksweep`, `logGC1`–`logGC5`.
