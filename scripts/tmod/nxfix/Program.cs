@@ -34,6 +34,15 @@
 //    NPCID.Sets..cctor. The non-Windows branch now runs the same Action on a 32 MB thread and
 //    joins it (MonoLaunch.NxRunOnLargeStack). The Windows branch is unchanged.
 //
+// 5. Audio. The Switch launcher forces SDL_AUDIODRIVER=dummy (no real audio yet; vanilla is
+//    silent too). SDL's dummy driver allows one open device. tModLoader's
+//    SoundEngine.TestAudioSupport opens one (a SoundEffect), then LoadContent's XACT
+//    AudioEngine opens a second and fails: "Engine initialization failed! Audio device already
+//    open" is fatal (tmod05). TestAudioSupport now reports audio unsupported with a log line
+//    explaining why, so tModLoader takes its own no-audio path (no XACT). SoundEngine.Initialize
+//    skips the modal "audio not supported" notice, which would otherwise block every launch;
+//    the log line carries the same information.
+//
 // The output gets a new MVID: a hash of the assembly as written with the stock MVID, so any
 // IL change yields a different MVID. Mono binds an AOT image to its assembly by MVID; the
 // earlier patchers kept the stock MVID while changing IL, so an AOT object compiled from
@@ -234,6 +243,30 @@ tailCall[0].Operand = runLarge;
 if (UnderflowingPops(runLarge, unrepairable).Count > 0 || UnderflowingPops(launchMain, unrepairable).Count > 0 || unrepairable.Count > 0)
     throw new InvalidOperationException("MonoLaunch patch does not verify: " + string.Join("; ", unrepairable));
 Console.WriteLine("FIX MonoLaunch.Main: non-Windows branch runs Main_End on a 32 MB thread and joins it");
+
+var soundEngine = module.GetType("Terraria.Audio.SoundEngine") ?? throw new InvalidOperationException("SoundEngine not found");
+var testAudio = soundEngine.Methods.Single(m => m.Name == "TestAudioSupport");
+var getTml = testAudio.Body.Instructions.Select(i => i.Operand).OfType<MethodReference>().Single(r => r.Name == "get_tML");
+var warn = testAudio.Body.Instructions.Select(i => i.Operand).OfType<MethodReference>().Single(r => r.Name == "Warn");
+testAudio.Body.Instructions.Clear();
+testAudio.Body.ExceptionHandlers.Clear();
+testAudio.Body.Variables.Clear();
+var audioIl = testAudio.Body.GetILProcessor();
+audioIl.Append(audioIl.Create(OpCodes.Call, getTml));
+audioIl.Append(audioIl.Create(OpCodes.Ldstr, "Switch port: audio disabled. The launcher uses SDL's dummy audio driver, which allows one open device; FNA's SoundEffect and XACT engines need two."));
+audioIl.Append(audioIl.Create(OpCodes.Callvirt, warn));
+audioIl.Append(audioIl.Create(OpCodes.Ldc_I4_0));
+audioIl.Append(audioIl.Create(OpCodes.Ret));
+var soundInit = soundEngine.Methods.Single(m => m.Name == "Initialize").Body.Instructions;
+var noticeBranch = soundInit.Single(i => i.OpCode == OpCodes.Brtrue_S || i.OpCode == OpCodes.Brtrue);
+if (!soundInit.Any(i => i.Operand is MethodReference r && r.Name == "ShowFancyErrorMessage"))
+    throw new InvalidOperationException("unexpected SoundEngine.Initialize shape");
+noticeBranch.OpCode = OpCodes.Br_S;
+soundInit.Insert(soundInit.IndexOf(noticeBranch), Instruction.Create(OpCodes.Pop));
+foreach (var method in new[] { testAudio, soundEngine.Methods.Single(m => m.Name == "Initialize") })
+    if (UnderflowingPops(method, unrepairable).Count > 0 || unrepairable.Count > 0)
+        throw new InvalidOperationException($"{method.FullName} does not verify after patch: " + string.Join("; ", unrepairable));
+Console.WriteLine("FIX SoundEngine: audio reported unsupported (logged), modal notice skipped");
 
 var oldMvid = module.Mvid;
 using (var image = new MemoryStream())
