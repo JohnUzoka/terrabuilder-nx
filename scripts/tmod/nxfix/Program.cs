@@ -43,6 +43,17 @@
 //    skips the modal "audio not supported" notice, which would otherwise block every launch;
 //    the log line carries the same information.
 //
+// 6. Process memory reads. System.Diagnostics.Process is unsupported on libnx (it throws
+//    PlatformNotSupportedException). MemoryTracking.Finish runs at the end of every mod load
+//    and its GetCurrentProcess() threw, failing the load (tmod06: "An error occurred while
+//    loading ... tModLoader must be restarted"); InGameUpdate threw every minute. In the four
+//    methods that use the current Process only for memory figures (MemoryTracking.Finish,
+//    MemoryTracking.InGameUpdate, UIMemoryBar.RecalculateMemory,
+//    Logging.FirstChanceExceptionHandler), GetCurrentProcess() now yields null, Refresh() is
+//    dropped and WorkingSet64/PrivateMemorySize64 read GC.GetTotalMemory(false). Any other
+//    Process member in those methods fails the run. Other Process uses (hosting, URLs,
+//    folders, updates, mod development) stay unsupported and only run on explicit actions.
+//
 // The output gets a new MVID: a hash of the assembly as written with the stock MVID, so any
 // IL change yields a different MVID. Mono binds an AOT image to its assembly by MVID; the
 // earlier patchers kept the stock MVID while changing IL, so an AOT object compiled from
@@ -267,6 +278,56 @@ foreach (var method in new[] { testAudio, soundEngine.Methods.Single(m => m.Name
     if (UnderflowingPops(method, unrepairable).Count > 0 || unrepairable.Count > 0)
         throw new InvalidOperationException($"{method.FullName} does not verify after patch: " + string.Join("; ", unrepairable));
 Console.WriteLine("FIX SoundEngine: audio reported unsupported (logged), modal notice skipped");
+
+string[] processMemoryMethods =
+{
+    "Terraria.ModLoader.Core.MemoryTracking::Finish", "Terraria.ModLoader.Core.MemoryTracking::InGameUpdate",
+    "Terraria.ModLoader.UI.UIMemoryBar::RecalculateMemory", "Terraria.ModLoader.Logging::FirstChanceExceptionHandler",
+};
+var gcType = new TypeReference("System", "GC", module, module.TypeSystem.CoreLibrary);
+var totalMemory = new MethodReference("GetTotalMemory", module.TypeSystem.Int64, gcType);
+totalMemory.Parameters.Add(new ParameterDefinition(module.TypeSystem.Boolean));
+int processRewrites = 0;
+foreach (var name in processMemoryMethods)
+{
+    var method = AllTypes(module.Types).SelectMany(t => t.Methods).Single(m => $"{m.DeclaringType.FullName}::{m.Name}" == name);
+    var code = method.Body.Instructions;
+    foreach (var instruction in code.ToList())
+    {
+        if (instruction.Operand is not MethodReference r || r.DeclaringType.FullName != "System.Diagnostics.Process")
+            continue;
+        switch (r.Name)
+        {
+            case "GetCurrentProcess":
+                instruction.OpCode = OpCodes.Ldnull;
+                instruction.Operand = null;
+                break;
+            case "Refresh":
+                instruction.OpCode = OpCodes.Pop;
+                instruction.Operand = null;
+                break;
+            case "get_WorkingSet64":
+            case "get_PrivateMemorySize64":
+                instruction.OpCode = OpCodes.Pop;
+                instruction.Operand = null;
+                var index = code.IndexOf(instruction);
+                code.Insert(index + 1, Instruction.Create(OpCodes.Ldc_I4_0));
+                code.Insert(index + 2, Instruction.Create(OpCodes.Call, totalMemory));
+                break;
+            case "GetProcesses":
+                // Finish sums other processes inside a try/catch that falls back to "Unknown".
+                if (name != "Terraria.ModLoader.Core.MemoryTracking::Finish")
+                    throw new InvalidOperationException($"unexpected Process.GetProcesses in {name}");
+                continue;
+            default:
+                throw new InvalidOperationException($"unexpected Process.{r.Name} in {name}");
+        }
+        processRewrites++;
+    }
+    if (UnderflowingPops(method, unrepairable).Count > 0 || unrepairable.Count > 0)
+        throw new InvalidOperationException($"{method.FullName} does not verify after patch: " + string.Join("; ", unrepairable));
+}
+Console.WriteLine($"FIX Process memory reads -> GC.GetTotalMemory in {processMemoryMethods.Length} methods ({processRewrites} instructions)");
 
 var oldMvid = module.Mvid;
 using (var image = new MemoryStream())
