@@ -121,6 +121,74 @@ int __wrap_connect(int fd, const struct sockaddr *addr, socklen_t len)
     return rc;
 }
 #endif
+#ifndef MONO_NX_NIFM
+#define MONO_NX_NIFM 1
+#endif
+
+#if defined(MONO_NX_NIFM)
+// In Nintendo Switch Application mode (title takeover / installed title), Horizon OS
+// network policy requires an active NIFM network request (IRequest) submitted by the
+// application before BSD sockets can reach the network. Without a submitted request,
+// connect returns ENETUNREACH (errno 114). Homebrew applications running under title
+// takeover create and submit a NifmRequest at startup and hold it open.
+// To preserve offline / airplane-mode startup and LAN-only play without internet access,
+// the request is submitted asynchronously (nifmRequestSubmit instead of blocking on
+// nifmRequestSubmitAndWait), and all NIFM steps are non-fatal.
+#include <switch/services/nifm.h>
+
+static bool s_nifm_initialized = false;
+static NifmRequest s_nifm_request;
+static bool s_nifm_request_active = false;
+
+static void nx_net_nifm_init(void)
+{
+    Result rc = nifmInitialize(NifmServiceType_User);
+    if (R_FAILED(rc)) {
+        io_debugf("NX_NET nifm init failed (rc=0x%08x)", rc);
+        return;
+    }
+    s_nifm_initialized = true;
+
+    NifmInternetConnectionType conn_type = 0;
+    u32 wifi_strength = 0;
+    NifmInternetConnectionStatus conn_status = 0;
+    Result status_rc = nifmGetInternetConnectionStatus(&conn_type, &wifi_strength, &conn_status);
+    if (R_SUCCEEDED(status_rc)) {
+        const char *type_str = (conn_type == NifmInternetConnectionType_WiFi) ? "WiFi" :
+                               (conn_type == NifmInternetConnectionType_Ethernet) ? "Ethernet" : "Unknown";
+        const char *status_str = (conn_status == NifmInternetConnectionStatus_Connected) ? "Connected" : "Connecting";
+        io_debugf("NX_NET nifm status: %s type=%s wifi_strength=%u status_code=%d",
+            status_str, type_str, (unsigned)wifi_strength, (int)conn_status);
+    } else {
+        io_debugf("NX_NET nifm status: unavailable (rc=0x%08x)", status_rc);
+    }
+
+    rc = nifmCreateRequest(&s_nifm_request, true);
+    if (R_FAILED(rc)) {
+        io_debugf("NX_NET nifm create request failed (rc=0x%08x)", rc);
+        return;
+    }
+    s_nifm_request_active = true;
+
+    rc = nifmRequestSubmit(&s_nifm_request);
+    NifmRequestState state = NifmRequestState_Invalid;
+    nifmGetRequestState(&s_nifm_request, &state);
+    Result req_res = nifmGetResult(&s_nifm_request);
+    io_debugf("NX_NET nifm request submitted (rc=0x%08x, state=%d, req_res=0x%08x)", rc, (int)state, req_res);
+}
+
+static void nx_net_nifm_exit(void)
+{
+    if (s_nifm_request_active) {
+        nifmRequestClose(&s_nifm_request);
+        s_nifm_request_active = false;
+    }
+    if (s_nifm_initialized) {
+        nifmExit();
+        s_nifm_initialized = false;
+    }
+}
+#endif
 
 #if defined(MONO_NX_FATAL_DIAG)
 // Replaces the SDK's log hook so a fatal Mono error always reaches the log file
@@ -178,6 +246,9 @@ int main(int argc, char *argv[])
 
     if (!application_initialize(CONFIG_INI_PATH))
         return 1;
+#if defined(MONO_NX_NIFM)
+    nx_net_nifm_init();
+#endif
     io_debugf("NX_CONFIG file=%s logging=%d runtime_logging=%d", CONFIG_INI_PATH,
         g_config.mononx_logging, g_config.mono_runtime_logging);
     if (g_config.mono_runtime_logging)
@@ -258,7 +329,7 @@ int main(int argc, char *argv[])
     }
     bool gc_stats_running = R_SUCCEEDED(gc_stats_rc);
     if (gc_stats_running)
-        io_debugf("NX_GC stats every 5s: started (counts cumulative; times in ms; managed_alloc = SGen total allocated, malloc = newlib half)");
+        io_debugf("NX_GC stats every 5s: started (counts cumulative; times in ms; managed_alloc = SGen current GC OS allocation, malloc = newlib half)");
     else
         io_debugf("NX_GC stats every 5s: thread failed (rc=0x%x)", gc_stats_rc);
 #endif
@@ -356,6 +427,9 @@ int main(int argc, char *argv[])
 
 #if defined(MONO_NX_USE_ROMFS)
     romfsExit();
+#endif
+#if defined(MONO_NX_NIFM)
+    nx_net_nifm_exit();
 #endif
     application_terminate();
 
