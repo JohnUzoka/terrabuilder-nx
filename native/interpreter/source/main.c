@@ -125,12 +125,12 @@ int __wrap_connect(int fd, const struct sockaddr *addr, socklen_t len)
 #define MONO_NX_NIFM 1
 #endif
 
-#if defined(MONO_NX_NIFM)
-// In Nintendo Switch Application mode (title takeover / installed title), Horizon OS
-// network policy requires an active NIFM network request (IRequest) submitted by the
-// application before BSD sockets can reach the network. Without a submitted request,
-// connect returns ENETUNREACH (errno 114). Homebrew applications running under title
-// takeover create and submit a NifmRequest at startup and hold it open.
+#if MONO_NX_NIFM
+// Hypothesis under hardware test (build 69): in Application mode (title takeover), Horizon
+// may require an active NIFM network request before BSD sockets reach the network; build 68
+// saw every LAN connect fail instantly with ENETUNREACH (errno 114) without one. Homebrew
+// commonly creates and submits a NifmRequest at startup and holds it open.
+// Disable with -DMONO_NX_NIFM=0.
 // To preserve offline / airplane-mode startup and LAN-only play without internet access,
 // the request is submitted asynchronously (nifmRequestSubmit instead of blocking on
 // nifmRequestSubmitAndWait), and all NIFM steps are non-fatal.
@@ -246,7 +246,7 @@ int main(int argc, char *argv[])
 
     if (!application_initialize(CONFIG_INI_PATH))
         return 1;
-#if defined(MONO_NX_NIFM)
+#if MONO_NX_NIFM
     nx_net_nifm_init();
 #endif
     io_debugf("NX_CONFIG file=%s logging=%d runtime_logging=%d", CONFIG_INI_PATH,
@@ -428,7 +428,7 @@ int main(int argc, char *argv[])
 #if defined(MONO_NX_USE_ROMFS)
     romfsExit();
 #endif
-#if defined(MONO_NX_NIFM)
+#if MONO_NX_NIFM
     nx_net_nifm_exit();
 #endif
     application_terminate();
