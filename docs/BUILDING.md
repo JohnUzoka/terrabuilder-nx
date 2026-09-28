@@ -13,7 +13,10 @@ game (GOG Linux build 1.4.5.x). Nothing from the game is in this repository.
 ## 0. What you need
 
 - Linux (or WSL2) with Podman (Docker works; replace `podman` with `docker`).
-- ~60 GB free disk: the .NET runtime source plus builds.
+- ~30 GB free disk (measured): .NET runtime checkout and build ~3.5 GB, LLVM
+  cross-compiler build ~3.4 GB, NuGet packages ~3.9 GB (the Mono LLVM SDK package alone
+  is ~1 GB), build images ~6 GB (shared layers), baselines ~5–10 GB, ~2–3 GB per
+  build variant. Old variants can be deleted once their NRO is tested.
 - A legal copy of Terraria for Linux (GOG), e.g. `~/FNA-Game/Terraria/game`.
 - A Switch running Atmosphère and hbmenu, and an SD card.
 
