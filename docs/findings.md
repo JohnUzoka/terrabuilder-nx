@@ -9150,3 +9150,35 @@ on hardware.
 Fargo's (MIT, `Fargowilta/Fargowiltas` 3.3.6.7 and `FargowiltasSouls` 1.7.3.7): Mutant Mod
 has 12 `On_` detours, Souls 29 plus one `ILContext` file each, and Souls needs Luminance 1.0.3
 and ships 79 shader effects. Both still need offline hook application and per-mod AOT.
+
+## tmod08 hardware: touch works, player save fails; tmod09 (2026-09-28)
+
+`logT8.txt` + `tModLoader-Logs/client.log`: **touch acts as a mouse on hardware**, and the
+user completed character creation by touch (`UICharacterCreation.Click_NamingAndCreating`
+-> `FinishCreatingCharacter`). Saving then failed: `Player.SavePlayerFile_Vanilla` ->
+`RijndaelManaged.CreateEncryptor` -> `PlatformNotSupportedException: Algorithm 'Aes' is not
+supported on this platform` ("An error occurred while saving the player"). The same throws
+inside `AchievementManager.Save`, which `FileUtilities.ProtectedInvoke` catches. Other caught
+exceptions (news-feed TLS: `libSystem.Security.Cryptography.Native.OpenSsl`, `Process`) are
+harmless.
+
+The vanilla port solved this in build 36: `NxCrypto.dll` (`Terraria.NxCrypto.NxCrypto`,
+SHA256 `ad4d9c11...285d1`, identical in hint52/v69), a managed AES-128-CBC; the patched
+`Terraria.exe` calls it from `Player.InternalSavePlayerFile` and `Player.LoadPlayer`, with the
+RijndaelManaged instance load turned into `nop`. `AchievementManager` stays on RijndaelManaged
+in vanilla too.
+
+NxFix pass 8 applies the same rewrite to tModLoader's `Player.SavePlayerFile_Vanilla`
+(`CreateEncryptor`) and `Player.LoadPlayerFromStream` (`CreateDecryptor`, `Padding = None`),
+matching the exact shape `ldloc; ldsfld ENCRYPTION_KEY; ldsfld ENCRYPTION_KEY; callvirt`.
+The build script packages NxCrypto.dll (hash-checked) at the RomFS root; it runs interpreted.
+Host probe `tmod/nxcrypto-probe`: NxCrypto equals .NET AES-128-CBC with key = IV = "h3y_gUyZ"
+(UTF-16), PKCS7 encrypt and Padding=None decrypt, across 10 lengths (0 to 65,537 bytes), so
+Switch `.plr` files stay PC-compatible.
+
+**tmod09** (`tmodloader09_saves.nro`, SHA256
+`dccfa5d34b063845500c847580404d7d043c4cc2b4b3de07944e99b7f4f7ebaa`, 1,025,056,872 bytes):
+`TMOD_VARIANT=tmod09`. Verified: 152,633 native targets, 13,441 fallback sentinels, no RWX,
+MVID binding, byte-identical compiler inputs, all 15,208 RomFS files including NxCrypto.dll,
+1.4.4.9 content. Host: mod load completes (8,197 ms). Saving is only exercised on hardware
+(the host has no input to create a character).
