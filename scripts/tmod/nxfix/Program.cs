@@ -60,22 +60,34 @@
 //    the window exists) now sets it to 1 at override priority; SDL watches this hint, so it
 //    applies immediately. Handheld only: docked Switch has no touchscreen.
 //
+// 8. Player save encryption. Terraria encrypts .plr files with RijndaelManaged (AES-128-CBC,
+//    key = IV = Player.ENCRYPTION_KEY). AES is unsupported on libnx ("Algorithm 'Aes' is not
+//    supported"), so creating a character failed to save (tmod08). The vanilla port already
+//    replaces these calls with NxCrypto.dll, a managed AES-128-CBC (PKCS7 on encrypt, no
+//    padding removal on decrypt, matching Terraria's Padding=None load). The same rewrite is
+//    applied to Player.SavePlayerFile_Vanilla and Player.LoadPlayerFromStream: the
+//    RijndaelManaged instance load becomes nop and SymmetricAlgorithm.Create*(key, iv) becomes
+//    NxCrypto.Create*(key, iv). AchievementManager keeps RijndaelManaged, as in vanilla: its
+//    save/load run inside ProtectedInvoke (logged, non-fatal) and its decrypt expects PKCS7.
+//
 // The output gets a new MVID: a hash of the assembly as written with the stock MVID, so any
 // IL change yields a different MVID. Mono binds an AOT image to its assembly by MVID; the
 // earlier patchers kept the stock MVID while changing IL, so an AOT object compiled from
 // different IL (tmod01) still loaded. Now a stale object is rejected.
 //
-// Usage: NxFix <in.dll> <out.dll> [--reference <unpatched tModLoader.dll>]
+// Usage: NxFix <in.dll> <out.dll> --nxcrypto <NxCrypto.dll> [--reference <unpatched tModLoader.dll>]
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
-if (args.Length < 2)
+string Option(string name) { var i = Array.IndexOf(args, name); return i >= 2 && i + 1 < args.Length ? args[i + 1] : null; }
+string reference = Option("--reference");
+string nxCryptoPath = Option("--nxcrypto");
+if (args.Length < 2 || nxCryptoPath == null)
 {
-    Console.Error.WriteLine("usage: NxFix <in.dll> <out.dll> [--reference <unpatched.dll>]");
+    Console.Error.WriteLine("usage: NxFix <in.dll> <out.dll> --nxcrypto <NxCrypto.dll> [--reference <unpatched.dll>]");
     return 64;
 }
 string input = args[0], output = args[1];
-string reference = args.Length >= 4 && args[2] == "--reference" ? args[3] : null;
 if (Path.GetFullPath(input) == Path.GetFullPath(output))
     throw new ArgumentException("write to a new file, not in place");
 
@@ -350,6 +362,30 @@ initIl.InsertBefore(initFirst, initIl.Create(OpCodes.Pop));
 if (UnderflowingPops(mainInitialize, unrepairable).Count > 0 || unrepairable.Count > 0)
     throw new InvalidOperationException("Main.Initialize does not verify after patch: " + string.Join("; ", unrepairable));
 Console.WriteLine($"FIX Main.Initialize: SDL_TOUCH_MOUSE_EVENTS=1 at override priority ({overridePriority.Constant})");
+
+var nxCrypto = AssemblyDefinition.ReadAssembly(nxCryptoPath).MainModule.GetType("Terraria.NxCrypto.NxCrypto")
+    ?? throw new InvalidOperationException("Terraria.NxCrypto.NxCrypto not found in " + nxCryptoPath);
+var player = module.GetType("Terraria.Player");
+int cryptoSites = 0;
+foreach (var (methodName, factory) in new[] { ("SavePlayerFile_Vanilla", "CreateEncryptor"), ("LoadPlayerFromStream", "CreateDecryptor") })
+{
+    var method = player.Methods.Single(m => m.Name == methodName);
+    var code = method.Body.Instructions;
+    var call = code.Single(i => i.OpCode == OpCodes.Callvirt && i.Operand is MethodReference r
+        && r.DeclaringType.FullName == "System.Security.Cryptography.SymmetricAlgorithm" && r.Name == factory);
+    var iv = call.Previous; var key = iv.Previous; var instance = key.Previous;
+    if (!(iv.OpCode == OpCodes.Ldsfld && key.OpCode == OpCodes.Ldsfld && ((FieldReference)iv.Operand).Name == "ENCRYPTION_KEY"
+        && ((FieldReference)key.Operand).Name == "ENCRYPTION_KEY" && instance.OpCode.Code is Code.Ldloc_1 or Code.Ldloc_S))
+        throw new InvalidOperationException($"unexpected crypto call shape in Player.{methodName}");
+    instance.OpCode = OpCodes.Nop;
+    instance.Operand = null;
+    call.OpCode = OpCodes.Call;
+    call.Operand = module.ImportReference(nxCrypto.Methods.Single(m => m.Name == factory));
+    if (UnderflowingPops(method, unrepairable).Count > 0 || unrepairable.Count > 0)
+        throw new InvalidOperationException($"Player.{methodName} does not verify after patch: " + string.Join("; ", unrepairable));
+    cryptoSites++;
+}
+Console.WriteLine($"FIX Player save/load: RijndaelManaged -> NxCrypto ({cryptoSites} sites)");
 
 var oldMvid = module.Mvid;
 using (var image = new MemoryStream())

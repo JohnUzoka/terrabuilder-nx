@@ -4,11 +4,13 @@ tModLoader.dll.
 tModLoader.dll's IL changed (see scripts/tmod/nxfix), so its AOT object is recompiled from
 the exact file that is packaged. FNA.dll, its AOT object, the CoreLib object and the
 launcher object (main_tmod.o) are tmod02's, byte-identical; the link line is tmod02's.
-RomFS = tmod03's (1.4.4.9 Content + tModLoader overlay) with only tModLoader.dll replaced.
+RomFS = tmod03's (1.4.4.9 Content + tModLoader overlay) with tModLoader.dll replaced and the
+vanilla port's NxCrypto.dll added (managed AES for player saves; runs interpreted, not AOT).
 
 Run inside localhost/monobuild:local with /build = ~/.cache/terraria-switch-build and
 /mono-nx = recovery46/sdk-pristine. Input: /build/tmod/$TMOD_VARIANT/input/tModLoader.dll from
-    NxFix tmod03/romfs/tModLoader.dll $TMOD_VARIANT/input/tModLoader.dll --reference release/tModLoader.dll
+    NxFix tmod03/romfs/tModLoader.dll $TMOD_VARIANT/input/tModLoader.dll \
+        --nxcrypto hint52/aot-final/runtime-romfs/NxCrypto.dll --reference release/tModLoader.dll
 """
 import hashlib, json, os, shlex, shutil, subprocess
 from pathlib import Path
@@ -99,6 +101,10 @@ romfs = OUT / 'romfs'
 shutil.copytree(PAYLOAD / 'romfs', romfs)
 (romfs / 'tModLoader.dll').unlink()
 shutil.copy2(tml, romfs / 'tModLoader.dll')
+NXCRYPTO_SHA256 = 'ad4d9c1120a5415face6e0a75dad137f92916929f1f1ff66087aab780ce285d1'
+nxcrypto = ROOT / 'hint52/aot-final/runtime-romfs/NxCrypto.dll'
+assert sha(nxcrypto) == NXCRYPTO_SHA256, 'NxCrypto.dll differs from the vanilla port copy'
+shutil.copy2(nxcrypto, romfs / 'NxCrypto.dll')
 
 # 4. Package with tmod03's NACP, retitled.
 nacp = bytearray((PAYLOAD / 'native/candidate/tmodloader.nacp').read_bytes())
