@@ -5,7 +5,9 @@ TMOD_VARIANT names a fresh /build/tmod/<variant> with input/modset.json:
   {"mod": "BossCursor", "label": "Boss Cursor", "aot_replacements": [],
    "replacements": {"System.Reflection.Metadata.dll": ["System.Reflection.Metadata.dll"]}}
 input also contains tModLoader.dll, <mod>.tmod and all replacement DLLs.
-Optional keys: "corelib": <name> uses /build/tmod/corelib/<name> (build_tmod_corelib_aot.py,
+Optional keys: "runtime": {"git_commit", "libmonosgen_sha256"} declares a runtime other than
+tmod09's (runtime-release/ must match it; component hashes are then recorded, not checked);
+"corelib": <name> uses /build/tmod/corelib/<name> (build_tmod_corelib_aot.py,
 enlarged trampoline pools; tmod09's CoreLib object otherwise), and "llvm_modules": [compiled
 DLL names] compiles those through Mono's LLVM backend (run in monobuild-llvm:local).
 LLVM sidecars (<module>-llvm.o) link right after their module object; their absolute
@@ -249,11 +251,20 @@ objects_dir = ROOT / 'nochroma42/native/interpreter/build'
 objects = [NATIVE / 'main_tmod.o' if name == 'main.o' else objects_dir / name for name in recorded['OBJECTS']]
 release_lib = ROOT / 'runtime-source/artifacts/obj/mono/libnx.arm64.Release/out/lib'
 runtime = ROOT / 'runtime-release/libmonosgen-2.0-release.a'
-assert sha(runtime) == baseline['runtime_provenance']['libmonosgen_sha256']
+# "runtime": {"git_commit": ..., "libmonosgen_sha256": ...} deliberately replaces tmod09's runtime
+# (e.g. a runtime fix); without it the runtime must be exactly tmod09's.
+runtime_provenance = dict(baseline['runtime_provenance'])
+if 'runtime' in config:
+    runtime_provenance = {'git_commit': config['runtime']['git_commit'],
+                          'libmonosgen_sha256': config['runtime']['libmonosgen_sha256']}
+assert sha(runtime) == runtime_provenance['libmonosgen_sha256'], 'runtime archive differs from declared provenance'
 swap = {'/build/runtime-fix/libmonosgen-2.0.a': str(runtime)}
 for component in ('debugger', 'diagnostics_tracing-stub', 'hot_reload-stub', 'marshal-ilgen'):
     name = f'libmono-component-{component}-static.a'
     swap[f'/mono-nx/dotnet_runtime/artifacts/obj/mono/libnx.arm64.Debug/out/lib/{name}'] = str(release_lib / name)
+    key = 'libmono_component_' + component.replace('-', '_') + '_static_sha256'
+    if 'runtime' in config:
+        runtime_provenance[key] = sha(release_lib / name)
 # "native_swaps": {recorded LIBS path: {"path": replacement archive, "sha256": ...}}, e.g. a
 # System.Native archive with libnx filesystem fixes.
 native_swaps = config.get('native_swaps', {})
@@ -347,7 +358,7 @@ deliverables = {'candidate_nro': {'path': str(nro), 'bytes': nro.stat().st_size,
                 'sd_mod': {'path': str(staged_packages[mod]), 'sha256': sha(staged_packages[mod])}}
 if additional_mods:
     deliverables['sd_mods'] = {m: {'path': str(p), 'sha256': sha(p)} for m, p in staged_packages.items()}
-manifest = {'candidate': VARIANT, 'content': baseline['content'], 'runtime_provenance': baseline['runtime_provenance'],
+manifest = {'candidate': VARIANT, 'content': baseline['content'], 'runtime_provenance': runtime_provenance,
             'provenance_and_binding': binding, 'modset': dict(config, package=mod_info_by_name[mod]), 'reference_inputs': input_hashes,
             'managed_replacements': {name: {'sha256': input_hashes[name], 'destinations': paths}
                                      for name, paths in replacements.items()},
