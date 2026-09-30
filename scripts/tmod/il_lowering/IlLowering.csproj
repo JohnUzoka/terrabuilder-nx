@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="Mono.Cecil">
+      <HintPath>/home/juzoka/.cache/terraria-switch-build/tmod/release/Libraries/mono.cecil/0.11.6/lib/netstandard2.0/Mono.Cecil.dll</HintPath>
+    </Reference>
+    <Reference Include="Mono.Cecil.Rocks">
+      <HintPath>/home/juzoka/.cache/terraria-switch-build/tmod/release/Libraries/mono.cecil/0.11.6/lib/netstandard2.0/Mono.Cecil.Rocks.dll</HintPath>
+    </Reference>
+    <Reference Include="MonoMod.RuntimeDetour">
+      <HintPath>/home/juzoka/.cache/terraria-switch-build/tmod/release/Libraries/monomod.runtimedetour/25.3.2/lib/net8.0/MonoMod.RuntimeDetour.dll</HintPath>
+    </Reference>
+    <Reference Include="MonoMod.Utils">
+      <HintPath>/home/juzoka/.cache/terraria-switch-build/tmod/release/Libraries/monomod.utils/25.0.10/lib/net8.0/MonoMod.Utils.dll</HintPath>
+    </Reference>
+    <Reference Include="MonoMod.Core">
+      <HintPath>/home/juzoka/.cache/terraria-switch-build/tmod/release/Libraries/monomod.core/1.3.2/lib/net8.0/MonoMod.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="MonoMod.Backports">
+      <HintPath>/home/juzoka/.cache/terraria-switch-build/tmod/release/Libraries/monomod.backports/1.1.2/lib/net8.0/MonoMod.Backports.dll</HintPath>
+    </Reference>
+    <Reference Include="MonoMod.ILHelpers">
+      <HintPath>/home/juzoka/.cache/terraria-switch-build/tmod/release/Libraries/monomod.ilhelpers/1.1.0/lib/net8.0/MonoMod.ILHelpers.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>

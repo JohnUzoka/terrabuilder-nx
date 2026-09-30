@@ -1,15 +1,21 @@
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
-if (args.Length != 3)
+// Default mode patches the vanilla game's original FNA.dll. --tmodloader patches tModLoader's
+// FNA 23.10 (already given SDL2 title root romfs:/ by its offline patch) with only the
+// runtime fixes: bound-render-target cleanup, Switch controller mapping, latched native
+// button reads and Game.Tick input-latch hooks. tModLoader keeps FNA's ContentManager root
+// relative (NxFix roots its own reads) and does not need public FNA3D access.
+bool tmodloader = args.Length == 4 && args[3] == "--tmodloader";
+if (args.Length != 3 && !tmodloader)
 {
-    Console.Error.WriteLine("Usage: PatchFna <original-game-FNA.dll> <output-FNA.dll> <NxInputDiag.dll>");
+    Console.Error.WriteLine("Usage: PatchFna <FNA.dll> <output-FNA.dll> <NxInputDiag.dll> [--tmodloader]");
     return 2;
 }
 
 try
 {
-    Patch(Path.GetFullPath(args[0]), Path.GetFullPath(args[1]), Path.GetFullPath(args[2]));
+    Patch(Path.GetFullPath(args[0]), Path.GetFullPath(args[1]), Path.GetFullPath(args[2]), tmodloader);
     return 0;
 }
 catch (Exception error)
@@ -18,7 +24,7 @@ catch (Exception error)
     return 1;
 }
 
-static void Patch(string input, string output, string helper)
+static void Patch(string input, string output, string helper, bool tmodloader)
 {
     Require(File.Exists(input), "original game FNA input does not exist: " + input);
     Require(File.Exists(helper), "input helper does not exist: " + helper);
@@ -26,7 +32,7 @@ static void Patch(string input, string output, string helper)
     using var assembly = AssemblyDefinition.ReadAssembly(input, new ReaderParameters { ReadSymbols = false });
     using var diagAssembly = AssemblyDefinition.ReadAssembly(helper, new ReaderParameters { ReadSymbols = false });
     var module = assembly.MainModule;
-    Require(assembly.Name.Name == "FNA", "input is not FNA; use the original game's FNA.dll");
+    Require(assembly.Name.Name == "FNA", "input is not FNA");
     Require(diagAssembly.Name.Name == "NxInputDiag", "helper assembly must be named NxInputDiag");
     Require(!module.AssemblyReferences.Any(r => r.Name == "NxInputDiag"),
         "FNA already references NxInputDiag; use the original game's unpatched FNA.dll");
@@ -39,20 +45,28 @@ static void Patch(string input, string output, string helper)
     var dispose = FindMethod(renderTarget, "Dispose", "System.Void", "System.Boolean");
     RequireBody(dispose);
     var throws = dispose.Body.Instructions.Where(i => i.OpCode == OpCodes.Throw).ToArray();
-    Require(throws.Length == 1, "RenderTarget2D.Dispose must have exactly one bound-target throw");
-    var throwInstruction = throws[0];
-    var newException = throwInstruction.Previous;
-    var message = newException?.Previous;
-    var continuation = throwInstruction.Next;
-    Require(message != null && message.OpCode == OpCodes.Ldstr &&
-        (string)message.Operand == "Disposing target that is still bound" &&
-        newException != null && newException.OpCode == OpCodes.Newobj &&
-        newException.Operand is MethodReference exceptionConstructor &&
-        exceptionConstructor.FullName == "System.Void System.InvalidOperationException::.ctor(System.String)" &&
-        continuation != null && message.Previous.OpCode == OpCodes.Bne_Un_S &&
-        ReferenceEquals(message.Previous.Operand, continuation),
-        "unexpected RenderTarget2D.Dispose bound-target cleanup shape");
-    RequireNoIncoming(dispose, newException!, throwInstruction);
+    // FNA 23.10 (tModLoader) no longer throws for a still-bound target; only the vanilla game's
+    // older FNA needs the cleanup patch.
+    Instruction? throwInstruction = null, newException = null, message = null, continuation = null;
+    if (tmodloader)
+        Require(throws.Length == 0, "tModLoader FNA RenderTarget2D.Dispose unexpectedly throws; review the cleanup patch");
+    else
+    {
+        Require(throws.Length == 1, "RenderTarget2D.Dispose must have exactly one bound-target throw");
+        throwInstruction = throws[0];
+        newException = throwInstruction.Previous;
+        message = newException?.Previous;
+        continuation = throwInstruction.Next;
+        Require(message != null && message.OpCode == OpCodes.Ldstr &&
+            (string)message.Operand == "Disposing target that is still bound" &&
+            newException != null && newException.OpCode == OpCodes.Newobj &&
+            newException.Operand is MethodReference exceptionConstructor &&
+            exceptionConstructor.FullName == "System.Void System.InvalidOperationException::.ctor(System.String)" &&
+            continuation != null && message.Previous.OpCode == OpCodes.Bne_Un_S &&
+            ReferenceEquals(message.Previous.Operand, continuation),
+            "unexpected RenderTarget2D.Dispose bound-target cleanup shape");
+        RequireNoIncoming(dispose, newException!, throwInstruction);
+    }
     var graphicsResource = FindType(module, "Microsoft.Xna.Framework.Graphics.GraphicsResource");
     var graphicsDevice = FindType(module, "Microsoft.Xna.Framework.Graphics.GraphicsDevice");
     var getDevice = FindMethod(graphicsResource, "get_GraphicsDevice", "Microsoft.Xna.Framework.Graphics.GraphicsDevice");
@@ -63,25 +77,36 @@ static void Patch(string input, string output, string helper)
     var fullRoot = FindMethod(contentManager, "get_RootDirectoryFullPath", "System.String");
     var platform = FindType(module, "Microsoft.Xna.Framework.SDL2_FNAPlatform");
     var baseRoot = FindMethod(platform, "GetBaseDirectory", "System.String");
-    foreach (var method in new[] { root, fullRoot, baseRoot })
+    if (tmodloader)
     {
-        RequireBody(method);
-        Require(method.Body.ExceptionHandlers.Count == 0 &&
-            !method.Body.Instructions.Any(i => i.OpCode == OpCodes.Ldstr && ((string)i.Operand).StartsWith("romfs:")),
-            "unexpected or already patched root accessor: " + method.FullName);
+        Require(baseRoot.Body.Instructions.Count == 2 && baseRoot.Body.Instructions[0].OpCode == OpCodes.Ldstr &&
+            (string)baseRoot.Body.Instructions[0].Operand == "romfs:/",
+            "tModLoader FNA must already return romfs:/ from SDL2_FNAPlatform.GetBaseDirectory");
+        Require(!root.Body.Instructions.Any(i => i.OpCode == OpCodes.Ldstr) && !fullRoot.Body.Instructions.Any(i => i.OpCode == OpCodes.Ldstr),
+            "tModLoader FNA ContentManager roots must be unpatched");
     }
-    Require(root.Body.Instructions.Count == 3 && root.Body.Instructions[0].OpCode == OpCodes.Ldarg_0 &&
-        root.Body.Instructions[1].OpCode == OpCodes.Ldfld &&
-        root.Body.Instructions[1].Operand is FieldReference rootField &&
-        rootField.Name == "<RootDirectory>k__BackingField" && root.Body.Instructions[2].OpCode == OpCodes.Ret,
-        "unexpected ContentManager.RootDirectory IL");
-    Require(fullRoot.Body.Instructions.Count == 12 && Calls(fullRoot, contentManager.FullName, "get_RootDirectory").Length == 3 &&
-        Calls(fullRoot, "System.IO.Path", "IsPathRooted").Length == 1 &&
-        Calls(fullRoot, "System.IO.Path", "Combine").Length == 1,
-        "unexpected ContentManager.RootDirectoryFullPath IL");
-    Require(baseRoot.IsStatic && Calls(baseRoot, "SDL2.SDL", "SDL_GetBasePath").Length == 1 &&
-        baseRoot.Body.Instructions.Any(i => i.OpCode == OpCodes.Ldstr && (string)i.Operand == "FNA_SDL_FORCE_BASE_PATH"),
-        "unexpected SDL2_FNAPlatform.GetBaseDirectory IL");
+    else
+    {
+        foreach (var method in new[] { root, fullRoot, baseRoot })
+        {
+            RequireBody(method);
+            Require(method.Body.ExceptionHandlers.Count == 0 &&
+                !method.Body.Instructions.Any(i => i.OpCode == OpCodes.Ldstr && ((string)i.Operand).StartsWith("romfs:")),
+                "unexpected or already patched root accessor: " + method.FullName);
+        }
+        Require(root.Body.Instructions.Count == 3 && root.Body.Instructions[0].OpCode == OpCodes.Ldarg_0 &&
+            root.Body.Instructions[1].OpCode == OpCodes.Ldfld &&
+            root.Body.Instructions[1].Operand is FieldReference rootField &&
+            rootField.Name == "<RootDirectory>k__BackingField" && root.Body.Instructions[2].OpCode == OpCodes.Ret,
+            "unexpected ContentManager.RootDirectory IL");
+        Require(fullRoot.Body.Instructions.Count == 12 && Calls(fullRoot, contentManager.FullName, "get_RootDirectory").Length == 3 &&
+            Calls(fullRoot, "System.IO.Path", "IsPathRooted").Length == 1 &&
+            Calls(fullRoot, "System.IO.Path", "Combine").Length == 1,
+            "unexpected ContentManager.RootDirectoryFullPath IL");
+        Require(baseRoot.IsStatic && Calls(baseRoot, "SDL2.SDL", "SDL_GetBasePath").Length == 1 &&
+            baseRoot.Body.Instructions.Any(i => i.OpCode == OpCodes.Ldstr && (string)i.Operand == "FNA_SDL_FORCE_BASE_PATH"),
+            "unexpected SDL2_FNAPlatform.GetBaseDirectory IL");
+    }
 
     var programInit = FindMethod(platform, "ProgramInit", "System.String", "Microsoft.Xna.Framework.LaunchParameters");
     RequireBody(programInit);
@@ -153,23 +178,32 @@ static void Patch(string input, string output, string helper)
     var getButton = HelperMethod("GetButton", module.TypeSystem.Byte, module.TypeSystem.IntPtr, module.TypeSystem.Int32);
     var phases = phaseNames.ToDictionary(name => name, name => HelperMethod(name, module.TypeSystem.Void));
 
-    fna3d.IsPublic = true;
-    linkedVersion.IsPublic = true;
-    // Preserve the known-good cleanup: unbind, then continue disposing buffers/base.
-    // Reuse original instruction objects so no branch can target removed IL.
-    message!.OpCode = OpCodes.Ldarg_0;
-    message.Operand = null;
-    newException!.OpCode = OpCodes.Call;
-    newException.Operand = getDevice;
-    throwInstruction.OpCode = OpCodes.Ldnull;
-    throwInstruction.Operand = null;
-    var disposeIl = dispose.Body.GetILProcessor();
-    var unbind = Instruction.Create(OpCodes.Callvirt, setTarget);
-    disposeIl.InsertAfter(throwInstruction, unbind);
-    disposeIl.InsertAfter(unbind, Instruction.Create(OpCodes.Br, continuation!));
-    ReplaceWithRomfsRoot(root, "romfs:/Content");
-    ReplaceWithRomfsRoot(fullRoot, "romfs:/Content");
-    ReplaceWithRomfsRoot(baseRoot, "romfs:/");
+    if (!tmodloader)
+    {
+        fna3d.IsPublic = true;
+        linkedVersion.IsPublic = true;
+    }
+    if (!tmodloader)
+    {
+        // Preserve the known-good cleanup: unbind, then continue disposing buffers/base.
+        // Reuse original instruction objects so no branch can target removed IL.
+        message!.OpCode = OpCodes.Ldarg_0;
+        message.Operand = null;
+        newException!.OpCode = OpCodes.Call;
+        newException.Operand = getDevice;
+        throwInstruction!.OpCode = OpCodes.Ldnull;
+        throwInstruction.Operand = null;
+        var disposeIl = dispose.Body.GetILProcessor();
+        var unbind = Instruction.Create(OpCodes.Callvirt, setTarget);
+        disposeIl.InsertAfter(throwInstruction, unbind);
+        disposeIl.InsertAfter(unbind, Instruction.Create(OpCodes.Br, continuation!));
+    }
+    if (!tmodloader)
+    {
+        ReplaceWithRomfsRoot(root, "romfs:/Content");
+        ReplaceWithRomfsRoot(fullRoot, "romfs:/Content");
+        ReplaceWithRomfsRoot(baseRoot, "romfs:/");
+    }
     programInit.Body.GetILProcessor().InsertAfter(sdlInitCalls[0], Instruction.Create(OpCodes.Call, installMapping));
     foreach (var call in buttons)
         call.Operand = getButton;
@@ -196,9 +230,18 @@ static void Patch(string input, string output, string helper)
         module.AssemblyReferences.Last().FullName == diagAssembly.Name.FullName,
         "patch unexpectedly changed assembly references beyond adding NxInputDiag");
     Directory.CreateDirectory(Path.GetDirectoryName(output)!);
+    if (tmodloader)
+    {
+        // tModLoader FNA is AOT-compiled per build: a content-derived MVID keeps a stale AOT
+        // image from binding to changed IL. Vanilla mode keeps the historical output bytes.
+        using var image = new MemoryStream();
+        assembly.Write(image);
+        module.Mvid = new Guid(System.Security.Cryptography.SHA256.HashData(image.ToArray()).AsSpan(0, 16));
+    }
     assembly.Write(output);
-    Console.WriteLine("patched FNA3D/version public access and bound-render-target disposal cleanup");
-    Console.WriteLine("patched ContentManager roots=romfs:/Content, SDL2 title root=romfs:/");
+    Console.WriteLine(tmodloader
+        ? "tModLoader mode: RenderTarget2D.Dispose already unbinds safely (no throw); ContentManager roots, SDL2 title root and FNA3D visibility left as-is"
+        : "patched bound-render-target disposal cleanup, FNA3D/version public access, ContentManager roots=romfs:/Content, SDL2 title root=romfs:/");
     Console.WriteLine("installed Switch mapping hooks=1; replaced GetGamePadState SDL button calls=21");
     Console.WriteLine("Game.Tick hooks: BeginTick=1 EndTick=2 BeginUpdate=2 EndUpdate=2 BeginDraw=1 EndDraw=1");
     Console.WriteLine("preserved gameplay scheduling and existing assembly references; added NxInputDiag only");

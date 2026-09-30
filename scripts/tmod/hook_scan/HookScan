@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+DOTNET_ROOT="/home/juzoka/.cache/terraria-switch-build/runtime-source/.dotnet"
+export DOTNET_ROOT
+exec "$DOTNET_ROOT/dotnet" "/home/juzoka/terrabuilder-nx/scripts/tmod/hook_scan/bin/Debug/net9.0/HookScan.dll" "$@"

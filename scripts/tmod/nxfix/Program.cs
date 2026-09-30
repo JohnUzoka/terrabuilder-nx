@@ -67,8 +67,9 @@
 //    padding removal on decrypt, matching Terraria's Padding=None load). The same rewrite is
 //    applied to Player.SavePlayerFile_Vanilla and Player.LoadPlayerFromStream: the
 //    RijndaelManaged instance load becomes nop and SymmetricAlgorithm.Create*(key, iv) becomes
-//    NxCrypto.Create*(key, iv). AchievementManager keeps RijndaelManaged, as in vanilla: its
-//    save/load run inside ProtectedInvoke (logged, non-fatal) and its decrypt expects PKCS7.
+//    NxCrypto.Create*(key, iv). AchievementManager similarly uses RijndaelManaged with _cryptoKey
+//    for both Save (PKCS7 encrypt) and Load / LoadExistingAchievements (PKCS7 decrypt); these calls
+//    are rewritten to NxCrypto.Create*(key, iv) with the RijndaelManaged ctor popped/nopped.
 //
 // The output gets a new MVID: a hash of the assembly as written with the stock MVID, so any
 // IL change yields a different MVID. Mono binds an AOT image to its assembly by MVID; the
@@ -386,6 +387,36 @@ foreach (var (methodName, factory) in new[] { ("SavePlayerFile_Vanilla", "Create
     cryptoSites++;
 }
 Console.WriteLine($"FIX Player save/load: RijndaelManaged -> NxCrypto ({cryptoSites} sites)");
+
+var achMgr = module.GetType("Terraria.Achievements.AchievementManager");
+int achCryptoSites = 0;
+foreach (var (methodName, factory, paramCount) in new[] {
+    ("Save", "CreateEncryptor", 2),
+    ("Load", "CreateDecryptor", 2),
+    ("LoadExistingAchievements", "CreateDecryptor", 2)
+})
+{
+    var method = achMgr.Methods.Single(m => m.Name == methodName && m.Parameters.Count == paramCount);
+    var code = method.Body.Instructions;
+    var call = code.Single(i => i.OpCode == OpCodes.Callvirt && i.Operand is MethodReference r
+        && r.DeclaringType.FullName == "System.Security.Cryptography.SymmetricAlgorithm" && r.Name == factory);
+    var iv = call.Previous; var key = iv.Previous; var instance = key.Previous;
+    if (!(iv.OpCode == OpCodes.Ldfld && ((FieldReference)iv.Operand).Name == "_cryptoKey"
+        && key.OpCode == OpCodes.Ldarg_0
+        && instance.OpCode == OpCodes.Ldfld && ((FieldReference)instance.Operand).Name == "_cryptoKey"))
+        throw new InvalidOperationException($"unexpected crypto call shape in AchievementManager.{methodName}");
+    var newobj = instance.Previous.Previous;
+    if (newobj.OpCode != OpCodes.Newobj || !((MethodReference)newobj.Operand).DeclaringType.FullName.Contains("RijndaelManaged"))
+        throw new InvalidOperationException($"unexpected RijndaelManaged constructor in AchievementManager.{methodName}");
+    newobj.OpCode = OpCodes.Nop;
+    newobj.Operand = null;
+    call.OpCode = OpCodes.Call;
+    call.Operand = module.ImportReference(nxCrypto.Methods.Single(m => m.Name == factory));
+    if (UnderflowingPops(method, unrepairable).Count > 0 || unrepairable.Count > 0)
+        throw new InvalidOperationException($"AchievementManager.{methodName} does not verify after patch: " + string.Join("; ", unrepairable));
+    achCryptoSites++;
+}
+Console.WriteLine($"FIX AchievementManager save/load: RijndaelManaged -> NxCrypto ({achCryptoSites} sites)");
 
 var oldMvid = module.Mvid;
 using (var image = new MemoryStream())

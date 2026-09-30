@@ -2,10 +2,15 @@
 tModLoader.dll.
 
 tModLoader.dll's IL changed (see scripts/tmod/nxfix), so its AOT object is recompiled from
-the exact file that is packaged. FNA.dll, its AOT object, the CoreLib object and the
-launcher object (main_tmod.o) are tmod02's, byte-identical; the link line is tmod02's.
-RomFS = tmod03's (1.4.4.9 Content + tModLoader overlay) with tModLoader.dll replaced and the
-vanilla port's NxCrypto.dll added (managed AES for player saves; runs interpreted, not AOT).
+the exact file that is packaged. If $TMOD_VARIANT/input/FNA.dll exists (patched by
+scripts/patch_fna --tmodloader: Switch controller mapping, latched native button reads,
+Game.Tick input hooks), FNA is recompiled from it too and the vanilla port's NxInputDiag.dll
+is packaged; otherwise FNA.dll and its object are tmod02's. The CoreLib object and the
+launcher object (main_tmod.o, which already registers NxInputDiag's internal calls) are
+tmod02's, byte-identical; the link line is tmod02's.
+RomFS = tmod03's (1.4.4.9 Content + tModLoader overlay) with tModLoader.dll (and patched FNA)
+replaced and the vanilla port's NxCrypto.dll added (managed AES for player saves). NxCrypto and
+NxInputDiag run interpreted, not AOT.
 
 Run inside localhost/monobuild:local with /build = ~/.cache/terraria-switch-build and
 /mono-nx = recovery46/sdk-pristine. Input: /build/tmod/$TMOD_VARIANT/input/tModLoader.dll from
@@ -54,18 +59,29 @@ assert tml.is_file(), 'run NxFix first'
 env = dict(os.environ, PATH='/opt/devkitpro/devkitA64/bin:' + os.environ['PATH'], TOPDIR=str(OUT))
 env = dict(os.environ, PATH='/opt/devkitpro/devkitA64/bin:' + os.environ['PATH'], TOPDIR=str(NATIVE))
 # 1. AOT: same compiler and options tmod02 used; FNA.dll sits beside tModLoader.dll so it resolves.
-shutil.copy2(SRC / 'input/FNA.dll', INPUT / 'FNA.dll')
-tml_sha = sha(tml)
+NXINPUTDIAG_SHA256 = '78cf76fa72ba2f61868b6650921dbfce235396d8c4519af5d9c87b58bc9ea591'
+nxinputdiag = ROOT / 'hint52/aot-final/runtime-romfs/NxInputDiag.dll'
+patched_fna = (INPUT / 'FNA.dll').exists()
+if patched_fna:
+    assert sha(nxinputdiag) == NXINPUTDIAG_SHA256, 'NxInputDiag.dll differs from the vanilla port copy'
+    shutil.copy2(nxinputdiag, INPUT / 'NxInputDiag.dll')
+else:
+    shutil.copy2(SRC / 'input/FNA.dll', INPUT / 'FNA.dll')
+fna = INPUT / 'FNA.dll'
+tml_sha, fna_sha = sha(tml), sha(fna)
 AOT.mkdir()
-run([CROSS,
-     '--path=/build/runtime-source/artifacts/bin/mono/libnx.arm64.Release',
-     '--path=/build/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64',
-     '--path=/build/tmod/flat_libs', f'--path={INPUT}',
-     f'--aot=full,interp,static,outfile={AOT}/tModLoader.dll.o,tool-prefix=aarch64-none-elf-',
+aot_paths = ['--path=/build/runtime-source/artifacts/bin/mono/libnx.arm64.Release',
+             '--path=/build/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64',
+             '--path=/build/tmod/flat_libs', f'--path={INPUT}']
+run([CROSS, *aot_paths, f'--aot=full,interp,static,outfile={AOT}/tModLoader.dll.o,tool-prefix=aarch64-none-elf-',
      tml], 'aot-tModLoader', cwd=OUT)
-assert sha(tml) == tml_sha, 'compiler input changed during AOT'
-for name in ('FNA.dll.o', 'System.Private.CoreLib.dll.o'):
-    shutil.copy2(SRC / 'aot' / name, AOT / name)
+if patched_fna:
+    run([CROSS, *aot_paths, f'--aot=full,interp,static,outfile={AOT}/FNA.dll.o,tool-prefix=aarch64-none-elf-',
+         fna], 'aot-FNA', cwd=OUT)
+else:
+    shutil.copy2(SRC / 'aot/FNA.dll.o', AOT / 'FNA.dll.o')
+assert sha(tml) == tml_sha and sha(fna) == fna_sha, 'compiler input changed during AOT'
+shutil.copy2(SRC / 'aot/System.Private.CoreLib.dll.o', AOT / 'System.Private.CoreLib.dll.o')
 
 # 2. Link: tmod02's recorded arguments, launcher object and runtime swap.
 recorded = {}
@@ -96,11 +112,15 @@ candidate.mkdir()
 run(['aarch64-none-elf-gcc', *recorded['LDFLAGS'], *objs, *recorded['LIBPATHS'], *libraries,
      '-o', candidate / 'tmodloader.elf'], 'link-candidate', cwd=NATIVE)
 
-# 3. RomFS: tmod03's, with only tModLoader.dll replaced (fresh copy; tmod03 is untouched).
+# 3. RomFS: tmod03's, with tModLoader.dll (and patched FNA) replaced (fresh copy; tmod03 untouched).
 romfs = OUT / 'romfs'
 shutil.copytree(PAYLOAD / 'romfs', romfs)
 (romfs / 'tModLoader.dll').unlink()
 shutil.copy2(tml, romfs / 'tModLoader.dll')
+if patched_fna:
+    (romfs / 'FNA.dll').unlink()
+    shutil.copy2(fna, romfs / 'FNA.dll')
+    shutil.copy2(nxinputdiag, romfs / 'NxInputDiag.dll')
 NXCRYPTO_SHA256 = 'ad4d9c1120a5415face6e0a75dad137f92916929f1f1ff66087aab780ce285d1'
 nxcrypto = ROOT / 'hint52/aot-final/runtime-romfs/NxCrypto.dll'
 assert sha(nxcrypto) == NXCRYPTO_SHA256, 'NxCrypto.dll differs from the vanilla port copy'
@@ -122,7 +142,9 @@ manifest['provenance_and_binding'] = {
     'tModLoader': {'compiler_input_dll': str(tml), 'compiler_input_sha256': tml_sha,
                    'romfs_payload_dll': str(romfs / 'tModLoader.dll'), 'romfs_payload_sha256': sha(romfs / 'tModLoader.dll'),
                    'aot_object': str(AOT / 'tModLoader.dll.o'), 'aot_object_sha256': sha(AOT / 'tModLoader.dll.o')},
-    'FNA': dict(binding02['FNA'], romfs_payload_dll=str(romfs / 'FNA.dll'), aot_object=str(AOT / 'FNA.dll.o')),
+    'FNA': {'compiler_input_dll': str(fna), 'compiler_input_sha256': fna_sha,
+            'romfs_payload_dll': str(romfs / 'FNA.dll'), 'romfs_payload_sha256': sha(romfs / 'FNA.dll'),
+            'aot_object': str(AOT / 'FNA.dll.o'), 'aot_object_sha256': sha(AOT / 'FNA.dll.o')},
     'System.Private.CoreLib': dict(binding02['System.Private.CoreLib'], aot_object=str(AOT / 'System.Private.CoreLib.dll.o')),
 }
 manifest['final_deliverables'] = {
