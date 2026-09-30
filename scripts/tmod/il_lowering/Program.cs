@@ -1406,62 +1406,138 @@ public class Program
                 Parameters = { new ParameterDefinition(detourAsm.MainModule.TypeSystem.String) }
             });
 
-        // 1. Patch ILHook.Apply()
+        // 1. ILHook never reaches MonoMod.Core. Stock constructors call DetourContext.GetDefaultFactory()
+        //    and PlatformTriple.Current.GetIdentifiable(method), and build DetourManager state; on the
+        //    Switch MonoMod.Core has no platform, so DetourFactory's type initializer throws before Apply
+        //    runs (tmod20 hardware: Luminance's IL_Main.add_DoDraw). The lowered hook keeps only the
+        //    target, manipulator and config; Apply/Undo drive LoweredILRegistry and an __applied flag.
         var ilHookType = detourAsm.MainModule.GetType("MonoMod.RuntimeDetour.ILHook");
-        var applyMethod = ilHookType.Methods.First(m => m.Name == "Apply");
-        applyMethod.Body.Instructions.Clear();
-        applyMethod.Body.Variables.Clear();
-        applyMethod.Body.ExceptionHandlers.Clear();
-        applyMethod.Body.InitLocals = true;
+        var module = detourAsm.MainModule;
+        var appliedField = new FieldDefinition("__applied", FieldAttributes.Private, module.TypeSystem.Boolean);
+        ilHookType.Fields.Add(appliedField);
+        var methodField = ilHookType.Fields.Single(f => f.Name == "<Method>k__BackingField");
+        var manipField = ilHookType.Fields.Single(f => f.Name == "<Manipulator>k__BackingField");
+        var configField = ilHookType.Fields.Single(f => f.Name == "<Config>k__BackingField");
+        var factoryField = ilHookType.Fields.Single(f => f.Name == "factory");
+        var disposedField = ilHookType.Fields.Single(f => f.Name == "disposedValue");
+        var checkDisposed = ilHookType.Methods.Single(m => m.Name == "CheckDisposed");
+        var applyMethod = ilHookType.Methods.Single(m => m.Name == "Apply" && m.Parameters.Count == 0);
+        var undoMethod = ilHookType.Methods.Single(m => m.Name == "Undo" && m.Parameters.Count == 0);
+        var objectCtor = module.ImportReference(new MethodReference(".ctor", module.TypeSystem.Void, module.TypeSystem.Object) { HasThis = true });
+        var argumentNullCtor = module.ImportReference(
+            new MethodReference(".ctor", module.TypeSystem.Void,
+                new TypeReference("System", "ArgumentNullException", module, sysRuntimeAsm))
+            {
+                HasThis = true,
+                Parameters = { new ParameterDefinition(module.TypeSystem.String) }
+            });
 
+        void ResetBody(MethodDefinition method)
+        {
+            method.Body.Instructions.Clear();
+            method.Body.Variables.Clear();
+            method.Body.ExceptionHandlers.Clear();
+            method.Body.InitLocals = true;
+        }
+
+        var getDefaultFactory = module.GetType("MonoMod.RuntimeDetour.DetourContext").Methods.Single(m => m.Name == "GetDefaultFactory");
+        foreach (var ctor in ilHookType.Methods.Where(m => m.IsConstructor && !m.IsStatic))
+            foreach (var instruction in ctor.Body.Instructions.Where(i => i.Operand is MethodReference m && m.FullName == getDefaultFactory.FullName).ToList())
+            {
+                instruction.OpCode = OpCodes.Ldnull;
+                instruction.Operand = null;
+            }
+
+        var coreCtor = ilHookType.Methods.Single(m => m.IsConstructor && !m.IsStatic && m.Parameters.Count == 5
+            && m.Parameters[2].ParameterType.FullName == "MonoMod.Core.IDetourFactory");
+        ResetBody(coreCtor);
+        var ilCtor = coreCtor.Body.GetILProcessor();
+        ilCtor.Append(ilCtor.Create(OpCodes.Ldarg_0));
+        ilCtor.Append(ilCtor.Create(OpCodes.Call, objectCtor));
+        foreach (var (parameter, name) in new[] { (coreCtor.Parameters[0], "method"), (coreCtor.Parameters[1], "manipulator") })
+        {
+            var present = ilCtor.Create(OpCodes.Nop);
+            ilCtor.Append(ilCtor.Create(OpCodes.Ldarg, parameter));
+            ilCtor.Append(ilCtor.Create(OpCodes.Brtrue, present));
+            ilCtor.Append(ilCtor.Create(OpCodes.Ldstr, name));
+            ilCtor.Append(ilCtor.Create(OpCodes.Newobj, argumentNullCtor));
+            ilCtor.Append(ilCtor.Create(OpCodes.Throw));
+            ilCtor.Append(present);
+        }
+        foreach (var (parameter, field) in new[] { (coreCtor.Parameters[0], methodField), (coreCtor.Parameters[1], manipField),
+                                                   (coreCtor.Parameters[2], factoryField), (coreCtor.Parameters[3], configField) })
+        {
+            ilCtor.Append(ilCtor.Create(OpCodes.Ldarg_0));
+            ilCtor.Append(ilCtor.Create(OpCodes.Ldarg, parameter));
+            ilCtor.Append(ilCtor.Create(OpCodes.Stfld, field));
+        }
+        var ctorDone = ilCtor.Create(OpCodes.Ret);
+        ilCtor.Append(ilCtor.Create(OpCodes.Ldarg, coreCtor.Parameters[4]));
+        ilCtor.Append(ilCtor.Create(OpCodes.Brfalse, ctorDone));
+        ilCtor.Append(ilCtor.Create(OpCodes.Ldarg_0));
+        ilCtor.Append(ilCtor.Create(OpCodes.Call, applyMethod));
+        ilCtor.Append(ctorDone);
+
+        // Apply: if disposed throw; if applied return; lowered target -> Register, applied = true;
+        // otherwise NotSupportedException (fail closed, never MonoMod.Core).
+        ResetBody(applyMethod);
         var ilApply = applyMethod.Body.GetILProcessor();
-        var notLoweredApply = ilApply.Create(OpCodes.Nop);
-
-        // if (LoweredILRegistry.IsLoweredTarget(this.Method)) { LoweredILRegistry.Register(this.Method, this.Manipulator); return; }
+        var applyDone = ilApply.Create(OpCodes.Ret);
+        var notLoweredApply = ilApply.Create(OpCodes.Ldstr,
+            "Runtime ILHook on target method is unsupported on Nintendo Switch (no JIT). Target method must be lowered at build time.");
         ilApply.Append(ilApply.Create(OpCodes.Ldarg_0));
-        ilApply.Append(ilApply.Create(OpCodes.Call, ilHookType.Methods.First(m => m.Name == "get_Method")));
-        ilApply.Append(ilApply.Create(OpCodes.Dup));
+        ilApply.Append(ilApply.Create(OpCodes.Call, checkDisposed));
+        ilApply.Append(ilApply.Create(OpCodes.Ldarg_0));
+        ilApply.Append(ilApply.Create(OpCodes.Ldfld, appliedField));
+        ilApply.Append(ilApply.Create(OpCodes.Brtrue, applyDone));
+        ilApply.Append(ilApply.Create(OpCodes.Ldarg_0));
+        ilApply.Append(ilApply.Create(OpCodes.Ldfld, methodField));
         ilApply.Append(ilApply.Create(OpCodes.Call, isLoweredRef));
         ilApply.Append(ilApply.Create(OpCodes.Brfalse, notLoweredApply));
-
-        // Lowered target branch
         ilApply.Append(ilApply.Create(OpCodes.Ldarg_0));
-        ilApply.Append(ilApply.Create(OpCodes.Call, ilHookType.Methods.First(m => m.Name == "get_Manipulator")));
+        ilApply.Append(ilApply.Create(OpCodes.Ldfld, methodField));
+        ilApply.Append(ilApply.Create(OpCodes.Ldarg_0));
+        ilApply.Append(ilApply.Create(OpCodes.Ldfld, manipField));
         ilApply.Append(ilApply.Create(OpCodes.Call, regRef));
+        ilApply.Append(ilApply.Create(OpCodes.Ldarg_0));
+        ilApply.Append(ilApply.Create(OpCodes.Ldc_I4_1));
+        ilApply.Append(ilApply.Create(OpCodes.Stfld, appliedField));
         ilApply.Append(ilApply.Create(OpCodes.Ret));
-
-        // Not lowered target branch -> throw NotSupportedException
         ilApply.Append(notLoweredApply);
-        ilApply.Append(ilApply.Create(OpCodes.Pop)); // pop method
-        ilApply.Append(ilApply.Create(OpCodes.Ldstr, "Runtime ILHook on target method is unsupported on Nintendo Switch (no JIT). Target method must be lowered at build time."));
         ilApply.Append(ilApply.Create(OpCodes.Newobj, notSupportedCtor));
         ilApply.Append(ilApply.Create(OpCodes.Throw));
+        ilApply.Append(applyDone);
 
-        // 2. Patch ILHook.Undo()
-        var undoMethod = ilHookType.Methods.First(m => m.Name == "Undo");
-        undoMethod.Body.Instructions.Clear();
-        undoMethod.Body.Variables.Clear();
-        undoMethod.Body.ExceptionHandlers.Clear();
-        undoMethod.Body.InitLocals = true;
-
+        // Undo: only an applied hook unregisters, so repeated Undo/Dispose cannot unbalance the registry.
+        ResetBody(undoMethod);
         var ilUndo = undoMethod.Body.GetILProcessor();
-        var notLoweredUndo = ilUndo.Create(OpCodes.Nop);
-
-        // if (LoweredILRegistry.IsLoweredTarget(this.Method)) { LoweredILRegistry.Unregister(this.Method, this.Manipulator); return; }
+        var undoDone = ilUndo.Create(OpCodes.Ret);
         ilUndo.Append(ilUndo.Create(OpCodes.Ldarg_0));
-        ilUndo.Append(ilUndo.Create(OpCodes.Call, ilHookType.Methods.First(m => m.Name == "get_Method")));
-        ilUndo.Append(ilUndo.Create(OpCodes.Dup));
-        ilUndo.Append(ilUndo.Create(OpCodes.Call, isLoweredRef));
-        ilUndo.Append(ilUndo.Create(OpCodes.Brfalse, notLoweredUndo));
-
+        ilUndo.Append(ilUndo.Create(OpCodes.Ldfld, appliedField));
+        ilUndo.Append(ilUndo.Create(OpCodes.Brfalse, undoDone));
         ilUndo.Append(ilUndo.Create(OpCodes.Ldarg_0));
-        ilUndo.Append(ilUndo.Create(OpCodes.Call, ilHookType.Methods.First(m => m.Name == "get_Manipulator")));
+        ilUndo.Append(ilUndo.Create(OpCodes.Ldc_I4_0));
+        ilUndo.Append(ilUndo.Create(OpCodes.Stfld, appliedField));
+        ilUndo.Append(ilUndo.Create(OpCodes.Ldarg_0));
+        ilUndo.Append(ilUndo.Create(OpCodes.Ldfld, methodField));
+        ilUndo.Append(ilUndo.Create(OpCodes.Ldarg_0));
+        ilUndo.Append(ilUndo.Create(OpCodes.Ldfld, manipField));
         ilUndo.Append(ilUndo.Create(OpCodes.Call, unregRef));
-        ilUndo.Append(ilUndo.Create(OpCodes.Ret));
+        ilUndo.Append(undoDone);
 
-        ilUndo.Append(notLoweredUndo);
-        ilUndo.Append(ilUndo.Create(OpCodes.Pop));
-        ilUndo.Append(ilUndo.Create(OpCodes.Ret));
+        var isApplied = ilHookType.Methods.Single(m => m.Name == "get_IsApplied");
+        ResetBody(isApplied);
+        var ilIsApplied = isApplied.Body.GetILProcessor();
+        ilIsApplied.Append(ilIsApplied.Create(OpCodes.Ldarg_0));
+        ilIsApplied.Append(ilIsApplied.Create(OpCodes.Ldfld, appliedField));
+        ilIsApplied.Append(ilIsApplied.Create(OpCodes.Ret));
+
+        var hookInfo = ilHookType.Methods.Single(m => m.Name == "get_HookInfo");
+        ResetBody(hookInfo);
+        var ilHookInfo = hookInfo.Body.GetILProcessor();
+        ilHookInfo.Append(ilHookInfo.Create(OpCodes.Ldstr, "ILHook.HookInfo is unavailable for build-time lowered IL hooks on Nintendo Switch."));
+        ilHookInfo.Append(ilHookInfo.Create(OpCodes.Newobj, notSupportedCtor));
+        ilHookInfo.Append(ilHookInfo.Create(OpCodes.Throw));
 
         // 3. Patch ILHookInfo.ApplyCore and UndoCore
         var hookInfoType = detourAsm.MainModule.GetType("MonoMod.RuntimeDetour.ILHookInfo");
@@ -1536,6 +1612,9 @@ public class Program
             var ilDisp = dispMethod.Body.GetILProcessor();
             ilDisp.Append(ilDisp.Create(OpCodes.Ldarg_0));
             ilDisp.Append(ilDisp.Create(OpCodes.Call, undoMethod));
+            ilDisp.Append(ilDisp.Create(OpCodes.Ldarg_0));
+            ilDisp.Append(ilDisp.Create(OpCodes.Ldc_I4_1));
+            ilDisp.Append(ilDisp.Create(OpCodes.Stfld, disposedField));
             ilDisp.Append(ilDisp.Create(OpCodes.Ret));
         }
 
