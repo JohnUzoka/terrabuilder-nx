@@ -13,7 +13,9 @@ DLL names] compiles those through Mono's LLVM backend (run in monobuild-llvm:loc
 "native": {"libnx_heap_permille": 625, "gc_stats": true} swaps the fork's 50/50 heap.o for
 launcher/heap_split.c at that libnx share and enables the 5 s NX_GC memory log; "mesa_guard": true
 (needs libnx_heap_permille) links launcher/mesa_guard.c, which moves Mesa's nouveau_mm caches onto
-read-only guard pages and installs a logging exception handler (diagnostic for tmod21/22).
+read-only guard pages, logs nouveau_bo_new failures and installs a logging exception handler
+(diagnostic for tmod21-23); "nv_transfermem_mb": N (needs libnx_heap_permille) replaces libnx's
+8 MB nvdrv transfer memory, which tmod21-23 exhausted.
 LLVM sidecars (<module>-llvm.o) link right after their module object; their absolute
 .rodata pointers go to a writable section, as in vanilla build60+.
 The external SD mod package must stay paired with this NRO; a different MVID
@@ -235,7 +237,7 @@ assert all(name.replace('.', '_').isidentifier() for name in modules)
 (NATIVE / 'mono_aot_modules.h').write_text(''.join(
     'REGISTER_AOT_MODULE(mono_aot_module_' + name.replace('.', '_') + '_info);\n' for name in modules))
 native_config = config.get('native', {})
-assert set(native_config) <= {'libnx_heap_permille', 'gc_stats', 'mesa_guard'}, 'Unknown native key'
+assert set(native_config) <= {'libnx_heap_permille', 'gc_stats', 'mesa_guard', 'nv_transfermem_mb'}, 'Unknown native key'
 main_defines = ['-DMONO_NX_EMBEDDED_BCL=1', '-DMONO_NX_FATAL_DIAG=1']
 if native_config.get('gc_stats'):
     main_defines.append('-DMONO_NX_GC_STATS=1')
@@ -246,12 +248,18 @@ added_objects = {}
 extra_ldflags = []
 mesa_guard = native_config.get('mesa_guard', False)
 assert not mesa_guard or 'libnx_heap_permille' in native_config, 'mesa_guard needs libnx_heap_permille'
+nv_transfermem_mb = native_config.get('nv_transfermem_mb')
+assert nv_transfermem_mb is None or 'libnx_heap_permille' in native_config, 'nv_transfermem_mb needs libnx_heap_permille'
+assert nv_transfermem_mb is None or (isinstance(nv_transfermem_mb, int) and 8 <= nv_transfermem_mb <= 512), \
+    'nv_transfermem_mb out of range'
 if 'libnx_heap_permille' in native_config:
     permille = native_config['libnx_heap_permille']
     assert isinstance(permille, int) and 250 <= permille <= 850, 'libnx_heap_permille out of range'
     heap_defines = ['-DMONO_NX_LIBNX_HEAP_PERMILLE=%d' % permille]
     if mesa_guard:
         heap_defines.append('-DMONO_NX_GUARD_PAGES=4')
+    if nv_transfermem_mb:
+        heap_defines.append('-DMONO_NX_NV_TRANSFERMEM_MB=%d' % nv_transfermem_mb)
     run([ROOT / 'release58/compile_main.sh', Path(__file__).resolve().parent / 'launcher/heap_split.c',
          NATIVE / 'heap_split.o', *heap_defines], 'compile-heap', NATIVE)
     object_overrides['heap.o'] = NATIVE / 'heap_split.o'
@@ -260,7 +268,8 @@ if mesa_guard:
          NATIVE / 'mesa_guard.o'], 'compile-mesa-guard', NATIVE)
     added_objects['mesa_guard.o'] = NATIVE / 'mesa_guard.o'
     extra_ldflags.append('-Wl,' + ','.join('--wrap=nouveau_mm_' + name
-                                          for name in ('create', 'allocate', 'free', 'free_work', 'destroy')))
+                                          for name in ('create', 'allocate', 'free', 'free_work', 'destroy'))
+                        + ',--wrap=nouveau_bo_new')
 shutil.copy2(ROOT / 'hint52/native/aot-method-tables.ld', NATIVE / 'aot-method-tables.ld')
 sidecars = sorted(AOT.glob('*-llvm.o'))
 if sidecars:

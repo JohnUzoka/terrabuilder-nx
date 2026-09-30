@@ -21,12 +21,21 @@ static intptr_t mono_heap_start, mono_heap_end, libnx_heap_start, libnx_heap_end
 uintptr_t mono_nx_guard_region, mono_nx_guard_region_size;
 uintptr_t mono_nx_libnx_heap_start, mono_nx_libnx_heap_end;
 
+// MONO_NX_NV_TRANSFERMEM_MB overrides libnx's 8 MB nvdrv transfer memory (nvservices' own pool for
+// nvmap handles and GPU mappings; taken from the libnx heap). tmod21-23 ran out of it.
+#ifdef MONO_NX_NV_TRANSFERMEM_MB
+u32 __nx_nv_transfermem_size = MONO_NX_NV_TRANSFERMEM_MB * 0x100000;
+#endif
+
 void heap_debug()
 {
     io_debugf("libnx heap: %p-%p (%zu MB)", 
         (void*)libnx_heap_start, (void*)libnx_heap_end, (size_t)(libnx_heap_end - libnx_heap_start) / 1024 / 1024);
     io_debugf("mono heap: %p-%p (%zu MB)", 
         (void*)mono_heap_start, (void*)mono_heap_end, (size_t)(mono_heap_end - mono_heap_start) / 1024 / 1024);
+#ifdef MONO_NX_NV_TRANSFERMEM_MB
+    io_debugf("nv transfermem: %u MB", (unsigned)(__nx_nv_transfermem_size >> 20));
+#endif
     if (mono_nx_guard_region)
         io_debugf("guard region: %p+0x%zx (reserved from the libnx top)",
             (void*)mono_nx_guard_region, (size_t)mono_nx_guard_region_size);

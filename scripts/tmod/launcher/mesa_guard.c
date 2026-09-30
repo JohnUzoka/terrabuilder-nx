@@ -20,6 +20,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <malloc.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -85,6 +86,7 @@ struct nouveau_mm_allocation *__real_nouveau_mm_allocate(struct nouveau_mman *, 
 void __real_nouveau_mm_free(struct nouveau_mm_allocation *);
 void __real_nouveau_mm_free_work(void *);
 void __real_nouveau_mm_destroy(struct nouveau_mman *);
+int __real_nouveau_bo_new(struct nouveau_device *, uint32_t, uint32_t, uint64_t, union nouveau_bo_config *, struct nouveau_bo **);
 
 #define MAX_CACHES 4
 #define PAGE 0x1000
@@ -248,6 +250,49 @@ static void leave(void)
 
 static void relist(struct list_head *h) { h->prev = h->next = h; }
 
+static void guard_abort(void)
+{
+    flush_log();
+#ifdef MESA_GUARD_HOST
+    abort();
+#else
+    diagAbortWithResult(MAKERESULT(Module_Libnx, LibnxError_ShouldNotHappen));
+#endif
+}
+
+static bool in_guard_region(const void *p)
+{
+    uintptr_t a = (uintptr_t)p;
+    return mono_nx_guard_region && a >= mono_nx_guard_region && a < mono_nx_guard_region + mono_nx_guard_region_size;
+}
+
+// libdrm_nouveau (Switch) nouveau_bo_new: calloc + memalign fail with -ENOMEM (-12); nvMapCreate
+// and nvAddressSpaceMap failures return -Result. Mesa's nouveau_mm_allocate ignores the failure.
+static unsigned long bo_created, bo_failed;
+static unsigned long long bo_bytes_created;
+int __wrap_nouveau_bo_new(struct nouveau_device *dev, uint32_t flags, uint32_t align, uint64_t size,
+    union nouveau_bo_config *config, struct nouveau_bo **pbo)
+{
+    int rc = __real_nouveau_bo_new(dev, flags, align, size, config, pbo);
+    GUARD_LOCK();
+    if (rc == 0) {
+        ++bo_created;
+        bo_bytes_created += size;
+        if ((bo_created & 4095) == 0)
+            guard_log("NX_BO created=%lu created_mb=%llu failed=%lu", bo_created, bo_bytes_created >> 20, bo_failed);
+    } else {
+        struct mallinfo mi = mallinfo();
+        ++bo_failed;
+        guard_log("NX_BO FAILED rc=%d (%s, result 0x%x) size=0x%llx align=0x%x flags=0x%x after created=%lu created_mb=%llu malloc_used_mb=%zu arena_mb=%zu",
+            rc, rc == -12 ? "ENOMEM from calloc/memalign" : "nvMapCreate/nvAddressSpaceMap", (unsigned)-rc,
+            (unsigned long long)size, align, flags, bo_created, bo_bytes_created >> 20,
+            (size_t)mi.uordblks >> 20, (size_t)mi.arena >> 20);
+        flush_log();
+    }
+    GUARD_UNLOCK();
+    return rc;
+}
+
 #ifdef MESA_GUARD_HOST
 int nouveau_mm_guard_test_old(int c, uint8_t **out) { *out = caches[c].old; return c < cache_count; }
 #endif
@@ -305,6 +350,13 @@ struct nouveau_mm_allocation *__wrap_nouveau_mm_allocate(struct nouveau_mman *ca
     enter("allocate");
     struct nouveau_mm_allocation *a = __real_nouveau_mm_allocate(cache, size, bo, offset);
     const struct mm_allocation_view *v = (const struct mm_allocation_view *)a;
+    if (v && (in_guard_region(v->priv) || (bo && in_guard_region(*bo)))) {
+        // mm_slab_new failed and Mesa used the empty free-list head as a slab (tmod21-23 crash).
+        guard_log("NX_MESA_GUARD SLAB ALLOCATION FAILED: cache %d size 0x%x got list head %p as its slab (nouveau_bo_new failed; see NX_BO FAILED); aborting before Mesa writes through it",
+            c, size, v->priv);
+        dump_ring();
+        guard_abort();
+    }
     int order = v && heap_pointer(v->priv) ? ((struct mm_slab_view *)v->priv)->order : -1;
     record(EV_ALLOC, c, order, size, offset ? *offset : 0, bo ? (const struct nouveau_bo_view *)*bo : NULL);
     leave();
@@ -381,8 +433,8 @@ void __libnx_exception_handler(ThreadExceptionDump *ctx)
         check_canaries("exception");
         dump_ring();
     }
-    guard_log("NX_EXC handing the exception back to the kernel for the crash report");
-    flush_log();
-    svcReturnFromException(0xF801);
+    // Returning 0xF801 from here left tmod23's process hung; svcBreak ends it with a crash report.
+    guard_log("NX_EXC aborting for the crash report");
+    guard_abort();
 }
 #endif
