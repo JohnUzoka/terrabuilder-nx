@@ -11,7 +11,9 @@ tmod09's (runtime-release/ must match it; component hashes are then recorded, no
 enlarged trampoline pools; tmod09's CoreLib object otherwise), and "llvm_modules": [compiled
 DLL names] compiles those through Mono's LLVM backend (run in monobuild-llvm:local).
 "native": {"libnx_heap_permille": 625, "gc_stats": true} swaps the fork's 50/50 heap.o for
-launcher/heap_split.c at that libnx share and enables the 5 s NX_GC memory log.
+launcher/heap_split.c at that libnx share and enables the 5 s NX_GC memory log; "mesa_guard": true
+(needs libnx_heap_permille) links launcher/mesa_guard.c, which moves Mesa's nouveau_mm caches onto
+read-only guard pages and installs a logging exception handler (diagnostic for tmod21/22).
 LLVM sidecars (<module>-llvm.o) link right after their module object; their absolute
 .rodata pointers go to a writable section, as in vanilla build60+.
 The external SD mod package must stay paired with this NRO; a different MVID
@@ -233,19 +235,32 @@ assert all(name.replace('.', '_').isidentifier() for name in modules)
 (NATIVE / 'mono_aot_modules.h').write_text(''.join(
     'REGISTER_AOT_MODULE(mono_aot_module_' + name.replace('.', '_') + '_info);\n' for name in modules))
 native_config = config.get('native', {})
-assert set(native_config) <= {'libnx_heap_permille', 'gc_stats'}, 'Unknown native key'
+assert set(native_config) <= {'libnx_heap_permille', 'gc_stats', 'mesa_guard'}, 'Unknown native key'
 main_defines = ['-DMONO_NX_EMBEDDED_BCL=1', '-DMONO_NX_FATAL_DIAG=1']
 if native_config.get('gc_stats'):
     main_defines.append('-DMONO_NX_GC_STATS=1')
 run([ROOT / 'release58/compile_main.sh', ROOT / 'tmod/launcher_build/main_tmod.c', NATIVE / 'main_tmod.o',
      *main_defines, '-I' + str(NATIVE)], 'compile-main', NATIVE)
 object_overrides = {'main.o': NATIVE / 'main_tmod.o'}
+added_objects = {}
+extra_ldflags = []
+mesa_guard = native_config.get('mesa_guard', False)
+assert not mesa_guard or 'libnx_heap_permille' in native_config, 'mesa_guard needs libnx_heap_permille'
 if 'libnx_heap_permille' in native_config:
     permille = native_config['libnx_heap_permille']
     assert isinstance(permille, int) and 250 <= permille <= 850, 'libnx_heap_permille out of range'
+    heap_defines = ['-DMONO_NX_LIBNX_HEAP_PERMILLE=%d' % permille]
+    if mesa_guard:
+        heap_defines.append('-DMONO_NX_GUARD_PAGES=4')
     run([ROOT / 'release58/compile_main.sh', Path(__file__).resolve().parent / 'launcher/heap_split.c',
-         NATIVE / 'heap_split.o', '-DMONO_NX_LIBNX_HEAP_PERMILLE=%d' % permille], 'compile-heap', NATIVE)
+         NATIVE / 'heap_split.o', *heap_defines], 'compile-heap', NATIVE)
     object_overrides['heap.o'] = NATIVE / 'heap_split.o'
+if mesa_guard:
+    run([ROOT / 'release58/compile_main.sh', Path(__file__).resolve().parent / 'launcher/mesa_guard.c',
+         NATIVE / 'mesa_guard.o'], 'compile-mesa-guard', NATIVE)
+    added_objects['mesa_guard.o'] = NATIVE / 'mesa_guard.o'
+    extra_ldflags.append('-Wl,' + ','.join('--wrap=nouveau_mm_' + name
+                                          for name in ('create', 'allocate', 'free', 'free_work', 'destroy')))
 shutil.copy2(ROOT / 'hint52/native/aot-method-tables.ld', NATIVE / 'aot-method-tables.ld')
 sidecars = sorted(AOT.glob('*-llvm.o'))
 if sidecars:
@@ -264,6 +279,7 @@ for line in (ROOT / 'recovery46/link-arguments.txt').read_text().splitlines():
 objects_dir = ROOT / 'nochroma42/native/interpreter/build'
 assert set(object_overrides) <= set(recorded['OBJECTS'])
 objects = [object_overrides.get(name, objects_dir / name) for name in recorded['OBJECTS']]
+objects += added_objects.values()
 release_lib = ROOT / 'runtime-source/artifacts/obj/mono/libnx.arm64.Release/out/lib'
 runtime = ROOT / 'runtime-release/libmonosgen-2.0-release.a'
 # "runtime": {"git_commit": ..., "libmonosgen_sha256": ...} deliberately replaces tmod09's runtime
@@ -303,7 +319,7 @@ for sidecar in sidecars:
 libraries[index:index + 1] = aot_objects
 candidate = NATIVE / 'candidate'
 candidate.mkdir()
-run(['aarch64-none-elf-gcc', *recorded['LDFLAGS'], *objects, *recorded['LIBPATHS'], *libraries,
+run(['aarch64-none-elf-gcc', *recorded['LDFLAGS'], *extra_ldflags, *objects, *recorded['LIBPATHS'], *libraries,
      '-o', candidate / 'tmodloader.elf'], 'link-candidate', NATIVE)
 
 shutil.copytree(BASE / 'romfs', ROMFS)
@@ -377,7 +393,7 @@ manifest = {'candidate': VARIANT, 'content': baseline['content'], 'runtime_prove
             'provenance_and_binding': binding, 'modset': dict(config, package=mod_info_by_name[mod]), 'reference_inputs': input_hashes,
             'managed_replacements': {name: {'sha256': input_hashes[name], 'destinations': paths}
                                      for name, paths in replacements.items()},
-            'launcher_objects': {name: {'path': str(path), 'sha256': sha(path)} for name, path in object_overrides.items()},
+            'launcher_objects': {name: {'path': str(path), 'sha256': sha(path)} for name, path in {**object_overrides, **added_objects}.items()},
             'final_deliverables': deliverables}
 (OUT / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
 print('PASS fixed modset:', json.dumps(manifest['final_deliverables']), flush=True)

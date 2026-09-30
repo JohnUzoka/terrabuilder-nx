@@ -13,12 +13,23 @@
 // Store the values here for debugging since we can't print during heap init
 static intptr_t mono_heap_start, mono_heap_end, libnx_heap_start, libnx_heap_end;
 
+// MONO_NX_GUARD_PAGES > 0 reserves that many pages at the top of the libnx range, outside
+// newlib's heap (whose layout from the bottom is unchanged), for mesa_guard.c.
+#ifndef MONO_NX_GUARD_PAGES
+#define MONO_NX_GUARD_PAGES 0
+#endif
+uintptr_t mono_nx_guard_region, mono_nx_guard_region_size;
+uintptr_t mono_nx_libnx_heap_start, mono_nx_libnx_heap_end;
+
 void heap_debug()
 {
     io_debugf("libnx heap: %p-%p (%zu MB)", 
         (void*)libnx_heap_start, (void*)libnx_heap_end, (size_t)(libnx_heap_end - libnx_heap_start) / 1024 / 1024);
     io_debugf("mono heap: %p-%p (%zu MB)", 
         (void*)mono_heap_start, (void*)mono_heap_end, (size_t)(mono_heap_end - mono_heap_start) / 1024 / 1024);
+    if (mono_nx_guard_region)
+        io_debugf("guard region: %p+0x%zx (reserved from the libnx top)",
+            (void*)mono_nx_guard_region, (size_t)mono_nx_guard_region_size);
 }
 
 // Custom symbol exported by mono
@@ -69,8 +80,13 @@ void __libnx_initheap(void)
     extern char* fake_heap_start;
     extern char* fake_heap_end;
 
+    mono_nx_libnx_heap_start = libnx_heap_start;
+    mono_nx_libnx_heap_end = libnx_heap_end;
+    mono_nx_guard_region_size = MONO_NX_GUARD_PAGES * 0x1000;
+    mono_nx_guard_region = mono_nx_guard_region_size ? libnx_heap_end - mono_nx_guard_region_size : 0;
+
     fake_heap_start = (char*)libnx_heap_start;
-    fake_heap_end   = (char*)libnx_heap_end;
+    fake_heap_end   = (char*)(libnx_heap_end - mono_nx_guard_region_size);
 
     // Note that even tho we set the pointers newlib's heap is still not ready cause libnx hasn't called the thread init function yet. We can't use malloc yet.
 	mono_nx_fakemmap_init(mono_heap_start, mono_heap_end);
