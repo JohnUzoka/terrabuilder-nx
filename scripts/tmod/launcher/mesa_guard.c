@@ -270,10 +270,14 @@ static bool in_guard_region(const void *p)
 // and nvAddressSpaceMap failures return -Result. Mesa's nouveau_mm_allocate ignores the failure.
 static unsigned long bo_created, bo_failed;
 static unsigned long long bo_bytes_created;
+// Defined by frame_stats.c when it is linked.
+__attribute__((weak)) void mono_nx_frame_stats_bo(int rc, uint64_t size, uint32_t flags);
 int __wrap_nouveau_bo_new(struct nouveau_device *dev, uint32_t flags, uint32_t align, uint64_t size,
     union nouveau_bo_config *config, struct nouveau_bo **pbo)
 {
     int rc = __real_nouveau_bo_new(dev, flags, align, size, config, pbo);
+    if (mono_nx_frame_stats_bo)
+        mono_nx_frame_stats_bo(rc, size, flags);
     GUARD_LOCK();
     if (rc == 0) {
         ++bo_created;

@@ -15,7 +15,9 @@ launcher/heap_split.c at that libnx share and enables the 5 s NX_GC memory log; 
 (needs libnx_heap_permille) links launcher/mesa_guard.c, which moves Mesa's nouveau_mm caches onto
 read-only guard pages, logs nouveau_bo_new failures and installs a logging exception handler
 (diagnostic for tmod21-23); "nv_transfermem_mb": N (needs libnx_heap_permille) replaces libnx's
-8 MB nvdrv transfer memory, which tmod21-23 exhausted.
+8 MB nvdrv transfer memory, which tmod21-23 exhausted; "frame_stats": true links
+launcher/frame_stats.c (--wrap=SDL_GL_SwapWindow): a 5 s NX_FPS log of presented frames, frame-time
+classes and nouveau_bo_new churn (it wraps nouveau_bo_new itself unless mesa_guard does).
 LLVM sidecars (<module>-llvm.o) link right after their module object; their absolute
 .rodata pointers go to a writable section, as in vanilla build60+.
 The external SD mod package must stay paired with this NRO; a different MVID
@@ -237,7 +239,7 @@ assert all(name.replace('.', '_').isidentifier() for name in modules)
 (NATIVE / 'mono_aot_modules.h').write_text(''.join(
     'REGISTER_AOT_MODULE(mono_aot_module_' + name.replace('.', '_') + '_info);\n' for name in modules))
 native_config = config.get('native', {})
-assert set(native_config) <= {'libnx_heap_permille', 'gc_stats', 'mesa_guard', 'nv_transfermem_mb'}, 'Unknown native key'
+assert set(native_config) <= {'libnx_heap_permille', 'gc_stats', 'mesa_guard', 'nv_transfermem_mb', 'frame_stats'}, 'Unknown native key'
 main_defines = ['-DMONO_NX_EMBEDDED_BCL=1', '-DMONO_NX_FATAL_DIAG=1']
 if native_config.get('gc_stats'):
     main_defines.append('-DMONO_NX_GC_STATS=1')
@@ -270,6 +272,12 @@ if mesa_guard:
     extra_ldflags.append('-Wl,' + ','.join('--wrap=nouveau_mm_' + name
                                           for name in ('create', 'allocate', 'free', 'free_work', 'destroy'))
                         + ',--wrap=nouveau_bo_new')
+if native_config.get('frame_stats'):
+    frame_defines = [] if mesa_guard else ['-DMONO_NX_FRAME_STATS_BO_WRAP=1']
+    run([ROOT / 'release58/compile_main.sh', Path(__file__).resolve().parent / 'launcher/frame_stats.c',
+         NATIVE / 'frame_stats.o', *frame_defines], 'compile-frame-stats', NATIVE)
+    added_objects['frame_stats.o'] = NATIVE / 'frame_stats.o'
+    extra_ldflags.append('-Wl,--wrap=SDL_GL_SwapWindow' + ('' if mesa_guard else ',--wrap=nouveau_bo_new'))
 shutil.copy2(ROOT / 'hint52/native/aot-method-tables.ld', NATIVE / 'aot-method-tables.ld')
 sidecars = sorted(AOT.glob('*-llvm.o'))
 if sidecars:
@@ -332,6 +340,9 @@ run(['aarch64-none-elf-gcc', *recorded['LDFLAGS'], *extra_ldflags, *objects, *re
      '-o', candidate / 'tmodloader.elf'], 'link-candidate', NATIVE)
 
 shutil.copytree(BASE / 'romfs', ROMFS)
+# Base RomFS files may be read-only; copies below overwrite some of them.
+for path in ROMFS.rglob('*'):
+    path.chmod(path.stat().st_mode | 0o200)
 shutil.copy2(INPUT / 'tModLoader.dll', ROMFS / 'tModLoader.dll')
 if compile_fna:
     shutil.copy2(INPUT / 'FNA.dll', ROMFS / 'FNA.dll')
