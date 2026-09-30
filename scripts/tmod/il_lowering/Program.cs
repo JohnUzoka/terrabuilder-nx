@@ -84,11 +84,11 @@ public class Program
         Console.WriteLine("  Generic Data-Driven Build-Time IL Hook Lowering Pass");
         Console.WriteLine("=================================================================");
 
-        string inventoryPath = GetArg(args, "--inventory", "/home/juzoka/.cache/terraria-switch-build/tmod/auto-hooks/scan/souls-set/hook-inventory.json");
-        string tmlIn = GetArg(args, "--tml-in", "/home/juzoka/.cache/terraria-switch-build/tmod/save-exit/crypto/tModLoader_patched_nxfix.dll");
-        string hooksIn = GetArg(args, "--hooks-in", "/home/juzoka/.cache/terraria-switch-build/tmod/tmod09/romfs/TerrariaHooks.dll");
-        string detourIn = GetArg(args, "--detour-in", "/home/juzoka/.cache/terraria-switch-build/tmod/release/Libraries/monomod.runtimedetour/25.3.2/lib/net8.0/MonoMod.RuntimeDetour.dll");
-        string outDir = GetArg(args, "--out-dir", "/home/juzoka/.cache/terraria-switch-build/tmod/auto-hooks/il-lowering2");
+        string inventoryPath = GetArg(args, "--inventory", CacheRoot.Path + "/tmod/auto-hooks/scan/souls-set/hook-inventory.json");
+        string tmlIn = GetArg(args, "--tml-in", CacheRoot.Path + "/tmod/save-exit/crypto/tModLoader_patched_nxfix.dll");
+        string hooksIn = GetArg(args, "--hooks-in", CacheRoot.Path + "/tmod/tmod09/romfs/TerrariaHooks.dll");
+        string detourIn = GetArg(args, "--detour-in", CacheRoot.Path + "/tmod/release/Libraries/monomod.runtimedetour/25.3.2/lib/net8.0/MonoMod.RuntimeDetour.dll");
+        string outDir = GetArg(args, "--out-dir", CacheRoot.Path + "/tmod/auto-hooks/il-lowering2");
 
         var modsDirs = new List<string>();
         string extraModsDir = GetArg(args, "--mods-dir", null);
@@ -102,8 +102,8 @@ public class Program
         // Default fallbacks if none specified
         if (modsDirs.Count == 0)
         {
-            modsDirs.Add("/home/juzoka/.cache/terraria-switch-build/tmod/mod-trials/souls/extracted");
-            modsDirs.Add("/home/juzoka/.cache/terraria-switch-build/tmod/mod-trials/fargo/extracted");
+            modsDirs.Add(CacheRoot.Path + "/tmod/mod-trials/souls/extracted");
+            modsDirs.Add(CacheRoot.Path + "/tmod/mod-trials/fargo/extracted");
         }
 
         Directory.CreateDirectory(outDir);
@@ -149,9 +149,9 @@ public class Program
         AddPath(Path.Combine(Path.GetDirectoryName(tmlDir) ?? "", "release"));
         AddPath(Path.Combine(Path.GetDirectoryName(tmlDir) ?? "", "release", "Libraries"));
         // Global fallbacks if they exist
-        AddPath("/home/juzoka/.cache/terraria-switch-build/tmod/release");
-        AddPath("/home/juzoka/.cache/terraria-switch-build/tmod/release/Libraries");
-        AddPath("/home/juzoka/.cache/terraria-switch-build/tmod/tmod09/romfs");
+        AddPath(CacheRoot.Path + "/tmod/release");
+        AddPath(CacheRoot.Path + "/tmod/release/Libraries");
+        AddPath(CacheRoot.Path + "/tmod/tmod09/romfs");
         AddPath("/build/tmod/release");
         AddPath("/build/tmod/release/Libraries");
         AddPath("/build/tmod/romfs");

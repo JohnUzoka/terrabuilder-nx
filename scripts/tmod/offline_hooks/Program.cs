@@ -389,10 +389,10 @@ partial class Program
             Environment.Exit(LowerModDetours(lowerModDetoursInventory, hooksInArg, tmlInArg, detourInPath, modsDirArg, refDirs));
         }
 
-        string terrariaHooksIn = positionalArgs.Count > 0 ? positionalArgs[0] : "/home/juzoka/.cache/terraria-switch-build/tmod/tmod09/romfs/TerrariaHooks.dll";
-        string terrariaHooksOut = positionalArgs.Count > 1 ? positionalArgs[1] : "/home/juzoka/.cache/terraria-switch-build/tmod/mod-trials/fargo/patched/TerrariaHooks.dll";
-        string tmlIn = positionalArgs.Count > 2 ? positionalArgs[2] : "/home/juzoka/.cache/terraria-switch-build/tmod/tmod09/romfs/tModLoader.dll";
-        string tmlOut = positionalArgs.Count > 3 ? positionalArgs[3] : "/home/juzoka/.cache/terraria-switch-build/tmod/mod-trials/fargo/patched/tModLoader.dll";
+        string terrariaHooksIn = positionalArgs.Count > 0 ? positionalArgs[0] : CacheRoot.Path + "/tmod/tmod09/romfs/TerrariaHooks.dll";
+        string terrariaHooksOut = positionalArgs.Count > 1 ? positionalArgs[1] : CacheRoot.Path + "/tmod/mod-trials/fargo/patched/TerrariaHooks.dll";
+        string tmlIn = positionalArgs.Count > 2 ? positionalArgs[2] : CacheRoot.Path + "/tmod/tmod09/romfs/tModLoader.dll";
+        string tmlOut = positionalArgs.Count > 3 ? positionalArgs[3] : CacheRoot.Path + "/tmod/mod-trials/fargo/patched/tModLoader.dll";
 
         Directory.CreateDirectory(Path.GetDirectoryName(terrariaHooksOut)!);
         Directory.CreateDirectory(Path.GetDirectoryName(tmlOut)!);
@@ -955,10 +955,10 @@ partial class Program
         var resolverTml = new DefaultAssemblyResolver();
         resolverTml.AddSearchDirectory(Path.GetDirectoryName(tmlIn));
         resolverTml.AddSearchDirectory(Path.GetDirectoryName(terrariaHooksOut));
-        resolverTml.AddSearchDirectory("/home/juzoka/.cache/terraria-switch-build/tmod/release");
-        resolverTml.AddSearchDirectory("/home/juzoka/.cache/terraria-switch-build/tmod/release/Libraries");
-        resolverTml.AddSearchDirectory("/home/juzoka/.cache/terraria-switch-build/tmod/flat_libs");
-        resolverTml.AddSearchDirectory("/home/juzoka/.cache/terraria-switch-build/tmod/mod-trials/fargo/romfs");
+        resolverTml.AddSearchDirectory(CacheRoot.Path + "/tmod/release");
+        resolverTml.AddSearchDirectory(CacheRoot.Path + "/tmod/release/Libraries");
+        resolverTml.AddSearchDirectory(CacheRoot.Path + "/tmod/flat_libs");
+        resolverTml.AddSearchDirectory(CacheRoot.Path + "/tmod/mod-trials/fargo/romfs");
         var tmlAsm = AssemblyDefinition.ReadAssembly(tmlIn, new ReaderParameters { AssemblyResolver = resolverTml, ReadWrite = false });
 
         var patchedHooksAsm = AssemblyDefinition.ReadAssembly(terrariaHooksOut);
@@ -1473,7 +1473,7 @@ partial class Program
 
         // Also patch MonoMod.RuntimeDetour.dll global guard if target directory specified
         string targetDir = Path.GetDirectoryName(tmlOut)!;
-        string defaultMmIn = "/home/juzoka/.cache/terraria-switch-build/tmod/release/Libraries/monomod.runtimedetour/25.3.2/lib/net8.0/MonoMod.RuntimeDetour.dll";
+        string defaultMmIn = CacheRoot.Path + "/tmod/release/Libraries/monomod.runtimedetour/25.3.2/lib/net8.0/MonoMod.RuntimeDetour.dll";
         string targetMmOut = Path.Combine(targetDir, "MonoMod.RuntimeDetour.dll");
         string mmIn = detourInPath ?? (File.Exists(targetMmOut) && new FileInfo(targetMmOut).Length > 0 ? targetMmOut : defaultMmIn);
         if (!legacyMode)

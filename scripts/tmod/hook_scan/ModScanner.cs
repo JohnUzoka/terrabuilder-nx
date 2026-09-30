@@ -735,10 +735,10 @@ public class ModScanner
         {
             Path.Combine(baseDir, "build.txt"),
             Path.Combine(baseDir, "..", "build.txt"),
-            $"/home/juzoka/.cache/terraria-switch-build/tmod/mod-trials/souls/{modName}/build.txt",
-            $"/home/juzoka/.cache/terraria-switch-build/tmod/mod-trials/souls/{modName}-src/build.txt",
-            $"/home/juzoka/.cache/terraria-switch-build/tmod/mod-trials/fargo/{modName}/build.txt",
-            $"/home/juzoka/.cache/terraria-switch-build/tmod/mods-survey/{modName}/build.txt"
+            $"{CacheRoot.Path}/tmod/mod-trials/souls/{modName}/build.txt",
+            $"{CacheRoot.Path}/tmod/mod-trials/souls/{modName}-src/build.txt",
+            $"{CacheRoot.Path}/tmod/mod-trials/fargo/{modName}/build.txt",
+            $"{CacheRoot.Path}/tmod/mods-survey/{modName}/build.txt"
         };
 
         foreach (var p in searchPaths)
