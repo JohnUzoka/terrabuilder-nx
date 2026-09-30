@@ -54,14 +54,36 @@ def run(argv, label, cwd):
 config = json.loads((INPUT / 'modset.json').read_text())
 mod = config['mod']
 assert mod.isidentifier(), 'Expected one named mod, no paths'
-replacements = config['replacements']
-aot_replacements = config['aot_replacements']
+additional_mods = config.get('additional_mods', [])
+assert len(additional_mods) == len(set(additional_mods)), 'Duplicate additional_mods'
+assert mod not in additional_mods, 'Primary mod cannot be in additional_mods'
+all_mods = [mod, *additional_mods]
+for m in all_mods:
+    assert m.isidentifier(), f'Invalid mod name: {m}'
+
+mod_libraries = config.get('mod_libraries', [])
+for lib in mod_libraries:
+    assert lib['mod'] in all_mods, f'mod_libraries owner mod {lib["mod"]} not in modset'
+    assert lib['member'].endswith('.dll'), f'mod_libraries member {lib["member"]} must be a .dll'
+
+replacements = config.get('replacements', {})
+aot_replacements = config.get('aot_replacements', [])
 assert len(aot_replacements) == len(set(aot_replacements))
 assert set(aot_replacements) <= replacements.keys()
 assert 'tModLoader.dll' not in replacements and 'FNA.dll' not in replacements
+
+extra_aot = config.get('extra_aot', [])
+assert len(extra_aot) == len(set(extra_aot))
+
 corelib_name = config.get('corelib')
 llvm_modules = config.get('llvm_modules', [])
 assert len(llvm_modules) == len(set(llvm_modules))
+
+compile_fna = config.get('compile_fna', False) or ('FNA.dll' in llvm_modules) or ('FNA.dll' in extra_aot)
+reuse_base = config.get('reuse_base')
+reuse_modules = config.get('reuse_modules', [])
+assert len(reuse_modules) == len(set(reuse_modules))
+
 for filename, destinations in replacements.items():
     assert Path(filename).name == filename and filename.endswith('.dll')
     assert destinations
@@ -72,23 +94,64 @@ for filename, destinations in replacements.items():
 for directory in (AOT, NATIVE, ROMFS, OUT / 'sdcard', OUT / 'extracted'):
     assert not directory.exists(), f'Fresh output required: {directory}'
 
-package = INPUT / (mod + '.tmod')
-member = mod + '.dll'
-mod_bytes, mod_info = extract_tmod_member(package, member)
-assert mod_info['name'] == mod and mod_info['loader_version'] == '2026.7.3.0', mod_info
-mod_input = INPUT / member
-if mod_input.exists():
-    assert mod_input.read_bytes() == mod_bytes, 'Provided DLL differs from actual .tmod member'
-else:
-    mod_input.write_bytes(mod_bytes)
-shutil.copy2(BASE / 'romfs/FNA.dll', INPUT / 'FNA.dll')
-compiled = ['tModLoader.dll', *aot_replacements, member]
-assert len(compiled) == len(set(compiled))
+mod_bytes_by_name = {}
+mod_info_by_name = {}
+external_members = {}
+
+for m in all_mods:
+    pkg = INPUT / (m + '.tmod')
+    mbr = m + '.dll'
+    assert mbr not in external_members, f'Duplicate assembly name: {mbr}'
+    m_bytes, m_info = extract_tmod_member(pkg, mbr)
+    assert m_info['name'] == m and m_info['loader_version'] == '2026.7.3.0', m_info
+    m_input = INPUT / mbr
+    if m_input.exists():
+        assert m_input.read_bytes() == m_bytes, f'Provided DLL {mbr} differs from actual .tmod member'
+    else:
+        m_input.write_bytes(m_bytes)
+    mod_bytes_by_name[mbr] = m_bytes
+    mod_info_by_name[m] = m_info
+    external_members[mbr] = {'mod': m, 'member': mbr, 'package': pkg}
+
+for lib in mod_libraries:
+    owner = lib['mod']
+    pkg = INPUT / (owner + '.tmod')
+    mbr = lib['member']
+    filename = PurePosixPath(mbr).name
+    assert filename not in external_members, f'Duplicate assembly name: {filename}'
+    lib_bytes, lib_info = extract_tmod_member(pkg, mbr)
+    lib_input = INPUT / filename
+    if lib_input.exists():
+        assert lib_input.read_bytes() == lib_bytes, f'Provided DLL {filename} differs from actual .tmod member'
+    else:
+        lib_input.write_bytes(lib_bytes)
+    mod_bytes_by_name[filename] = lib_bytes
+    external_members[filename] = {'mod': owner, 'member': mbr, 'package': pkg}
+
+if not (INPUT / 'FNA.dll').exists():
+    shutil.copy2(BASE / 'romfs/FNA.dll', INPUT / 'FNA.dll')
+
+for filename in extra_aot:
+    assert Path(filename).name == filename and filename.endswith('.dll')
+    assert filename != 'FNA.dll', 'Use compile_fna or llvm_modules for FNA'
+    assert filename not in replacements, f'{filename} is in replacements'
+    if not (INPUT / filename).exists():
+        assert (BASE / 'romfs' / filename).is_file(), f'Extra AOT DLL missing from BASE romfs: {filename}'
+        shutil.copy2(BASE / 'romfs' / filename, INPUT / filename)
+
+compiled = ['tModLoader.dll']
+if compile_fna:
+    compiled.append('FNA.dll')
+compiled.extend(aot_replacements)
+compiled.extend(extra_aot)
+compiled.extend(external_members.keys())
+assert len(compiled) == len(set(compiled)), 'Duplicate compiled assembly'
 input_hashes = {name: sha(INPUT / name) for name in set(compiled) | replacements.keys() | {'FNA.dll'}}
 baseline = json.loads((BASE / 'manifest.json').read_text())
 binding_base = baseline['provenance_and_binding']
 AOT.mkdir()
-for name in ('FNA', 'System.Private.CoreLib'):
+
+for name in ('System.Private.CoreLib', *(['FNA'] if not compile_fna else [])):
     source = Path(binding_base[name]['aot_object'])
     if name == 'System.Private.CoreLib' and corelib_name:
         corelib = json.loads((ROOT / 'tmod/corelib' / corelib_name / 'manifest.json').read_text())
@@ -101,6 +164,28 @@ for name in ('FNA', 'System.Private.CoreLib'):
     else:
         assert sha(source) == binding_base[name]['aot_object_sha256']
     shutil.copy2(source, AOT / (name + '.dll.o'))
+
+assert set(reuse_modules) <= set(compiled), 'reuse_modules must name compiled DLLs'
+if reuse_modules:
+    assert reuse_base, 'reuse_base required when reuse_modules specified'
+    reuse_manifest = json.loads((ROOT / 'tmod' / reuse_base / 'manifest.json').read_text())
+    reuse_bindings = reuse_manifest['provenance_and_binding']
+    for name in reuse_modules:
+        mod_key = name.removesuffix('.dll')
+        assert mod_key in reuse_bindings, f'Module {name} not found in {reuse_base} binding'
+        rec = reuse_bindings[mod_key]
+        assert rec['compiler_input_sha256'] == input_hashes[name], f'Input hash mismatch for reuse of {name}'
+        src_obj = Path(rec['aot_object'])
+        assert sha(src_obj) == rec['aot_object_sha256'], f'AOT object hash mismatch for reuse of {name}'
+        shutil.copy2(src_obj, AOT / (name + '.o'))
+        if 'llvm_object' in rec:
+            src_llvm = Path(rec['llvm_object'])
+            assert sha(src_llvm) == rec['llvm_object_sha256'], f'LLVM object hash mismatch for reuse of {name}'
+            shutil.copy2(src_llvm, AOT / (name + '-llvm.o'))
+        reuse_log = ROOT / 'tmod' / reuse_base / f'aot-{name}.log'
+        if reuse_log.is_file():
+            shutil.copy2(reuse_log, OUT / f'aot-{name}.log')
+        print(f'PASS reuse aot-{name} from {reuse_base} (verified hash {rec["compiler_input_sha256"][:12]}...)', flush=True)
 paths = ['--path=/build/runtime-source/artifacts/bin/mono/libnx.arm64.Release',
          '--path=' + str(INPUT),
          '--path=/build/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64',
@@ -128,11 +213,18 @@ def compile_one(name):
     print('PASS aot-' + name + ' (LLVM)', flush=True)
 
 
-with ThreadPoolExecutor(max_workers=len(compiled)) as pool:
-    list(pool.map(compile_one, compiled))
+to_compile = [name for name in compiled if name not in reuse_modules]
+if to_compile:
+    with ThreadPoolExecutor(max_workers=max(1, len(to_compile))) as pool:
+        list(pool.map(compile_one, to_compile))
 assert all(sha(INPUT / name) == digest for name, digest in input_hashes.items()), 'AOT input changed'
 NATIVE.mkdir()
-modules = ['System.Private.CoreLib', 'tModLoader', 'FNA', *[n.removesuffix('.dll') for n in aot_replacements], mod]
+modules = ['System.Private.CoreLib']
+if not compile_fna:
+    modules.append('FNA')
+for filename in compiled:
+    modules.append(filename.removesuffix('.dll'))
+assert len(modules) == len(set(modules)), 'Duplicate module in registration'
 assert all(name.replace('.', '_').isidentifier() for name in modules)
 (NATIVE / 'mono_aot_modules.h').write_text(''.join(
     'REGISTER_AOT_MODULE(mono_aot_module_' + name.replace('.', '_') + '_info);\n' for name in modules))
@@ -190,19 +282,30 @@ run(['aarch64-none-elf-gcc', *recorded['LDFLAGS'], *objects, *recorded['LIBPATHS
 
 shutil.copytree(BASE / 'romfs', ROMFS)
 shutil.copy2(INPUT / 'tModLoader.dll', ROMFS / 'tModLoader.dll')
+if compile_fna:
+    shutil.copy2(INPUT / 'FNA.dll', ROMFS / 'FNA.dll')
+for filename in extra_aot:
+    shutil.copy2(INPUT / filename, ROMFS / filename)
 for filename, destinations in replacements.items():
     for destination in destinations:
         shutil.copy2(INPUT / filename, ROMFS / destination)
 sd_mods = OUT / 'sdcard/switch/tmodloader/Terraria/tModLoader/Mods'
 sd_mods.mkdir(parents=True)
-sd_package = sd_mods / package.name
-shutil.copy2(package, sd_package)
-(sd_mods / 'enabled.json').write_text(json.dumps([mod]) + '\n')
-shipped_bytes, shipped_info = extract_tmod_member(sd_package, member)
-assert shipped_bytes == mod_bytes and shipped_info == mod_info
-extracted = OUT / 'extracted' / member
-extracted.parent.mkdir()
-extracted.write_bytes(shipped_bytes)
+staged_packages = {}
+for m in all_mods:
+    pkg = INPUT / (m + '.tmod')
+    sd_package = sd_mods / pkg.name
+    shutil.copy2(pkg, sd_package)
+    staged_packages[m] = sd_package
+(sd_mods / 'enabled.json').write_text(json.dumps(all_mods) + '\n')
+
+for mbr, ext_info in external_members.items():
+    owner_pkg = staged_packages[ext_info['mod']]
+    shipped_bytes, shipped_info = extract_tmod_member(owner_pkg, ext_info['member'])
+    assert shipped_bytes == mod_bytes_by_name[mbr]
+    extracted = OUT / 'extracted' / mbr
+    extracted.parent.mkdir(parents=True, exist_ok=True)
+    extracted.write_bytes(shipped_bytes)
 
 nacp = bytearray((BASE / 'native/candidate/tmodloader.nacp').read_bytes())
 title = f'tModLoader NX {VARIANT[4:]} ({config["label"]})'.encode()
@@ -215,7 +318,7 @@ run(['/opt/devkitpro/tools/bin/elf2nro', candidate / 'tmodloader.elf', candidate
      '--icon=' + str(ROOT / 'tmod/tmod02/native/icon.jpg')], 'package-candidate', NATIVE)
 
 binding = {}
-for name in ('FNA', 'System.Private.CoreLib'):
+for name in ('System.Private.CoreLib', *(['FNA'] if not compile_fna else [])):
     payload = ROMFS / ('FNA.dll' if name == 'FNA' else 'mono/lib_net9.0/System.Private.CoreLib.dll')
     object_path = AOT / (name + '.dll.o')
     binding[name] = dict(binding_base[name], aot_object=str(object_path), aot_object_sha256=sha(object_path),
@@ -229,19 +332,25 @@ for filename in compiled:
               'aot_object': str(AOT / (filename + '.o')), 'aot_object_sha256': sha(AOT / (filename + '.o'))}
     if filename in llvm_modules:
         record.update(llvm_object=str(AOT / (filename + '-llvm.o')), llvm_object_sha256=sha(AOT / (filename + '-llvm.o')))
-    if name == mod:
-        record.update(external_payload_dll=str(extracted), external_payload_sha256=sha(extracted),
-                      tmod_path=str(sd_package), tmod_sha256=sha(sd_package), tmod_member=member)
+    if filename in external_members:
+        ext_info = external_members[filename]
+        extracted_path = OUT / 'extracted' / filename
+        sd_pkg = staged_packages[ext_info['mod']]
+        record.update(external_payload_dll=str(extracted_path), external_payload_sha256=sha(extracted_path),
+                      tmod_path=str(sd_pkg), tmod_sha256=sha(sd_pkg), tmod_member=ext_info['member'])
     else:
         record.update(romfs_payload_dll=str(ROMFS / filename), romfs_payload_sha256=sha(ROMFS / filename))
     binding[name] = record
 nro = candidate / 'tmodloader.nro'
+deliverables = {'candidate_nro': {'path': str(nro), 'bytes': nro.stat().st_size, 'sha256': sha(nro)},
+                'candidate_elf': {'path': str(candidate / 'tmodloader.elf'), 'sha256': sha(candidate / 'tmodloader.elf')},
+                'sd_mod': {'path': str(staged_packages[mod]), 'sha256': sha(staged_packages[mod])}}
+if additional_mods:
+    deliverables['sd_mods'] = {m: {'path': str(p), 'sha256': sha(p)} for m, p in staged_packages.items()}
 manifest = {'candidate': VARIANT, 'content': baseline['content'], 'runtime_provenance': baseline['runtime_provenance'],
-            'provenance_and_binding': binding, 'modset': dict(config, package=mod_info), 'reference_inputs': input_hashes,
+            'provenance_and_binding': binding, 'modset': dict(config, package=mod_info_by_name[mod]), 'reference_inputs': input_hashes,
             'managed_replacements': {name: {'sha256': input_hashes[name], 'destinations': paths}
                                      for name, paths in replacements.items()},
-            'final_deliverables': {'candidate_nro': {'path': str(nro), 'bytes': nro.stat().st_size, 'sha256': sha(nro)},
-                                   'candidate_elf': {'path': str(candidate / 'tmodloader.elf'), 'sha256': sha(candidate / 'tmodloader.elf')},
-                                   'sd_mod': {'path': str(sd_package), 'sha256': sha(sd_package)}}}
+            'final_deliverables': deliverables}
 (OUT / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
 print('PASS fixed modset:', json.dumps(manifest['final_deliverables']), flush=True)

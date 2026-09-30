@@ -65,9 +65,17 @@ changed = sorted(n for n in old if n in new and old[n] != new[n])
 removed = sorted(set(old) - set(new))
 added = sorted(set(new) - set(old))
 assert not removed, removed
-assert set(changed) <= dbg_names and len(changed) == 166, (len(changed), [c for c in changed if c not in dbg_names])
+replace_input = os.environ.get('FNA_LLVM_REPLACE_INPUT')
+replace_sha = os.environ.get('FNA_LLVM_REPLACE_SHA')
+if replace_input and replace_sha:
+    assert 'Terraria.exe' in changed and new['Terraria.exe']['sha256'] == replace_sha
+    changed_no_replace = [c for c in changed if c != 'Terraria.exe']
+    assert set(changed_no_replace) <= dbg_names and len(changed_no_replace) == 166, (len(changed_no_replace), [c for c in changed_no_replace if c not in dbg_names])
+else:
+    assert set(changed) <= dbg_names and len(changed) == 166, (len(changed), [c for c in changed if c not in dbg_names])
 for n in changed:
-    assert new[n]['sha256'] == verify.sha(REL_FW / n), n
+    if n != 'Terraria.exe':
+        assert new[n]['sha256'] == verify.sha(REL_FW / n), n
 expected_added = {'mono/lib_net9.0/System.Private.CoreLib.dll'}
 assert set(added) == expected_added, sorted(set(added) ^ expected_added)[:10]
 assert new['mono/lib_net9.0/System.Private.CoreLib.dll']['sha256'] == verify.sha(REL_CORE)
@@ -76,7 +84,10 @@ for n in new:
     if n.startswith('mono/') and n != 'mono/lib_net9.0/System.Private.CoreLib.dll':
         raise AssertionError('unexpected shadowing candidate: ' + n)
 unchanged = [n for n in old if old[n] == new.get(n)]
-for key in ('Terraria.exe', 'ReLogic.dll', 'FNA.dll', 'mscorlib.dll', 'System.Drawing.dll', 'NxCrypto.dll', 'System.IO.Packaging.dll'):
+expected_unchanged_keys = ('ReLogic.dll', 'FNA.dll', 'mscorlib.dll', 'System.Drawing.dll', 'NxCrypto.dll', 'System.IO.Packaging.dll')
+if not (replace_input and replace_sha):
+    expected_unchanged_keys = ('Terraria.exe', *expected_unchanged_keys)
+for key in expected_unchanged_keys:
     assert key in unchanged, key
 assert sum(1 for n in unchanged if n.startswith('Content/')) == sum(1 for n in old if n.startswith('Content/'))
 

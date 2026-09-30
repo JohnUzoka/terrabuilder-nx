@@ -32,7 +32,15 @@ VARIANT = ROOT / 'release58' / OUT_VARIANT
 OUT = VARIANT / 'aot-final'
 LLVM = ROOT / 'runtime-llvm/artifacts/bin/mono/linux.x64.Debug/cross/linux-x64/libnx-arm64'
 INPUT_SHA = {'FNA': '15427b2cb4c7952160f4cc124711f29b428459949304ceb0d16436e68a01882f',
-             'System.Private.CoreLib': 'c29bc7f8d4ee3d7620dfbaa61a7ecfd19e8dcba572b41d8f95c28b3ee9009df8'}[MODULE_NAME]
+             'System.Private.CoreLib': 'c29bc7f8d4ee3d7620dfbaa61a7ecfd19e8dcba572b41d8f95c28b3ee9009df8',
+             'Terraria': '90b135121829d6650ce0e4f8ddb1395108615aa7d46ae487d279bc3a18698b22'}[MODULE_NAME]
+# Replacement input (build70: patched Terraria.exe). The base's LLVM object for that module is
+# recompiled from the replacement, which also replaces the RomFS copy and its preparation record.
+# FNA_LLVM_REPLACE_INPUT=<path under /build> FNA_LLVM_REPLACE_SHA=<sha256> FNA_LLVM_REPLACE_MVID=<mvid>
+REPLACE_INPUT = os.environ.get('FNA_LLVM_REPLACE_INPUT')
+REPLACE_SHA = os.environ.get('FNA_LLVM_REPLACE_SHA')
+REPLACE_MVID = os.environ.get('FNA_LLVM_REPLACE_MVID', '').lower()
+assert not REPLACE_INPUT or (REPLACE_SHA and REPLACE_MVID), 'replacement needs its SHA256 and MVID'
 CORELIB_EXTRA = os.environ.get('FNA_LLVM_CORELIB_EXTRA',
                                'nimt-trampolines=8192,ngsharedvt-trampolines=4096,nunbox-arbitrary-trampolines=2048')
 BASE_NRO_SHA = os.environ.get('FNA_LLVM_BASE_NRO_SHA', 'cdc7def4c2536b5013a4e40a306916bdcbdf25df8305848100fc8bb989541702')
@@ -47,7 +55,7 @@ def main():
     assert report['status'] == 'complete'
     all_modules = [report['corelib'], *report['modules']]
     target_module = next(m for m in all_modules if m['assembly']['name'] == MODULE_NAME)
-    assert not target_module.get('llvm_object'), f'base already has LLVM {MODULE_NAME}'
+    assert REPLACE_INPUT or not target_module.get('llvm_object'), f'base already has LLVM {MODULE_NAME}'
     is_corelib = target_module is report['corelib']
     assert target_module['assembly']['sha256'] == INPUT_SHA
     assert sha256(Path(target_module['assembly']['path'])) == INPUT_SHA
@@ -62,6 +70,22 @@ def main():
     logs.mkdir()
     temporary.mkdir()
     shutil.copytree(SOURCE / 'runtime-romfs', OUT / 'runtime-romfs', copy_function=os.link)
+    if REPLACE_INPUT:
+        assert sha256(Path(REPLACE_INPUT)) == REPLACE_SHA
+        staged = OUT / 'runtime-romfs' / Path(target_module['assembly']['path']).name
+        staged.unlink()  # hardlink to the base payload; never write through it
+        shutil.copy2(REPLACE_INPUT, staged)
+        preparation = json.loads(Path(report['preparation_manifest']).read_text())
+        entries = [a for a in preparation['staged_assemblies'] if a['name'] == MODULE_NAME]
+        assert len(entries) == 1 and entries[0]['sha256'] == INPUT_SHA
+        replaced = dict(entries[0], path=str(staged), sha256=REPLACE_SHA, mvid=REPLACE_MVID,
+                        size=staged.stat().st_size)
+        entries[0].update(replaced)
+        target_module['assembly'] = dict(target_module['assembly'], **{k: replaced[k] for k in ('path', 'sha256', 'mvid', 'size')})
+        target_module.pop('llvm_object', None)
+        target_module.pop('llvm_object_sha256', None)
+        report['preparation_manifest'] = str(OUT / 'preparation.json')
+        write_json(OUT / 'preparation.json', preparation)
     reused = []
     for module in all_modules:
         if module is target_module:
@@ -84,7 +108,8 @@ def main():
     report.update(status='incomplete', header=str(OUT / 'mono_aot_modules.h'))
     report['experiment'] = {
         'build': OUT_VARIANT, 'parent': str(SOURCE / 'build-manifest.json'),
-        'change': f'{MODULE_NAME}-only LLVM AOT; all other AOT objects, LLVM sidecars and entire RomFS reused from {BASE_VARIANT}',
+        'change': (f'{MODULE_NAME} replaced by {REPLACE_SHA} and recompiled through LLVM' if REPLACE_INPUT
+                   else f'{MODULE_NAME}-only LLVM AOT') + f'; all other AOT objects, LLVM sidecars and RomFS reused from {BASE_VARIANT}',
         'reused_objects': reused,
     }
     write_json(OUT / 'build-manifest.json', report)
@@ -123,7 +148,7 @@ def main():
     own = subprocess.run(['/opt/devkitpro/devkitA64/bin/aarch64-none-elf-nm', '-g', '--defined-only', str(pending)],
                          capture_output=True, text=True, check=True).stdout
     assert f' T mono_aot_{prefix}jit_code_start\n' in own, f'main object lacks mono_aot_{prefix}jit_code_start'
-    assert sha256(source) == INPUT_SHA
+    assert sha256(source) == (REPLACE_SHA or INPUT_SHA)
     pending.replace(target)
     llvm_pending.replace(sidecar)
     target_module.update(command=command, log=str(log), optimizations=['--llvm'], object=str(target),

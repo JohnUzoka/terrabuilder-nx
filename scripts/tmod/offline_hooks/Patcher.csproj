@@ -5,9 +5,13 @@
     <Nullable>disable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
+  <PropertyGroup>
+    <CacheRoot Condition="'$(CacheRoot)' == ''">$(HOME)/.cache/terraria-switch-build</CacheRoot>
+    <CecilPath Condition="'$(CecilPath)' == ''">$(CacheRoot)/release58/ildump/out/Mono.Cecil.dll</CecilPath>
+  </PropertyGroup>
   <ItemGroup>
     <Reference Include="Mono.Cecil">
-      <HintPath>/home/juzoka/.cache/terraria-switch-build/release58/ildump/out/Mono.Cecil.dll</HintPath>
+      <HintPath>$(CecilPath)</HintPath>
     </Reference>
   </ItemGroup>
 </Project>

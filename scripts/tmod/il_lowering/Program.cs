@@ -90,15 +90,20 @@ public class Program
         string detourIn = GetArg(args, "--detour-in", "/home/juzoka/.cache/terraria-switch-build/tmod/release/Libraries/monomod.runtimedetour/25.3.2/lib/net8.0/MonoMod.RuntimeDetour.dll");
         string outDir = GetArg(args, "--out-dir", "/home/juzoka/.cache/terraria-switch-build/tmod/auto-hooks/il-lowering2");
 
-        var modsDirs = new List<string>
-        {
-            "/home/juzoka/.cache/terraria-switch-build/tmod/mod-trials/souls/extracted",
-            "/home/juzoka/.cache/terraria-switch-build/tmod/mod-trials/fargo/extracted"
-        };
+        var modsDirs = new List<string>();
         string extraModsDir = GetArg(args, "--mods-dir", null);
-        if (!string.IsNullOrEmpty(extraModsDir) && !modsDirs.Contains(extraModsDir))
+        if (!string.IsNullOrEmpty(extraModsDir))
         {
-            modsDirs.Insert(0, extraModsDir);
+            foreach (var d in extraModsDir.Split(new[] { ';', ':' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (!modsDirs.Contains(d)) modsDirs.Add(d);
+            }
+        }
+        // Default fallbacks if none specified
+        if (modsDirs.Count == 0)
+        {
+            modsDirs.Add("/home/juzoka/.cache/terraria-switch-build/tmod/mod-trials/souls/extracted");
+            modsDirs.Add("/home/juzoka/.cache/terraria-switch-build/tmod/mod-trials/fargo/extracted");
         }
 
         Directory.CreateDirectory(outDir);
@@ -132,17 +137,24 @@ public class Program
         }
 
         // Build search directories for ALC and Cecil
-        var searchPaths = new List<string>(modsDirs)
-        {
-            Path.GetDirectoryName(tmlIn),
-            Path.GetDirectoryName(hooksIn),
-            Path.GetDirectoryName(detourIn),
-            "/home/juzoka/.cache/terraria-switch-build/tmod/release",
-            "/home/juzoka/.cache/terraria-switch-build/tmod/release/Libraries/monomod.runtimedetour/25.3.2/lib/net8.0",
-            "/home/juzoka/.cache/terraria-switch-build/tmod/release/Libraries/monomod.utils/25.0.10/lib/net8.0",
-            "/home/juzoka/.cache/terraria-switch-build/tmod/release/Libraries/monomod.core/1.3.2/lib/net8.0",
-            "/home/juzoka/.cache/terraria-switch-build/tmod/release/Libraries/mono.cecil/0.11.6/lib/netstandard2.0"
-        };
+        var searchPaths = new List<string>(modsDirs);
+        void AddPath(string p) { if (!string.IsNullOrEmpty(p) && Directory.Exists(p) && !searchPaths.Contains(p)) searchPaths.Add(p); }
+        AddPath(Path.GetDirectoryName(tmlIn));
+        AddPath(Path.GetDirectoryName(hooksIn));
+        AddPath(Path.GetDirectoryName(detourIn));
+        // Auto-discover sibling Libraries / release directory
+        string tmlDir = Path.GetDirectoryName(tmlIn);
+        AddPath(Path.Combine(tmlDir, "Libraries"));
+        AddPath(Path.Combine(Path.GetDirectoryName(tmlDir) ?? "", "Libraries"));
+        AddPath(Path.Combine(Path.GetDirectoryName(tmlDir) ?? "", "release"));
+        AddPath(Path.Combine(Path.GetDirectoryName(tmlDir) ?? "", "release", "Libraries"));
+        // Global fallbacks if they exist
+        AddPath("/home/juzoka/.cache/terraria-switch-build/tmod/release");
+        AddPath("/home/juzoka/.cache/terraria-switch-build/tmod/release/Libraries");
+        AddPath("/home/juzoka/.cache/terraria-switch-build/tmod/tmod09/romfs");
+        AddPath("/build/tmod/release");
+        AddPath("/build/tmod/release/Libraries");
+        AddPath("/build/tmod/romfs");
 
         // 2. Setup ALC for mod loading
         var alc = new ModLoadContext(searchPaths.ToArray());
@@ -159,6 +171,13 @@ public class Program
         var hooksAsm = AssemblyDefinition.ReadAssembly(hooksIn, readerParams);
         var detourAsm = AssemblyDefinition.ReadAssembly(detourIn, readerParams);
 
+        // Pre-pass: Lower mod UnsafeAccessor methods (generate real bodies for zero-RVA extern methods)
+        // Must run before loading mod assemblies into ALC so ALC loads the final modified mod DLL and MVID!
+        LowerModUnsafeAccessors(modsDirs, tmlAsm, outDir);
+        if (!modsDirs.Contains(outDir)) modsDirs.Insert(0, outDir);
+        if (!searchPaths.Contains(outDir)) searchPaths.Insert(0, outDir);
+        alc = new ModLoadContext(searchPaths.ToArray());
+        resolver.AddSearchDirectory(outDir);
         // 3. Process each IL hook generically
         var loweredSpecs = new List<LoweredEditSpec>();
         int totalSlotCounter = 0;
@@ -225,7 +244,12 @@ public class Program
 
             // Load mod assembly containing the manipulator
             Assembly modRuntimeAsm = null;
-            if (!string.IsNullOrEmpty(modName) && modInfoMap.TryGetValue(modName, out var modInfo) && File.Exists(modInfo.DllPath))
+            string loweredModCandidate = Path.Combine(outDir, (modName ?? "") + ".dll");
+            if (!string.IsNullOrEmpty(modName) && File.Exists(loweredModCandidate))
+            {
+                modRuntimeAsm = alc.LoadFromAssemblyPath(loweredModCandidate);
+            }
+            else if (!string.IsNullOrEmpty(modName) && modInfoMap.TryGetValue(modName, out var modInfo) && File.Exists(modInfo.DllPath))
             {
                 modRuntimeAsm = alc.LoadFromAssemblyPath(modInfo.DllPath);
             }
@@ -241,7 +265,6 @@ public class Program
                     }
                 }
             }
-
             if (modRuntimeAsm == null)
             {
                 // Search in loaded ALC assemblies
@@ -347,6 +370,7 @@ public class Program
             BuildTwoBodySelector(targetMethod, vanillaClone, editedClone, hooksAsm);
         }
 
+        // (LowerModUnsafeAccessors ran as pre-pass above so LoweredILRegistry binds the final mod MVID)
         // Generate generic LoweredILRegistry in TerrariaHooks.dll
         Console.WriteLine("\n--- Generating generic LoweredILRegistry in TerrariaHooks ---");
         GenerateLoweredILRegistry(hooksAsm, loweredSpecs);
@@ -1675,6 +1699,100 @@ public class Program
 
         targetType.Methods.Add(dst);
         return dst;
+    }
+
+    private static void LowerModUnsafeAccessors(List<string> modsDirs, AssemblyDefinition tmlAsm, string outDir)
+    {
+        Console.WriteLine("\n--- Lowering Mod UnsafeAccessor Methods ---");
+        var processedAssemblies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var dir in modsDirs)
+        {
+            if (!Directory.Exists(dir)) continue;
+            foreach (var dllPath in Directory.GetFiles(dir, "*.dll"))
+            {
+                string fileName = Path.GetFileName(dllPath);
+                if (processedAssemblies.Contains(fileName)) continue;
+
+                var resolver = new DefaultAssemblyResolver();
+                resolver.AddSearchDirectory(dir);
+                resolver.AddSearchDirectory(Path.GetDirectoryName(tmlAsm.MainModule.FileName) ?? "");
+                foreach (var d in modsDirs) if (Directory.Exists(d)) resolver.AddSearchDirectory(d);
+
+                AssemblyDefinition modAsm;
+                try
+                {
+                    modAsm = AssemblyDefinition.ReadAssembly(dllPath, new ReaderParameters { AssemblyResolver = resolver, ReadWrite = false });
+                }
+                catch
+                {
+                    continue;
+                }
+
+                bool modified = false;
+                foreach (var type in modAsm.MainModule.GetTypes())
+                {
+                    foreach (var method in type.Methods)
+                    {
+                        var unsafeAttr = method.CustomAttributes.FirstOrDefault(ca => ca.AttributeType.Name == "UnsafeAccessorAttribute");
+                        if (unsafeAttr != null && method.HasBody && method.Body.Instructions.Count == 0)
+                        {
+                            // UnsafeAccessorKind:
+                            // 0 = Constructor, 1 = Method, 2 = StaticMethod, 3 = Field, 4 = StaticField
+                            int kind = 0;
+                            if (unsafeAttr.ConstructorArguments.Count > 0 && unsafeAttr.ConstructorArguments[0].Value is int k)
+                            {
+                                kind = k;
+                            }
+
+                            string targetMemberName = null;
+                            var nameProp = unsafeAttr.Properties.FirstOrDefault(p => p.Name == "Name");
+                            if (nameProp.Name != null) targetMemberName = nameProp.Argument.Value?.ToString();
+                            if (string.IsNullOrEmpty(targetMemberName)) targetMemberName = method.Name;
+
+                            Console.WriteLine($"Found UnsafeAccessor: {type.FullName}::{method.Name} (Kind={kind}, TargetMember={targetMemberName})");
+
+                            if (kind == 3) // Field
+                            {
+                                if (method.Parameters.Count != 1)
+                                    throw new NotSupportedException($"UnsafeAccessor field getter {method.FullName} expected 1 parameter (target instance), found {method.Parameters.Count}");
+
+                                var targetTypeRef = method.Parameters[0].ParameterType;
+                                var targetType = tmlAsm.MainModule.GetType(targetTypeRef.FullName)
+                                    ?? modAsm.MainModule.GetType(targetTypeRef.FullName)
+                                    ?? throw new InvalidOperationException($"Target type {targetTypeRef.FullName} not found!");
+
+                                var targetField = targetType.Fields.FirstOrDefault(f => f.Name == targetMemberName)
+                                    ?? throw new InvalidOperationException($"Field {targetMemberName} not found on {targetType.FullName}!");
+
+                                var il = method.Body.GetILProcessor();
+                                il.Append(il.Create(OpCodes.Ldarg_0));
+                                var importedField = modAsm.MainModule.ImportReference(targetField);
+                                il.Append(il.Create(OpCodes.Ldflda, importedField));
+                                il.Append(il.Create(OpCodes.Ret));
+
+                                method.Body.InitLocals = true;
+                                method.Body.MaxStackSize = 8;
+                                modified = true;
+                                Console.WriteLine($"Synthesized field accessor body for {method.FullName} -> ldflda {targetField.FullName}");
+                            }
+                            else
+                            {
+                                throw new NotSupportedException($"UnsafeAccessor kind {kind} on {method.FullName} not supported yet.");
+                            }
+                        }
+                    }
+                }
+
+                if (modified)
+                {
+                    string modOutPath = Path.Combine(outDir, fileName);
+                    SetContentDerivedMvid(modAsm, modOutPath);
+                    Console.WriteLine($"Saved lowered mod assembly to {modOutPath}");
+                    processedAssemblies.Add(fileName);
+                }
+            }
+        }
     }
 
     private static void SetContentDerivedMvid(AssemblyDefinition asm, string outPath)

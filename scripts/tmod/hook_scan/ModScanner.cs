@@ -103,7 +103,7 @@ public class ModScanner
 
     private void CountCallsInType(TypeDefinition td, ref int count)
     {
-        if (td.FullName == "Luminance.Core.Hooking.HookHelper") return;
+        if (td.FullName == "Luminance.Core.Hooking.HookHelper" || IsBuildGenerated(td)) return;
 
         foreach (var m in td.Methods)
         {
@@ -140,6 +140,9 @@ public class ModScanner
         List<UnsupportedEntry> unsupported,
         HashSet<Instruction> handledILHooks)
     {
+        // Adapters emitted by offline_hooks --lower-mod-detours implement registrations that are
+        // already inventoried as runtime_detours; they are not new mod registrations.
+        if (IsBuildGenerated(type)) return;
         foreach (var m in type.Methods)
         {
             if (!m.HasBody) continue;
@@ -151,6 +154,10 @@ public class ModScanner
             ScanType(nt, modName, onHooksDict, ilHooksDict, detoursDict, unsupported, handledILHooks);
         }
     }
+
+    // offline_hooks --lower-mod-detours nests LoweredDetourFactory (and its adapters) in the type
+    // that declares each detour method.
+    private static bool IsBuildGenerated(TypeDefinition type) => type.Name == "LoweredDetourFactory";
 
     private void ScanMethod(
         MethodDefinition method, 
@@ -337,6 +344,8 @@ public class ModScanner
                     else if (decl == "Terraria.ModLoader.MonoModHooks" && mr.Name == "Add")
                     {
                         var arg0 = MethodBaseResolver.FindArgumentProducer(method, inst, 0, 2, heights);
+                        var detourMethod = MethodBaseResolver.ResolveDelegateMethod(method,
+                            MethodBaseResolver.FindArgumentProducer(method, inst, 1, 2, heights), heights);
                         bool resolved = MethodBaseResolver.TryResolveMethodBase(method, arg0, heights, out string tType, out string tMethod);
                         HookTarget? target = resolved ? _resolver.ResolveDirectTarget(tType, tMethod) : null;
 
@@ -348,20 +357,21 @@ public class ModScanner
                             TargetResolution = target != null ? "static" : "unresolved",
                             Registrations = new List<HookRegistration>
                             {
-                                new HookRegistration { Mod = modName, Caller = method.FullName, IlOffset = inst.Offset }
+                                new HookRegistration { Mod = modName, Caller = method.FullName, IlOffset = inst.Offset, DetourMethod = detourMethod?.FullName }
                             }
                         };
                         detoursDict[key] = entry;
 
-                        if (target == null)
+                        if (target == null || detourMethod == null)
                         {
                             unsupported.Add(new UnsupportedEntry
                             {
                                 Mod = modName,
                                 Caller = method.FullName,
                                 IlOffset = inst.Offset,
-                                ReasonCode = "UNRESOLVED_TARGET",
-                                Detail = $"Unresolved MethodBase argument in MonoModHooks.Add"
+                                ReasonCode = target == null ? "UNRESOLVED_TARGET" : "UNRESOLVED_DETOUR_METHOD",
+                                Detail = target == null ? "Unresolved MethodBase argument in MonoModHooks.Add"
+                                    : "Detour delegate does not statically bind one method in MonoModHooks.Add"
                             });
                         }
                     }
@@ -434,18 +444,20 @@ public class ModScanner
                         {
                             Mod = modName,
                             Caller = method.FullName,
-                            IlOffset = inst.Offset
+                            IlOffset = inst.Offset,
+                            DetourMethod = detourMethod?.FullName
                         });
 
-                        if (target == null)
+                        if (target == null || detourMethod == null)
                         {
                             unsupported.Add(new UnsupportedEntry
                             {
                                 Mod = modName,
                                 Caller = method.FullName,
                                 IlOffset = inst.Offset,
-                                ReasonCode = "UNRESOLVED_TARGET",
-                                Detail = $"Unresolved MethodBase in {mech}"
+                                ReasonCode = target == null ? "UNRESOLVED_TARGET" : "UNRESOLVED_DETOUR_METHOD",
+                                Detail = target == null ? $"Unresolved MethodBase in {mech}"
+                                    : $"Detour delegate does not statically bind one method in {mech}"
                             });
                         }
                     }
@@ -521,19 +533,20 @@ public class ModScanner
                         TargetResolution = target != null ? "static" : "unresolved",
                         Registrations = new List<HookRegistration>
                         {
-                            new HookRegistration { Mod = modName, Caller = method.FullName, IlOffset = inst.Offset }
+                            new HookRegistration { Mod = modName, Caller = method.FullName, IlOffset = inst.Offset, DetourMethod = detourMethod?.FullName }
                         }
                     };
 
-                    if (target == null)
+                    if (target == null || (mech == "new Hook" && detourMethod == null))
                     {
                         unsupported.Add(new UnsupportedEntry
                         {
                             Mod = modName,
                             Caller = method.FullName,
                             IlOffset = inst.Offset,
-                            ReasonCode = "UNRESOLVED_TARGET",
-                            Detail = $"Unresolved MethodBase in {mech}"
+                            ReasonCode = target == null ? "UNRESOLVED_TARGET" : "UNRESOLVED_DETOUR_METHOD",
+                            Detail = target == null ? $"Unresolved MethodBase in {mech}"
+                                : $"Detour delegate does not statically bind one method in {mech}"
                         });
                     }
                 }

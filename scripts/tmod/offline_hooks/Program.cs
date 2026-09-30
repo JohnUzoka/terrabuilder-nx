@@ -7,7 +7,7 @@ using System.Text.Json;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
-class Program
+partial class Program
 {
     record HookTargetSpec(
         string TargetTypeName,
@@ -17,13 +17,6 @@ class Program
         bool IsStatic,
         bool IsCtor,
         string TargetFullName
-    );
-
-    record RuntimeDetourSpec(
-        string TargetTypeName,
-        string MethodName,
-        string FullName,
-        bool IsStatic
     );
 
     static readonly HookTargetSpec[] LegacyMutantHooks = new[]
@@ -40,14 +33,6 @@ class Program
         new HookTargetSpec("Terraria.Item", "Terraria.On_Item", "GetShimmered", "GetShimmered", false, false, null),
         new HookTargetSpec("Terraria.Main", "Terraria.On_Main", "DrawInterface_Resources_Buffs", "DrawInterface_Resources_Buffs", false, false, null),
         new HookTargetSpec("Terraria.WorldGen", "Terraria.On_WorldGen", "ShakeTree", "ShakeTree", true, false, null),
-    };
-
-    static readonly RuntimeDetourSpec[] KnownRuntimeDetours = new[]
-    {
-        new RuntimeDetourSpec("Terraria.NPC", "StrikeNPC", "System.Int32 Terraria.NPC::StrikeNPC(Terraria.NPC/HitInfo,System.Boolean,System.Boolean)", false),
-        new RuntimeDetourSpec("Terraria.Player", "PickAmmo", "System.Void Terraria.Player::PickAmmo(Terraria.Item,System.Int32&,System.Single&,System.Boolean&,System.Int32&,System.Single&,System.Int32&,System.Boolean)", false),
-        new RuntimeDetourSpec("Terraria.ModLoader.NPCLoader", "SetDefaults", "System.Void Terraria.ModLoader.NPCLoader::SetDefaults(Terraria.NPC,System.Boolean)", true),
-        new RuntimeDetourSpec("Terraria.ModLoader.CombinedHooks", "ModifyHitNPCWithProj", "System.Void Terraria.ModLoader.CombinedHooks::ModifyHitNPCWithProj(Terraria.Projectile,Terraria.NPC,Terraria.NPC/HitModifiers&)", true)
     };
 
     static Instruction LdargHelper(ILProcessor il, int index, ParameterDefinition p)
@@ -252,42 +237,6 @@ class Program
             specs.Add(new HookTargetSpec(targetType, hookType, methodName, eventName, isStatic, isCtor, fullName));
         }
 
-        if (root.TryGetProperty("runtime_detours", out var rtDetours))
-        {
-            foreach (var d in rtDetours.EnumerateArray())
-            {
-                if (!d.TryGetProperty("target", out var target) || target.ValueKind == JsonValueKind.Null)
-                    continue;
-
-                string targetType = target.GetProperty("type").GetString()!;
-                string methodName = target.GetProperty("method").GetString()!;
-                bool isStatic = target.GetProperty("is_static").GetBoolean();
-                bool isCtor = target.GetProperty("is_ctor").GetBoolean();
-                string fullName = target.TryGetProperty("full_name", out var fnProp) ? fnProp.GetString() : null;
-
-                string hookType = null;
-                string eventName = null;
-                if (targetType == "Terraria.NPC" && methodName == "StrikeNPC")
-                {
-                    hookType = "Terraria.On_NPC";
-                    eventName = "StrikeNPC_HitInfo_bool_bool";
-                }
-                else if (targetType == "Terraria.Player" && methodName == "PickAmmo")
-                {
-                    hookType = "Terraria.On_Player";
-                    eventName = "PickAmmo_Item_refInt32_refSingle_refBoolean_refInt32_refSingle_refInt32_bool";
-                }
-
-                if (hookType != null && eventName != null)
-                {
-                    string key = $"{hookType}::{eventName}";
-                    if (seen.Add(key))
-                    {
-                        specs.Add(new HookTargetSpec(targetType, hookType, methodName, eventName, isStatic, isCtor, fullName));
-                    }
-                }
-            }
-        }
 
         return specs;
     }
@@ -351,16 +300,8 @@ class Program
         remNat.Body.ExceptionHandlers.Clear();
         remNat.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Ret));
 
-        // 5. Hook.Undo -> no-op when not applied or never applied
-        var hookType = asm.MainModule.GetType("MonoMod.RuntimeDetour.Hook");
-        var undo = hookType.Methods.FirstOrDefault(m => m.Name == "Undo");
-        if (undo != null)
-        {
-            undo.Body.Instructions.Clear();
-            undo.Body.Variables.Clear();
-            undo.Body.ExceptionHandlers.Clear();
-            undo.Body.GetILProcessor().Append(Instruction.Create(OpCodes.Ret));
-        }
+        // 5. Hook: every constructor binds to the build-time lowered chain (see RuntimeDetourLowering.cs).
+        PatchHookToLoweredChains(asm.MainModule, notSupportedCtor, getName, concat);
 
         // 6. NativeHook.Apply -> fail closed
         var natHook = asm.MainModule.GetType("MonoMod.RuntimeDetour.NativeHook");
@@ -399,6 +340,8 @@ class Program
         string detourInPath = null;
         var positionalArgs = new List<string>();
 
+        string lowerModDetoursInventory = null, hooksInArg = null, tmlInArg = null, modsDirArg = null;
+        var refDirs = new List<string>();
         for (int i = 0; i < args.Length; i++)
         {
             if (args[i] == "--legacy")
@@ -413,10 +356,37 @@ class Program
             {
                 detourInPath = args[++i];
             }
+            else if (args[i] == "--lower-mod-detours" && i + 1 < args.Length)
+            {
+                lowerModDetoursInventory = args[++i];
+            }
+            else if (args[i] == "--hooks-in" && i + 1 < args.Length)
+            {
+                hooksInArg = args[++i];
+            }
+            else if (args[i] == "--tml-in" && i + 1 < args.Length)
+            {
+                tmlInArg = args[++i];
+            }
+            else if (args[i] == "--mods-dir" && i + 1 < args.Length)
+            {
+                modsDirArg = args[++i];
+            }
+            else if (args[i] == "--ref-dir" && i + 1 < args.Length)
+            {
+                refDirs.Add(args[++i]);
+            }
             else
             {
                 positionalArgs.Add(args[i]);
             }
+        }
+
+        if (lowerModDetoursInventory != null)
+        {
+            if (hooksInArg == null || tmlInArg == null || detourInPath == null || modsDirArg == null)
+                throw new ArgumentException("--lower-mod-detours needs --hooks-in, --tml-in, --detour-in and --mods-dir");
+            Environment.Exit(LowerModDetours(lowerModDetoursInventory, hooksInArg, tmlInArg, detourInPath, modsDirArg, refDirs));
         }
 
         string terrariaHooksIn = positionalArgs.Count > 0 ? positionalArgs[0] : "/home/juzoka/.cache/terraria-switch-build/tmod/tmod09/romfs/TerrariaHooks.dll";
@@ -454,6 +424,9 @@ class Program
         var notSupportedCtor = hooksAsm.MainModule.ImportReference(
             typeof(NotSupportedException).GetConstructor(new[] { typeof(string) })
         );
+        if (!legacyMode && !string.IsNullOrEmpty(inventoryPath))
+            AddRuntimeDetourSpecs(activeHooks, inventoryPath, hooksAsm.MainModule, tmlIn);
+
 
         if (legacyMode)
         {
@@ -1377,11 +1350,8 @@ class Program
                 ilEns.Append(ensDoneLabel);
                 ilEns.Append(ilEns.Create(OpCodes.Ret));
 
-                if (!spec.IsCtor)
-                {
-                    matchedMethod.IsPrivate = false;
-                    matchedMethod.IsPublic = true;
-                }
+                // The canonical method keeps its declared accessibility: mods reflect on it with
+                // exact BindingFlags (e.g. Souls: Player.PickAmmo is internal -> NonPublic).
                 matchedMethod.Body.Instructions.Clear();
                 matchedMethod.Body.Variables.Clear();
                 matchedMethod.Body.ExceptionHandlers.Clear();
@@ -1463,118 +1433,8 @@ class Program
 
             Console.WriteLine($"Rewrote canonical wrapper for {spec.TargetTypeName}::{spec.EventName}");
         }
-
+        // MonoModHooks.Add keeps its stock body: new Hook(...) binds to the lowered chain.
         var mmhType = tmlAsm.MainModule.GetType("Terraria.ModLoader.MonoModHooks");
-        if (mmhType != null && !legacyMode)
-        {
-            var addMethod = mmhType.Methods.FirstOrDefault(m => m.Name == "Add" && m.Parameters.Count == 2);
-            if (addMethod != null)
-            {
-                Console.WriteLine("Intercepting MonoModHooks.Add for statically-resolved runtime detours...");
-                addMethod.Body.Instructions.Clear();
-                addMethod.Body.Variables.Clear();
-                addMethod.Body.ExceptionHandlers.Clear();
-                addMethod.Body.InitLocals = true;
-
-                var ilAdd = addMethod.Body.GetILProcessor();
-                var notSupportedCtorTml = tmlAsm.MainModule.ImportReference(
-                    typeof(NotSupportedException).GetConstructor(new[] { typeof(string) })
-                );
-
-                var methodGetName = tmlAsm.MainModule.ImportReference(typeof(System.Reflection.MemberInfo).GetMethod("get_Name"));
-                var memberGetDeclaringType = tmlAsm.MainModule.ImportReference(typeof(System.Reflection.MemberInfo).GetMethod("get_DeclaringType"));
-                var typeGetFullName = tmlAsm.MainModule.ImportReference(typeof(Type).GetMethod("get_FullName"));
-                var stringEquals = tmlAsm.MainModule.ImportReference(typeof(string).GetMethod("op_Equality", new[] { typeof(string), typeof(string) }));
-
-                var vMethodName = new VariableDefinition(tmlAsm.MainModule.TypeSystem.String);
-                var vDeclaringTypeName = new VariableDefinition(tmlAsm.MainModule.TypeSystem.String);
-                addMethod.Body.Variables.Add(vMethodName);
-                addMethod.Body.Variables.Add(vDeclaringTypeName);
-
-                ilAdd.Append(ilAdd.Create(OpCodes.Ldarg_0));
-                ilAdd.Append(ilAdd.Create(OpCodes.Callvirt, methodGetName));
-                ilAdd.Append(ilAdd.Create(OpCodes.Stloc_0));
-
-                var dtNullLabel = ilAdd.Create(OpCodes.Nop);
-                var dtDoneLabel = ilAdd.Create(OpCodes.Nop);
-                ilAdd.Append(ilAdd.Create(OpCodes.Ldarg_0));
-                ilAdd.Append(ilAdd.Create(OpCodes.Callvirt, memberGetDeclaringType));
-                ilAdd.Append(ilAdd.Create(OpCodes.Dup));
-                ilAdd.Append(ilAdd.Create(OpCodes.Brfalse_S, dtNullLabel));
-                ilAdd.Append(ilAdd.Create(OpCodes.Callvirt, typeGetFullName));
-                ilAdd.Append(ilAdd.Create(OpCodes.Stloc_1));
-                ilAdd.Append(ilAdd.Create(OpCodes.Br_S, dtDoneLabel));
-
-                ilAdd.Append(dtNullLabel);
-                ilAdd.Append(ilAdd.Create(OpCodes.Pop));
-                ilAdd.Append(ilAdd.Create(OpCodes.Ldstr, ""));
-                ilAdd.Append(ilAdd.Create(OpCodes.Stloc_1));
-                ilAdd.Append(dtDoneLabel);
-
-                foreach (var dt in KnownRuntimeDetours)
-                {
-                    var nextDt = ilAdd.Create(OpCodes.Nop);
-                    ilAdd.Append(ilAdd.Create(OpCodes.Ldloc_0));
-                    ilAdd.Append(ilAdd.Create(OpCodes.Ldstr, dt.MethodName));
-                    ilAdd.Append(ilAdd.Create(OpCodes.Call, stringEquals));
-                    ilAdd.Append(ilAdd.Create(OpCodes.Brfalse, nextDt));
-
-                    ilAdd.Append(ilAdd.Create(OpCodes.Ldloc_1));
-                    ilAdd.Append(ilAdd.Create(OpCodes.Ldstr, dt.TargetTypeName));
-                    ilAdd.Append(ilAdd.Create(OpCodes.Call, stringEquals));
-                    ilAdd.Append(ilAdd.Create(OpCodes.Brfalse, nextDt));
-
-                    string targetHookType = null;
-                    string targetHookAdd = null;
-                    string targetHookDel = null;
-
-                    if (dt.TargetTypeName == "Terraria.NPC" && dt.MethodName == "StrikeNPC")
-                    {
-                        targetHookType = "Terraria.On_NPC";
-                        targetHookAdd = "add_StrikeNPC_HitInfo_bool_bool";
-                        targetHookDel = "Terraria.On_NPC/hook_StrikeNPC_HitInfo_bool_bool";
-                    }
-                    else if (dt.TargetTypeName == "Terraria.Player" && dt.MethodName == "PickAmmo")
-                    {
-                        targetHookType = "Terraria.On_Player";
-                        targetHookAdd = "add_PickAmmo_Item_refInt32_refSingle_refBoolean_refInt32_refSingle_refInt32_bool";
-                        targetHookDel = "Terraria.On_Player/hook_PickAmmo_Item_refInt32_refSingle_refBoolean_refInt32_refSingle_refInt32_bool";
-                    }
-
-                    if (targetHookType != null)
-                    {
-                        var htDef = patchedHooksAsm.MainModule.GetType(targetHookType);
-                        var addM = htDef.Methods.First(m => m.Name == targetHookAdd);
-                        var addMRef = tmlAsm.MainModule.ImportReference(addM);
-                        var hookDelTypeDef = htDef.NestedTypes.First(t => t.FullName == targetHookDel);
-                        var hookDelTypeRef = tmlAsm.MainModule.ImportReference(hookDelTypeDef);
-
-                        ilAdd.Append(ilAdd.Create(OpCodes.Ldarg_1));
-                        ilAdd.Append(ilAdd.Create(OpCodes.Castclass, hookDelTypeRef));
-                        ilAdd.Append(ilAdd.Create(OpCodes.Call, addMRef));
-                        ilAdd.Append(ilAdd.Create(OpCodes.Ret));
-                    }
-                    else
-                    {
-                        ilAdd.Append(ilAdd.Create(OpCodes.Ret));
-                    }
-
-                    ilAdd.Append(nextDt);
-                }
-
-                ilAdd.Append(ilAdd.Create(OpCodes.Ldstr, "Runtime detour target method not supported in offline lowered mode: "));
-                var stringConcat = tmlAsm.MainModule.ImportReference(
-                    typeof(string).GetMethod("Concat", new[] { typeof(string), typeof(string) })
-                );
-                ilAdd.Append(ilAdd.Create(OpCodes.Ldloc_0));
-                ilAdd.Append(ilAdd.Create(OpCodes.Call, stringConcat));
-                ilAdd.Append(ilAdd.Create(OpCodes.Newobj, notSupportedCtorTml));
-                ilAdd.Append(ilAdd.Create(OpCodes.Throw));
-
-                Console.WriteLine("MonoModHooks.Add successfully redirected to lowered chains with fail-closed rejection on unbaked targets.");
-            }
-        }
-
         if (mmhType != null)
         {
             var registryTypeDef = patchedHooksAsm.MainModule.GetType("TerrariaHooks.LoweredHookRegistry")!;

@@ -107,6 +107,11 @@ public class HookRegistration
     [JsonPropertyName("op")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Op { get; set; }
+
+    /// <summary>Cecil FullName of the method a runtime detour delegate binds (runtime detours only).</summary>
+    [JsonPropertyName("detour_method")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? DetourMethod { get; set; }
 }
 
 public class OnHookEntry
