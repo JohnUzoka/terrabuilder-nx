@@ -13,6 +13,14 @@
 // locked 60 fps and 12.8 at 48 fps, both a factor of 31.25/19.2 MHz = 625/384 short. Reports
 // are scaled by TICK_SCALE.
 // Every report also logs apm's performance mode/configuration and the CPU/GPU/EMC clocks.
+// It also logs the swapchain (NX_SWAP; needs --wrap=nwindowDequeueBuffer/nwindowQueueBuffer):
+// dequeues per slot, how many came back with an unsignaled release fence, the time blocked on
+// it, the time from the previous queue to the dequeue returning, and how often the display
+// reported more than one pending frame.
+// NX_SWAP_INTERVAL (env, experiment) overrides the swap interval the game asks for. With 0 the
+// display takes the newest queued frame at each refresh instead of queueing them, so the release
+// fence never waits a refresh; queueing is then paced to at most 60 per second here, because
+// Terraria with frame skip off runs one update per frame.
 
 #include "nx_gpu_timing.h"
 #include "io_util.h"
@@ -20,6 +28,8 @@
 #include <switch.h>
 #include <SDL2/SDL.h>
 #include <inttypes.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <stdbool.h>
 
 #define GL_TIMESTAMP 0x8E28
@@ -47,6 +57,10 @@ static uint64_t next_read;  // oldest frame whose results are not read yet
 static uint64_t last_end;
 static bool have_last_end;
 static uint64_t n, span_sum, span_max, gap_sum, period_sum, period_n, lost;
+
+#define SWAP_SLOTS 8
+static uint64_t sw_slot[SWAP_SLOTS], sw_deq, sw_blocked, sw_wait_ns, sw_wait_max, sw_lat_ns, sw_lat_n, sw_behind;
+static uint64_t sw_last_queue;
 
 static bool clocks_ready;
 static ClkrstSession cpu_s, gpu_s, emc_s;
@@ -186,9 +200,90 @@ void nx_gpu_frame_begin(void)
     issued[slot] = true;
 }
 
+Result __real_nwindowDequeueBuffer(NWindow *nw, s32 *out_slot, NvMultiFence *out_fence);
+Result __real_nwindowQueueBuffer(NWindow *nw, s32 slot, const NvMultiFence *fence);
+
+Result __wrap_nwindowDequeueBuffer(NWindow *nw, s32 *out_slot, NvMultiFence *out_fence)
+{
+    NvMultiFence fence;
+    s32 slot = -1;
+    Result rc = __real_nwindowDequeueBuffer(nw, &slot, &fence);
+    if (R_FAILED(rc))
+        return rc;
+    if (out_slot)
+        *out_slot = slot;
+    if (out_fence) {
+        *out_fence = fence;
+    } else {
+        uint64_t t0 = armTicksToNs(armGetSystemTick());
+        if (R_FAILED(nvMultiFenceWait(&fence, 0))) {
+            nvMultiFenceWait(&fence, -1);
+            uint64_t w = armTicksToNs(armGetSystemTick()) - t0;
+            ++sw_blocked;
+            sw_wait_ns += w;
+            if (w > sw_wait_max) sw_wait_max = w;
+        }
+    }
+    ++sw_deq;
+    if (slot >= 0 && slot < SWAP_SLOTS) ++sw_slot[slot];
+    if (sw_last_queue) {
+        sw_lat_ns += armTicksToNs(armGetSystemTick()) - sw_last_queue;
+        ++sw_lat_n;
+        sw_last_queue = 0;
+    }
+    return rc;
+}
+
+static int swap_override = -2;
+
+Result __real_nwindowSetSwapInterval(NWindow *nw, u32 swap_interval);
+Result __wrap_nwindowSetSwapInterval(NWindow *nw, u32 swap_interval)
+{
+    if (swap_override == -2) {
+        const char *v = getenv("NX_SWAP_INTERVAL");
+        swap_override = v && *v ? atoi(v) : -1;
+        if (swap_override >= 0)
+            io_debugf("NX_SWAP interval %u requested, using %d (NX_SWAP_INTERVAL)", swap_interval, swap_override);
+    }
+    return __real_nwindowSetSwapInterval(nw, swap_override >= 0 ? (u32)swap_override : swap_interval);
+}
+
+Result __wrap_nwindowQueueBuffer(NWindow *nw, s32 slot, const NvMultiFence *fence)
+{
+    static uint64_t paced;
+    if (swap_override == 0) {
+        uint64_t now = armTicksToNs(armGetSystemTick());
+        const uint64_t period = 16666667;
+        if (paced && now < paced + period)
+            svcSleepThread(paced + period - now);
+        now = armTicksToNs(armGetSystemTick());
+        paced = (paced && now < paced + 2 * period) ? paced + period : now;
+    }
+    Result rc = __real_nwindowQueueBuffer(nw, slot, fence);
+    sw_last_queue = armTicksToNs(armGetSystemTick());
+    if (R_SUCCEEDED(rc) && nw->consumer_running_behind) ++sw_behind;
+    return rc;
+}
+
+static void log_swap(bool final)
+{
+    if (!sw_deq)
+        return;
+    char slots[96];
+    int len = 0;
+    for (int i = 0; i < SWAP_SLOTS; ++i)
+        if (sw_slot[i]) len += snprintf(slots + len, sizeof(slots) - len, "%s%d:%" PRIu64, len ? "," : "", i, sw_slot[i]);
+    io_debugf("NX_SWAP%s dequeues=%" PRIu64 " slots=%s blocked=%" PRIu64 " wait avg/max=%.3f/%.3fms queue_to_dequeue=%.3fms behind=%" PRIu64,
+        final ? " final" : "", sw_deq, slots, sw_blocked, sw_blocked ? sw_wait_ns / 1e6 / sw_blocked : 0.0,
+        sw_wait_max / 1e6, sw_lat_n ? sw_lat_ns / 1e6 / sw_lat_n : 0.0, sw_behind);
+    for (int i = 0; i < SWAP_SLOTS; ++i) sw_slot[i] = 0;
+    sw_deq = sw_blocked = sw_wait_ns = sw_wait_max = sw_lat_ns = sw_lat_n = sw_behind = 0;
+}
+
 void nx_gpu_report(bool final)
 {
     log_clocks();
+    log_swap(final);
     if (!enabled)
         return;
     io_debugf("NX_GPU%s frames=%" PRIu64 " span/gap/period=%.3f/%.3f/%.3fms span_max=%.3fms lost=%" PRIu64,
