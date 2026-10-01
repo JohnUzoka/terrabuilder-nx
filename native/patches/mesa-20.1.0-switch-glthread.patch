@@ -1,0 +1,130 @@
+diff -ruN '--exclude=__pycache__' mesa-stock-src/src/egl/drivers/switch/egl_switch.c mesa-20.1.0-rc3/src/egl/drivers/switch/egl_switch.c
+--- a/src/egl/drivers/switch/egl_switch.c	2026-10-01 02:55:09.889547478 -0600
++++ b/src/egl/drivers/switch/egl_switch.c	2026-10-01 03:09:26.721385329 -0600
+@@ -54,6 +54,7 @@
+ #include "util/format/u_format.h"
+ #include "util/u_inlines.h"
+ #include "util/u_memory.h"
++#include "util/debug.h"
+ 
+ #include "state_tracker/st_api.h"
+ #include "state_tracker/st_gl_api.h"
+@@ -455,6 +456,18 @@
+     return 0;
+ }
+ 
++// glthread calls this on its worker thread at startup (st_set_background_context
++// dereferences it unconditionally). No window-system state to set up; just keep the
++// worker off the application's main core (0) and at the main thread's priority.
++static void
++switch_st_set_background_context(struct st_context_iface *stctx, struct util_queue_monitoring *queue_info)
++{
++    u64 core_mask = 0;
++    if (R_SUCCEEDED(svcGetInfo(&core_mask, InfoType_CoreMask, CUR_PROCESS_HANDLE, 0)) && (core_mask & 2))
++        svcSetThreadCoreMask(CUR_THREAD_HANDLE, 1, core_mask);
++    svcSetThreadPriority(CUR_THREAD_HANDLE, 0x2C);
++}
++
+ static EGLBoolean
+ switch_initialize(_EGLDriver *drv, _EGLDisplay *dpy)
+ {
+@@ -490,6 +503,7 @@
+     }
+ 
+     stmgr->get_param = switch_st_get_param;
++    stmgr->set_background_context = switch_st_set_background_context;
+ 
+     // Create nouveau screen
+     TRACE("Creating nouveau screen\n");
+@@ -607,6 +621,11 @@
+         goto cleanup;
+     }
+ 
++    // MESA_GLTHREAD=1: marshal GL calls to a worker thread (as DRI's mesa_glthread does,
++    // started before the context is first made current).
++    if (context->stctx->start_thread && env_var_as_boolean("MESA_GLTHREAD", false))
++        context->stctx->start_thread(context->stctx);
++
+     return &context->base;
+ 
+ cleanup:
+@@ -682,6 +701,11 @@
+     struct switch_egl_surface* surface = switch_egl_surface(surf);
+     struct switch_egl_context* context = switch_egl_context(surface->base.CurrentContext);
+ 
++    // The glthread worker dequeues (framebuffer validate) and flushes; let it drain
++    // before this thread reads the surface or touches the pipe context.
++    if (context && context->stctx->thread_finish)
++        context->stctx->thread_finish(context->stctx);
++
+     if (surface->cur_slot < 0) {
+         TRACE("Nothing to do\n");
+         return EGL_TRUE;
+diff -ruN '--exclude=__pycache__' mesa-stock-src/src/mesa/main/glthread.h mesa-20.1.0-rc3/src/mesa/main/glthread.h
+--- a/src/mesa/main/glthread.h	2020-05-13 11:41:15.015004600 -0600
++++ b/src/mesa/main/glthread.h	2026-10-01 03:08:55.759444188 -0600
+@@ -33,7 +33,7 @@
+  *   chance of experiencing CPU cache thrashing
+  * but it should be high enough so that u_queue overhead remains negligible.
+  */
+-#define MARSHAL_MAX_CMD_SIZE (8 * 1024)
++#define MARSHAL_MAX_CMD_SIZE (32 * 1024)
+ 
+ /* The number of batch slots in memory.
+  *
+diff -ruN '--exclude=__pycache__' mesa-stock-src/src/mesa/main/glthread_bufferobj.c mesa-20.1.0-rc3/src/mesa/main/glthread_bufferobj.c
+--- a/src/mesa/main/glthread_bufferobj.c	2020-05-13 11:41:15.015004600 -0600
++++ b/src/mesa/main/glthread_bufferobj.c	2026-10-01 03:08:55.759444188 -0600
+@@ -269,6 +269,22 @@
+    GET_CURRENT_CONTEXT(ctx);
+    size_t cmd_size = sizeof(struct marshal_cmd_BufferSubData) + size;
+ 
++   /* Uploads larger than one command go to the worker as several disjoint
++    * sub-range updates instead of synchronizing (FNA's SpriteBatch uploads
++    * up to ~196 KB per flush).
++    */
++   const GLsizeiptr chunk = (MARSHAL_MAX_CMD_SIZE -
++                             sizeof(struct marshal_cmd_BufferSubData)) & ~(GLsizeiptr)63;
++   if (size > chunk && size <= INT_MAX && data && !(named && target_or_name == 0)) {
++      for (GLsizeiptr done = 0; done < size; done += chunk) {
++         GLsizeiptr n = MIN2(chunk, size - done);
++         _mesa_marshal_BufferSubData_merged(target_or_name, offset + done, n,
++                                            (const GLubyte *) data + done,
++                                            named, ext_dsa, func);
++      }
++      return;
++   }
++
+    if (unlikely(size < 0 || size > INT_MAX || cmd_size < 0 ||
+                 cmd_size > MARSHAL_MAX_CMD_SIZE || !data ||
+                 (named && target_or_name == 0))) {
+diff -ruN '--exclude=__pycache__' mesa-stock-src/src/mesa/state_tracker/st_context.c mesa-20.1.0-rc3/src/mesa/state_tracker/st_context.c
+--- a/src/mesa/state_tracker/st_context.c	2026-10-01 02:55:09.901547476 -0600
++++ b/src/mesa/state_tracker/st_context.c	2026-10-01 03:22:04.769232646 -0600
+@@ -1076,10 +1076,8 @@
+     */
+    _mesa_make_current(ctx, NULL, NULL);
+ 
+-#ifndef __SWITCH__
+    /* This must be called first so that glthread has a chance to finish */
+    _mesa_glthread_destroy(ctx);
+-#endif
+ 
+    _mesa_HashWalk(ctx->Shared->TexObjects, destroy_tex_sampler_cb, st);
+ 
+diff -ruN '--exclude=__pycache__' mesa-stock-src/src/mesa/state_tracker/st_manager.c mesa-20.1.0-rc3/src/mesa/state_tracker/st_manager.c
+--- a/src/mesa/state_tracker/st_manager.c	2026-10-01 02:55:09.905547476 -0600
++++ b/src/mesa/state_tracker/st_manager.c	2026-10-01 03:21:38.009616289 -0600
+@@ -994,10 +994,10 @@
+    st->iface.teximage = st_context_teximage;
+    st->iface.copy = st_context_copy;
+    st->iface.share = st_context_share;
+-#ifndef __SWITCH__
++   /* The switch patch compiled these out; the switch EGL driver now starts glthread
++    * only when MESA_GLTHREAD is set and finishes it before each swap. */
+    st->iface.start_thread = st_start_thread;
+    st->iface.thread_finish = st_thread_finish;
+-#endif
+    st->iface.st_context_private = (void *) smapi;
+    st->iface.cso_context = st->cso_context;
+    st->iface.pipe = st->pipe;

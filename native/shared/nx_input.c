@@ -11,7 +11,45 @@
 #include <mono/metadata/image.h>
 #include <mono/metadata/object.h>
 #include <inttypes.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+/* Graphics-driver environment (build75), read by Mesa when FNA3D creates its context:
+ * MESA_GLTHREAD runs GL on a worker thread (patched switch EGL driver), MESA_NO_ERROR
+ * skips GL error validation. Lines "KEY=VALUE" in /mono/nx_env.txt override these
+ * defaults or add variables ("KEY=" sets an empty value) without rebuilding the NRO.
+ * The sd card is mounted in __appInit, before constructors run.
+ */
+#define NX_ENV_PATH "/mono/nx_env.txt"
+static char nx_env_summary[256];
+
+__attribute__((constructor)) static void nx_env_init(void)
+{
+    setenv("MESA_GLTHREAD", "true", 1);
+    setenv("MESA_NO_ERROR", "1", 1);
+    int overrides = 0;
+    FILE *file = fopen(NX_ENV_PATH, "r");
+    if (file) {
+        char line[256];
+        while (fgets(line, sizeof line, file)) {
+            line[strcspn(line, "\r\n")] = '\0';
+            char *eq = strchr(line, '=');
+            if (line[0] == '#' || !eq || eq == line)
+                continue;
+            *eq = '\0';
+            setenv(line, eq + 1, 1);
+            ++overrides;
+        }
+        fclose(file);
+    }
+    const char *glthread = getenv("MESA_GLTHREAD");
+    const char *no_error = getenv("MESA_NO_ERROR");
+    snprintf(nx_env_summary, sizeof nx_env_summary,
+        "NX_ENV MESA_GLTHREAD=%s MESA_NO_ERROR=%s; %d override(s) from %s%s",
+        glthread ? glthread : "(unset)", no_error ? no_error : "(unset)", overrides,
+        NX_ENV_PATH, file ? "" : " (absent)");
+}
 
 #define NX_INPUT_CONTROLLERS 4
 #define NX_INPUT_RAW_BUTTONS 28
@@ -201,6 +239,7 @@ static void ensure_worker(void)
     if (worker_attempted || stopping || !SDL_WasInit(SDL_INIT_JOYSTICK))
         return;
     worker_attempted = true;
+    io_debugf("%s", nx_env_summary);
     padInitializeDefault(&slots[0].pad);
     for (unsigned i = 1; i < NX_INPUT_CONTROLLERS; ++i)
         padInitialize(&slots[i].pad, (HidNpadIdType)(HidNpadIdType_No1 + i));
