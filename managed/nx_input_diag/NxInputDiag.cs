@@ -9,7 +9,7 @@ public static class InputDiagnostics
 {
     public static void InstallSwitchMapping()
     {
-        const string mapping = "000038f853776974636820436f6e7400,Switch Controller,a:b1,b:b0,back:b11,dpdown:b15,dpleft:b12,dpright:b14,dpup:b13,leftshoulder:b6,leftstick:b4,lefttrigger:b8,leftx:a0,lefty:a1,rightshoulder:b7,rightstick:b5,righttrigger:b9,rightx:a2,righty:a3,start:b10,x:b2,y:b3,hint:!SDL_GAMECONTROLLER_USE_BUTTON_LABELS:=1,";
+        const string mapping = "000038f853776974636820436f6e7400,Switch Controller,a:b0,b:b1,back:b11,dpdown:b15,dpleft:b12,dpright:b14,dpup:b13,leftshoulder:b6,leftstick:b4,lefttrigger:b8,leftx:a0,lefty:a1,rightshoulder:b7,rightstick:b5,righttrigger:b9,rightx:a2,righty:a3,start:b10,x:b2,y:b3,";
         int result = SDL.SDL_GameControllerAddMapping(mapping);
         FNALoggerEXT.LogInfo("NX Switch mapping install result=" + result.ToString());
     }

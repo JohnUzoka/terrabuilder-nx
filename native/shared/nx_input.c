@@ -31,9 +31,9 @@ static char nx_env_summary[256];
 
 __attribute__((constructor)) static void nx_env_init(void)
 {
-    setenv("MESA_GLTHREAD", "true", 1);
+    setenv("MESA_GLTHREAD", "false", 1);
     setenv("MESA_GLTHREAD_CORE", "2", 1);
-    setenv("MESA_SWITCH_BUFFERS", "4", 1);
+    setenv("MESA_SWITCH_BUFFERS", "3", 1);
     setenv("MESA_NO_ERROR", "1", 1);
     int overrides = 0;
     FILE *file = fopen(NX_ENV_PATH, "r");
@@ -60,6 +60,24 @@ __attribute__((constructor)) static void nx_env_init(void)
         glthread ? glthread : "(unset)", core ? core : "(unset)", buffers ? buffers : "(unset)",
         no_error ? no_error : "(unset)", overrides,
         NX_ENV_PATH, file ? "" : " (absent)");
+}
+
+/* Terraria has its own gamepad keyboard. devkitPro SDL's SDL_StartTextInput always calls
+ * the Switch backend, which shows the system inline keyboard over the game regardless of
+ * SDL_ENABLE_SCREEN_KEYBOARD. Linked with -Wl,--wrap=SDL_StartTextInput,--wrap=SDL_StopTextInput,
+ * these keep only SDL's text-event state (what SDL_IsTextInputActive reports) and never
+ * touch the backend.
+ */
+void __wrap_SDL_StartTextInput(void)
+{
+    SDL_EventState(SDL_TEXTINPUT, SDL_ENABLE);
+    SDL_EventState(SDL_TEXTEDITING, SDL_ENABLE);
+}
+
+void __wrap_SDL_StopTextInput(void)
+{
+    SDL_EventState(SDL_TEXTINPUT, SDL_DISABLE);
+    SDL_EventState(SDL_TEXTEDITING, SDL_DISABLE);
 }
 
 #define NX_INPUT_CONTROLLERS 4
