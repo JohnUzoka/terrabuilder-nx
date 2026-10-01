@@ -1,6 +1,9 @@
 #include "core.h"
 #include "nx_input.h"
 #include "nx_runtime_config.h"
+#if defined(MONO_NX_PROFILER)
+#include "nx_profiler.h"
+#endif
 #if defined(MONO_NX_USE_AOT)
 #include <mono/utils/mono-error.h>
 // This lookup is exported by the pinned mono-nx SDK, but not its public headers.
@@ -410,7 +413,14 @@ int main(int argc, char *argv[])
 
     char *monoargs[] = {launch_dll};
 
+#if defined(MONO_NX_PROFILER)
+    // Measurement build only: link nx_profiler.o (see nx_profiler.c).
+    nx_profiler_start();
+#endif
     mono_jit_exec(domain, assembly, 1, monoargs);
+#if defined(MONO_NX_PROFILER)
+    nx_profiler_stop();
+#endif
     nx_input_shutdown();
 #if defined(MONO_NX_GC_STATS)
     if (gc_stats_running) {
