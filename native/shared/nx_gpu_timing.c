@@ -9,6 +9,9 @@
 //   gap    = begin - previous end: the swap/blit plus any idle time between frames;
 //   period = end - previous end: should average the CPU frame time (sanity check).
 // GPU-bound: gap is near 0 and span is near period. CPU-bound: gap and bubbles grow.
+// The Tegra X1 timestamps are not ns: on hardware (build 78) the period was 10.24 "ms" at a
+// locked 60 fps and 12.8 at 48 fps, both a factor of 31.25/19.2 MHz = 625/384 short. Reports
+// are scaled by TICK_SCALE.
 // Every report also logs apm's performance mode/configuration and the CPU/GPU/EMC clocks.
 
 #include "nx_gpu_timing.h"
@@ -24,6 +27,7 @@
 #define GL_QUERY_RESULT 0x8866
 #define GL_QUERY_RESULT_AVAILABLE 0x8867
 #define RING 8
+#define TICK_SCALE (625.0 / 384.0)
 
 typedef void (*GenQueries)(int, unsigned *);
 typedef void (*QueryCounter)(unsigned, unsigned);
@@ -188,7 +192,8 @@ void nx_gpu_report(bool final)
     if (!enabled)
         return;
     io_debugf("NX_GPU%s frames=%" PRIu64 " span/gap/period=%.3f/%.3f/%.3fms span_max=%.3fms lost=%" PRIu64,
-        final ? " final" : "", n, n ? span_sum / 1e6 / n : 0.0, period_n ? gap_sum / 1e6 / period_n : 0.0,
-        period_n ? period_sum / 1e6 / period_n : 0.0, span_max / 1e6, lost);
+        final ? " final" : "", n, n ? span_sum * TICK_SCALE / 1e6 / n : 0.0,
+        period_n ? gap_sum * TICK_SCALE / 1e6 / period_n : 0.0,
+        period_n ? period_sum * TICK_SCALE / 1e6 / period_n : 0.0, span_max * TICK_SCALE / 1e6, lost);
     n = span_sum = span_max = gap_sum = period_sum = period_n = lost = 0;
 }

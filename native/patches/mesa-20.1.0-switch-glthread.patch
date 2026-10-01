@@ -1,6 +1,6 @@
 diff -ruN '--exclude=__pycache__' mesa-stock-src/src/egl/drivers/switch/egl_switch.c mesa-20.1.0-rc3/src/egl/drivers/switch/egl_switch.c
 --- a/src/egl/drivers/switch/egl_switch.c	2026-10-01 02:55:09.889547478 -0600
-+++ b/src/egl/drivers/switch/egl_switch.c	2026-10-01 09:40:06.254582496 -0600
++++ b/src/egl/drivers/switch/egl_switch.c	2026-10-01 10:58:52.446620756 -0600
 @@ -54,6 +54,7 @@
  #include "util/format/u_format.h"
  #include "util/u_inlines.h"
@@ -9,7 +9,51 @@ diff -ruN '--exclude=__pycache__' mesa-stock-src/src/egl/drivers/switch/egl_swit
  
  #include "state_tracker/st_api.h"
  #include "state_tracker/st_gl_api.h"
-@@ -455,6 +456,26 @@
+@@ -61,7 +62,10 @@
+ 
+ #include "mapi/glapi/glapi.h"
+ 
+-#define NUM_BUFFERS 3
++// Swapchain size: MESA_SWITCH_BUFFERS (2..MAX_BUFFERS, default 4). The display releases a
++// buffer about a refresh after replacing it, so below 60 fps three buffers often leave none
++// free and nwindowDequeueBuffer blocks on the release fence at the start of the next frame.
++#define MAX_BUFFERS 4
+ 
+ #ifdef DEBUG
+ #	define TRACE(x...) _eglLog(_EGL_DEBUG, "egl_switch: " x)
+@@ -100,8 +104,9 @@
+ 
+     NWindow* nw;
+     s32 cur_slot;
+-    struct pipe_resource *buffers[NUM_BUFFERS];
+-    NvFence fences[NUM_BUFFERS];
++    struct pipe_resource *buffers[MAX_BUFFERS];
++    NvFence fences[MAX_BUFFERS];
++    u32 num_buffers;
+ };
+ 
+ struct switch_framebuffer
+@@ -224,7 +229,7 @@
+         nwindowReleaseBuffers(surface->nw);
+     }
+ 
+-    for (i = 0; i < NUM_BUFFERS; i ++)
++    for (i = 0; i < surface->num_buffers; i ++)
+         pipe_resource_reference(&surface->buffers[i], NULL);
+ 
+     if (surface->stfbi)
+@@ -282,7 +287,9 @@
+     fb->template.array_size = 1;
+     fb->template.usage = PIPE_USAGE_DEFAULT;
+     fb->template.bind = PIPE_BIND_RENDER_TARGET;
+-    for (i = 0; i < NUM_BUFFERS; i ++)
++    int num_buffers = (int)debug_get_num_option("MESA_SWITCH_BUFFERS", MAX_BUFFERS);
++    surface->num_buffers = num_buffers < 2 ? 2 : num_buffers > MAX_BUFFERS ? MAX_BUFFERS : num_buffers;
++    for (i = 0; i < surface->num_buffers; i ++)
+     {
+         // Allocate a framebuffer
+         surface->fences[i].id = UINT32_MAX;
+@@ -455,6 +462,26 @@
      return 0;
  }
  
@@ -36,7 +80,7 @@ diff -ruN '--exclude=__pycache__' mesa-stock-src/src/egl/drivers/switch/egl_swit
  static EGLBoolean
  switch_initialize(_EGLDriver *drv, _EGLDisplay *dpy)
  {
-@@ -490,6 +511,7 @@
+@@ -490,6 +517,7 @@
      }
  
      stmgr->get_param = switch_st_get_param;
@@ -44,7 +88,7 @@ diff -ruN '--exclude=__pycache__' mesa-stock-src/src/egl/drivers/switch/egl_swit
  
      // Create nouveau screen
      TRACE("Creating nouveau screen\n");
-@@ -607,6 +629,11 @@
+@@ -607,6 +635,11 @@
          goto cleanup;
      }
  
@@ -56,7 +100,7 @@ diff -ruN '--exclude=__pycache__' mesa-stock-src/src/egl/drivers/switch/egl_swit
      return &context->base;
  
  cleanup:
-@@ -682,6 +709,11 @@
+@@ -682,6 +715,11 @@
      struct switch_egl_surface* surface = switch_egl_surface(surf);
      struct switch_egl_context* context = switch_egl_context(surface->base.CurrentContext);
  
