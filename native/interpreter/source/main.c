@@ -233,8 +233,9 @@ int main(int argc, char *argv[])
     setenv("FNA3D_OPENGL_FORCE_COMPATIBILITY_PROFILE", "1", 1);
 #endif
     // Real Switch audio: the patched FNA shares one FAudio device between
-    // SoundEffect and XACT (scripts/fna_shared_audio). To silence the game,
-    // put SDL_AUDIODRIVER=dummy in /mono/nx_env.txt.
+    // SoundEffect and XACT (scripts/fna_shared_audio); native/shared/nx_audio.c
+    // schedules its threads. SDL_AUDIODRIVER=dummy in /mono/nx_env.txt mutes
+    // the game (the Switch SDL has no dummy driver, so FNA finds no device).
     // ReLogic's Linux path service uses XDG_DATA_HOME/HOME. These paths
     // must remain POSIX-rooted for managed Path APIs; the cwd is SD when
     // they reach libnx, so /switch/... resolves to the writable SD device.

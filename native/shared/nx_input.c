@@ -60,6 +60,13 @@ __attribute__((constructor)) static void nx_env_init(void)
         glthread ? glthread : "(unset)", core ? core : "(unset)", buffers ? buffers : "(unset)",
         no_error ? no_error : "(unset)", overrides,
         NX_ENV_PATH, file ? "" : " (absent)");
+    /* Touch as mouse: devkitPro SDL's SWITCH_InitTouch sets SDL_TOUCH_MOUSE_EVENTS=0 at
+     * default priority, so taps never reach FNA's mouse state. An override wins over that.
+     * NX_TOUCH_MOUSE=0 in nx_env.txt keeps SDL's behaviour.
+     */
+    const char *touch = getenv("NX_TOUCH_MOUSE");
+    if (!touch || strcmp(touch, "0") != 0)
+        SDL_SetHintWithPriority(SDL_HINT_TOUCH_MOUSE_EVENTS, "1", SDL_HINT_OVERRIDE);
 }
 
 /* Terraria has its own gamepad keyboard. devkitPro SDL's SDL_StartTextInput always calls
@@ -171,6 +178,15 @@ static bool stopping;
 static bool fps_combo_down;
 static bool fps_shown;
 #if defined(MONO_NX_PHASE_TIMING)
+/* Plus (raw b10) diagnostics: presses seen by the sampler, presses presented to an
+ * update, and presented updates in which the game never asked for Start.
+ */
+#define NX_PLUS_BIT (UINT32_C(1) << 10)
+static uint32_t plus_sampled;
+static uint32_t plus_presented;
+static uint32_t plus_unread;
+static uint32_t plus_presented_last;
+static bool plus_read;
 static uint64_t start_tick;
 static uint64_t report_tick;
 static uint64_t tick_frequency;
@@ -233,6 +249,10 @@ static void publish_sample(NxPadSlot *slot, NxPadSample sample)
         sample.active_style != old->active_style) {
         nx_button_latch_reset(&slot->latch);
     }
+#if defined(MONO_NX_PHASE_TIMING)
+    if ((sample.plus_minus & 1u) && !(old->plus_minus & 1u))
+        ++plus_sampled;
+#endif
     slot->sample = sample;
     slot->sampled = true;
     nx_button_latch_sample(&slot->latch, sample.buttons);
@@ -453,6 +473,18 @@ static void begin_update(void)
                 combo = true;
             }
         }
+#if defined(MONO_NX_PHASE_TIMING)
+        uint32_t plus_now = slots[0].latch.presented & NX_PLUS_BIT;
+        if (plus_presented_last && !plus_read)
+            ++plus_unread;
+        if (plus_now && !plus_presented_last) {
+            ++plus_presented;
+            io_debugf("NX_INPUT Plus press: sampled=%u presented=%u presented_unread=%u",
+                (unsigned)plus_sampled, (unsigned)plus_presented, (unsigned)plus_unread);
+        }
+        plus_presented_last = plus_now;
+        plus_read = false;
+#endif
         mutexUnlock(&input_lock);
         if (combo && !fps_combo_down)
             toggle_fps_display();
@@ -543,6 +575,10 @@ static uint8_t get_button(SDL_GameController *controller, int button)
                     controller, (SDL_GameControllerButton)button);
                 if (bind.bindType == SDL_CONTROLLER_BINDTYPE_BUTTON &&
                     bind.value.button >= 0 && bind.value.button < NX_INPUT_RAW_BUTTONS) {
+#if defined(MONO_NX_PHASE_TIMING)
+                    if (instance == 0 && bind.value.button == 10)
+                        plus_read = true;
+#endif
                     return (uint8_t)((slot->latch.presented >> bind.value.button) & 1u);
                 }
             }
