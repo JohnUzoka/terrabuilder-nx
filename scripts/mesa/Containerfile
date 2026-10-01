@@ -1,2 +1,4 @@
-FROM localhost/monobuild:local
+# devkitA64 r28 (GCC 15.1.0) + libnx 4.9.0: the toolchain devkitPro used for switch-mesa 20.1.0-5 (built 2025-07-04).
+# Newer toolchains (r29/GCC 15.2/libnx 4.12) build a Mesa that runs ~2x slower on the GPU (build 75, 27 vs 45 fps).
+FROM docker.io/devkitpro/devkita64:20250728
 RUN apt-get update && apt-get install -y --no-install-recommends python3-pip python3-mako bison flex pkg-config && rm -rf /var/lib/apt/lists/* && pip3 install --break-system-packages meson==0.59.4

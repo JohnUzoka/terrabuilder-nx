@@ -128,3 +128,22 @@ diff -ruN '--exclude=__pycache__' mesa-stock-src/src/mesa/state_tracker/st_manag
     st->iface.st_context_private = (void *) smapi;
     st->iface.cso_context = st->cso_context;
     st->iface.pipe = st->pipe;
+diff -ruN '--exclude=__pycache__' mesa-stock-src/src/util/u_thread.h mesa-20.1.0-rc3/src/util/u_thread.h
+--- a/src/util/u_thread.h	2020-05-13 11:41:15.308005800 -0600
++++ b/src/util/u_thread.h	2026-10-01 05:11:15.240308958 -0600
+@@ -60,6 +60,15 @@
+    pthread_sigmask(SIG_BLOCK, &new_set, &saved_set);
+    ret = thrd_create( &thread, routine, param );
+    pthread_sigmask(SIG_SETMASK, &saved_set, NULL);
++#elif defined(__SWITCH__)
++   /* libnx's default thread stack is 128 KB; the glthread worker runs GLSL
++    * linking and nv50_ir codegen, so give it the main thread's 1 MB. */
++   pthread_attr_t attr;
++   int ret;
++   pthread_attr_init(&attr);
++   pthread_attr_setstacksize(&attr, 1024 * 1024);
++   ret = pthread_create(&thread, &attr, (void *(*)(void *)) routine, param);
++   pthread_attr_destroy(&attr);
+ #else
+    int ret;
+    ret = thrd_create( &thread, routine, param );
