@@ -11,6 +11,11 @@
  * Buffering: the Switch driver double-buffers SDL's period. FAudio asks for 10 ms (480
  * frames), which leaves about 5 ms for each mix. NX_AUDIO_SAMPLES (default 1024, about
  * 21 ms) is applied to every output device opened without allowed changes.
+ *
+ * Service load: the driver's PlayDevice loops audrvUpdate (an IPC request to the system
+ * audio service) and audrenWaitFrame (5 ms) for as long as a buffer plays. With
+ * --wrap=audrenWaitFrame, NX_AUDREN_WAIT_FRAMES (default 1) waits that many renderer
+ * frames per loop, so fewer requests reach the system core.
  */
 #include "io_util.h"
 
@@ -21,6 +26,7 @@
 #define NX_AUDIO_PRIORITY_MIXER 0x2A
 #define NX_AUDIO_PRIORITY_API 0x2B
 
+extern void __real_audrenWaitFrame(void);
 extern int __real_SDL_SetThreadPriority(SDL_ThreadPriority priority);
 extern SDL_AudioDeviceID __real_SDL_OpenAudioDevice(const char *device, int iscapture,
     const SDL_AudioSpec *desired, SDL_AudioSpec *obtained, int allowed_changes);
@@ -61,4 +67,18 @@ SDL_AudioDeviceID __wrap_SDL_OpenAudioDevice(const char *device, int iscapture,
     io_debugf("NX_AUDIO open %d Hz, %d ch, %u frames (requested %u) -> device %u",
         spec.freq, spec.channels, (unsigned)spec.samples, (unsigned)desired->samples, (unsigned)id);
     return id;
+}
+
+void __wrap_audrenWaitFrame(void)
+{
+    static int frames;
+    static uint64_t calls;
+    if (!frames) {
+        frames = env_int("NX_AUDREN_WAIT_FRAMES", 1, 1, 8);
+        io_debugf("NX_AUDIO renderer wait %d frame(s) per update", frames);
+    }
+    for (int i = 0; i < frames; ++i)
+        __real_audrenWaitFrame();
+    if (++calls % 2000 == 0)
+        io_debugf("NX_AUDIO renderer waits=%llu", (unsigned long long)calls);
 }
