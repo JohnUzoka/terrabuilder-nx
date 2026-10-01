@@ -17,6 +17,12 @@
 // dequeues per slot, how many came back with an unsignaled release fence, the time blocked on
 // it, the time from the previous queue to the dequeue returning, and how often the display
 // reported more than one pending frame.
+// The display's BufferQueue (Android's, as used by vi) only hands out its default of two slots
+// unless the producer sets a buffer count, and libnx never does: Mesa registered four buffers
+// but only slots 0 and 1 were ever dequeued, so the game was double-buffered and below 60 fps
+// each dequeue waited for the frame just queued to reach the screen. Before the first buffer is
+// registered we send IGraphicBufferProducer::SetBufferCount with MESA_SWITCH_BUFFERS
+// (NX_BQ_BUFFER_COUNT overrides it; 0 skips the call).
 // NX_SWAP_INTERVAL (env, experiment) overrides the swap interval the game asks for. With 0 the
 // display takes the newest queued frame at each refresh instead of queueing them, so the release
 // fence never waits a refresh; queueing is then paced to at most 60 per second here, because
@@ -236,21 +242,57 @@ Result __wrap_nwindowDequeueBuffer(NWindow *nw, s32 *out_slot, NvMultiFence *out
 
 static int swap_override = -2;
 
+static void read_swap_override(void)
+{
+    if (swap_override != -2)
+        return;
+    const char *v = getenv("NX_SWAP_INTERVAL");
+    swap_override = v && *v ? atoi(v) : -1;
+    if (swap_override >= 0)
+        io_debugf("NX_SWAP interval forced to %d (NX_SWAP_INTERVAL)", swap_override);
+}
+
+static Result bq_set_buffer_count(Binder *b, s32 count)
+{
+    Parcel parcel, reply;
+    parcelCreate(&parcel);
+    parcelCreate(&reply);
+    parcelWriteInterfaceToken(&parcel, "android.gui.IGraphicBufferProducer");
+    parcelWriteInt32(&parcel, count);
+    Result rc = parcelTransact(b, 2 /* SET_BUFFER_COUNT */, &parcel, &reply);
+    if (R_SUCCEEDED(rc))
+        rc = binderConvertErrorCode(parcelReadInt32(&reply));
+    return rc;
+}
+
+Result __real_nwindowConfigureBuffer(NWindow *nw, s32 slot, NvGraphicBuffer *buf);
+Result __wrap_nwindowConfigureBuffer(NWindow *nw, s32 slot, NvGraphicBuffer *buf)
+{
+    if (nw && slot == 0 && !nw->slots_configured) {
+        const char *v = getenv("NX_BQ_BUFFER_COUNT");
+        if (!v || !*v) v = getenv("MESA_SWITCH_BUFFERS");
+        int count = v && *v ? atoi(v) : 4;
+        if (count > 0) {
+            Result rc = bq_set_buffer_count(&nw->bq, count);
+            io_debugf("NX_SWAP SetBufferCount(%d) rc=0x%x", count, rc);
+        }
+    }
+    return __real_nwindowConfigureBuffer(nw, slot, buf);
+}
+
 Result __real_nwindowSetSwapInterval(NWindow *nw, u32 swap_interval);
 Result __wrap_nwindowSetSwapInterval(NWindow *nw, u32 swap_interval)
 {
-    if (swap_override == -2) {
-        const char *v = getenv("NX_SWAP_INTERVAL");
-        swap_override = v && *v ? atoi(v) : -1;
-        if (swap_override >= 0)
-            io_debugf("NX_SWAP interval %u requested, using %d (NX_SWAP_INTERVAL)", swap_interval, swap_override);
-    }
+    read_swap_override();
     return __real_nwindowSetSwapInterval(nw, swap_override >= 0 ? (u32)swap_override : swap_interval);
 }
 
 Result __wrap_nwindowQueueBuffer(NWindow *nw, s32 slot, const NvMultiFence *fence)
 {
     static uint64_t paced;
+    read_swap_override();
+    if (swap_override >= 0)
+        nw->swap_interval = (u32)swap_override;  // nothing calls nwindowSetSwapInterval
     if (swap_override == 0) {
         uint64_t now = armTicksToNs(armGetSystemTick());
         const uint64_t period = 16666667;
