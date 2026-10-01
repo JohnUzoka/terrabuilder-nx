@@ -8869,9 +8869,9 @@ diagnostic overhead and are not a clean speed comparison.
 When interpreted code throws and compiled (AOT) code catches, `interp_throw` jumps
 through `mono_restore_context` and skips the interpreter entry's epilogue, so
 `context->stack_pointer` and `data_stack` are never unwound. Each caught failure leaks
-interpreter stack. Runtime fork `47d1c2190fc` (branch `terrabuilder-nx`) unwinds to the
+interpreter stack. Runtime fork `b8a2fe0c2dd` (branch `terrabuilder-nx`) unwinds to the
 live boundary: an outer interpreter handler keeps its resume state; otherwise the LMF
-walk finds the deepest surviving interpreter frame. A first attempt (`daeace6195b`)
+walk finds the deepest surviving interpreter frame. A first attempt (`bbd90e01b5c`)
 cleared resume state unconditionally and would have dropped exceptions caught by an
 outer interpreter frame. Review caught it before any package.
 
@@ -8891,7 +8891,7 @@ it recurses in `AdvSimd.get_IsSupported`. The host test uses a Linux x64 CoreLib
 
 `mono_nx_fna_terraria_nochroma69_netfix.nro`, title `Terraria 69 network fixes`, SHA256
 `e59f4175afbccd1af8226856a9aeaf8596cf9189a37fba47c3ab220f05ca370b`. = 68's AOT set and
-payload + Release runtime from fork `47d1c2190fc` (`libmonosgen` `67223bcc…`) + launcher
+payload + Release runtime from fork `b8a2fe0c2dd` (`libmonosgen` `67223bcc…`) + launcher
 with a non-blocking NIFM request (`MONO_NX_NIFM=1`, logs `NX_NET nifm ...`).
 **[INFERENCE]** The missing NIFM request is the leading ENETUNREACH hypothesis; hardware
 must confirm it. `R58_MAIN_DEFINES="-DMONO_NX_GC_STATS=1 -DMONO_NX_NET_TRACE=1
@@ -8915,7 +8915,7 @@ on our net9 libnx BCL, user's GOG 1.4.5.8 `Content/` in RomFS, zero mods.
 - **Launcher**: separate saves in `/switch/tmodloader`, default assembly
   `tModLoader.dll`. It does not touch `/switch/terraria` or `/mono/config.ini`.
 - **AOT**: tModLoader 59,918/59,955 methods, FNA 12,172/12,221, plus CoreLib; runtime
-  fork `47d1c2190fc`. tmod01 was discarded: its packaged `tModLoader.dll` was patched
+  fork `b8a2fe0c2dd`. tmod01 was discarded: its packaged `tModLoader.dll` was patched
   after AOT compilation. MVIDs matched but the method bodies did not. tmod02 compiles
   from byte-identical copies of the packaged assemblies.
 - **Verification** (`~/.cache/terraria-switch-build/tmod-final-check/`): 152,622 native

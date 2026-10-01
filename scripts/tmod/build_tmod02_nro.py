@@ -1,5 +1,5 @@
 """Build tModLoader experimental NRO (tmod02 candidate).
-Links System.Private.CoreLib, tModLoader.dll, FNA.dll AOT objects with Release Mono runtime (47d1c2190fc).
+Links System.Private.CoreLib, tModLoader.dll, FNA.dll AOT objects with Release Mono runtime (b8a2fe0c2dd).
 Stages RomFS with full Terraria content + tModLoader compatibility files + assemblies.
 """
 import hashlib, json, os, shlex, shutil, struct, subprocess, sys
