@@ -1,6 +1,9 @@
 #include "nx_input.h"
 #include "nx_input_latch.h"
 #include "io_util.h"
+#if defined(MONO_NX_GPU_TIMING)
+#include "nx_gpu_timing.h"
+#endif
 
 #include <switch.h>
 #include <SDL2/SDL.h>
@@ -16,8 +19,10 @@
 #include <string.h>
 
 /* Graphics-driver environment (build75), read by Mesa when FNA3D creates its context:
- * MESA_GLTHREAD runs GL on a worker thread (patched switch EGL driver), MESA_NO_ERROR
- * skips GL error validation. Lines "KEY=VALUE" in /mono/nx_env.txt override these
+ * MESA_GLTHREAD runs GL on a worker thread (patched switch EGL driver), MESA_GLTHREAD_CORE
+ * picks that worker's core, MESA_NO_ERROR skips GL error validation. Build 78 defaults
+ * glthread off: on a Switch Lite it did not beat the main-thread driver (77: 47.7 fps on
+ * core 2, 30.5 on contended core 1, versus 48-51 off). Lines "KEY=VALUE" in /mono/nx_env.txt override these
  * defaults or add variables ("KEY=" sets an empty value) without rebuilding the NRO.
  * The sd card is mounted in __appInit, before constructors run.
  */
@@ -26,7 +31,8 @@ static char nx_env_summary[256];
 
 __attribute__((constructor)) static void nx_env_init(void)
 {
-    setenv("MESA_GLTHREAD", "true", 1);
+    setenv("MESA_GLTHREAD", "false", 1);
+    setenv("MESA_GLTHREAD_CORE", "2", 1);
     setenv("MESA_NO_ERROR", "1", 1);
     int overrides = 0;
     FILE *file = fopen(NX_ENV_PATH, "r");
@@ -44,10 +50,11 @@ __attribute__((constructor)) static void nx_env_init(void)
         fclose(file);
     }
     const char *glthread = getenv("MESA_GLTHREAD");
+    const char *core = getenv("MESA_GLTHREAD_CORE");
     const char *no_error = getenv("MESA_NO_ERROR");
     snprintf(nx_env_summary, sizeof nx_env_summary,
-        "NX_ENV MESA_GLTHREAD=%s MESA_NO_ERROR=%s; %d override(s) from %s%s",
-        glthread ? glthread : "(unset)", no_error ? no_error : "(unset)", overrides,
+        "NX_ENV MESA_GLTHREAD=%s MESA_GLTHREAD_CORE=%s MESA_NO_ERROR=%s; %d override(s) from %s%s",
+        glthread ? glthread : "(unset)", core ? core : "(unset)", no_error ? no_error : "(unset)", overrides,
         NX_ENV_PATH, file ? "" : " (absent)");
 }
 
@@ -346,6 +353,9 @@ static void report_phases(uint64_t now, bool final)
     reset_interval(&swap_phase);
     max_updates_in_tick = 0;
     report_tick = now;
+#if defined(MONO_NX_GPU_TIMING)
+    nx_gpu_report(final);
+#endif
 }
 
 static void begin_tick(void)
@@ -483,8 +493,14 @@ void __wrap_FNA3D_SwapBuffers(FNA3D_Device *device,
         return;
     }
     uint64_t begin = armGetSystemTick();
+#if defined(MONO_NX_GPU_TIMING)
+    nx_gpu_frame_end();
+#endif
     __real_FNA3D_SwapBuffers(device, sourceRectangle, destinationRectangle,
         overrideWindowHandle);
+#if defined(MONO_NX_GPU_TIMING)
+    nx_gpu_frame_begin();
+#endif
     record_phase(&swap_phase, begin, armGetSystemTick());
 }
 #endif

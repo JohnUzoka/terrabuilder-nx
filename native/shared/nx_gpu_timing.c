@@ -1,0 +1,194 @@
+// GPU frame timing and clock logging (measurement builds, MONO_NX_GPU_TIMING=1).
+//
+// nx_input.c's FNA3D_SwapBuffers wrapper calls nx_gpu_frame_end() just before the real swap
+// and nx_gpu_frame_begin() just after it, on the GL thread. Each writes a GL_TIMESTAMP query
+// (ARB_timer_query); results are read RING-2 frames later and only once available, so this
+// never waits on the GPU. Per frame:
+//   span   = end - begin: GPU time from the first to the last command of the frame (busy plus
+//            any bubbles where the GPU waited for the CPU to submit more);
+//   gap    = begin - previous end: the swap/blit plus any idle time between frames;
+//   period = end - previous end: should average the CPU frame time (sanity check).
+// GPU-bound: gap is near 0 and span is near period. CPU-bound: gap and bubbles grow.
+// Every report also logs apm's performance mode/configuration and the CPU/GPU/EMC clocks.
+
+#include "nx_gpu_timing.h"
+#include "io_util.h"
+
+#include <switch.h>
+#include <SDL2/SDL.h>
+#include <inttypes.h>
+#include <stdbool.h>
+
+#define GL_TIMESTAMP 0x8E28
+#define GL_QUERY_COUNTER_BITS 0x8864
+#define GL_QUERY_RESULT 0x8866
+#define GL_QUERY_RESULT_AVAILABLE 0x8867
+#define RING 8
+
+typedef void (*GenQueries)(int, unsigned *);
+typedef void (*QueryCounter)(unsigned, unsigned);
+typedef void (*GetQueryiv)(unsigned, unsigned, int *);
+typedef void (*GetQueryObjectiv)(unsigned, unsigned, int *);
+typedef void (*GetQueryObjectui64v)(unsigned, unsigned, uint64_t *);
+
+static GenQueries gen_queries;
+static QueryCounter query_counter;
+static GetQueryObjectiv get_query_objectiv;
+static GetQueryObjectui64v get_query_objectui64v;
+static bool init_done, enabled;
+static unsigned begin_q[RING], end_q[RING];
+static bool issued[RING];
+static uint64_t frame;      // frame being recorded (begin issued, end not yet)
+static uint64_t next_read;  // oldest frame whose results are not read yet
+static uint64_t last_end;
+static bool have_last_end;
+static uint64_t n, span_sum, span_max, gap_sum, period_sum, period_n, lost;
+
+static bool clocks_ready;
+static ClkrstSession cpu_s, gpu_s, emc_s;
+static bool cpu_ok, gpu_ok, emc_ok;
+
+static void init_clocks(void)
+{
+    clocks_ready = true;
+    Result rc = apmInitialize();
+    if (R_FAILED(rc))
+        io_debugf("NX_GPU apmInitialize failed rc=0x%x", rc);
+    rc = clkrstInitialize();
+    if (R_FAILED(rc)) {
+        io_debugf("NX_GPU clkrstInitialize failed rc=0x%x", rc);
+        return;
+    }
+    cpu_ok = R_SUCCEEDED(clkrstOpenSession(&cpu_s, PcvModuleId_CpuBus, 3));
+    gpu_ok = R_SUCCEEDED(clkrstOpenSession(&gpu_s, PcvModuleId_GPU, 3));
+    emc_ok = R_SUCCEEDED(clkrstOpenSession(&emc_s, PcvModuleId_EMC, 3));
+    if (gpu_ok) {
+        u32 rates[32];
+        s32 count = 0;
+        PcvClockRatesListType type;
+        if (R_SUCCEEDED(clkrstGetPossibleClockRates(&gpu_s, rates, 32, &type, &count))) {
+            char text[400];
+            int len = 0;
+            for (s32 i = 0; i < count && len < (int)sizeof text - 16; ++i)
+                len += snprintf(text + len, sizeof text - len, "%s%.1f", i ? "," : "", rates[i] / 1e6);
+            text[len] = 0;
+            io_debugf("NX_GPU possible GPU clocks (list type %d, MHz): %s", (int)type, count ? text : "-");
+        }
+    }
+}
+
+static void log_clocks(void)
+{
+    if (!clocks_ready)
+        init_clocks();
+    ApmPerformanceMode mode = ApmPerformanceMode_Invalid;
+    u32 config = 0;
+    if (R_SUCCEEDED(apmGetPerformanceMode(&mode)))
+        apmGetPerformanceConfiguration(mode, &config);
+    u32 cpu = 0, gpu = 0, emc = 0;
+    if (cpu_ok) clkrstGetClockRate(&cpu_s, &cpu);
+    if (gpu_ok) clkrstGetClockRate(&gpu_s, &gpu);
+    if (emc_ok) clkrstGetClockRate(&emc_s, &emc);
+    io_debugf("NX_CLOCK apm_mode=%d config=0x%08x cpu=%.1fMHz gpu=%.1fMHz emc=%.1fMHz",
+        (int)mode, config, cpu / 1e6, gpu / 1e6, emc / 1e6);
+}
+
+static void init_gl(void)
+{
+    init_done = true;
+    gen_queries = (GenQueries)SDL_GL_GetProcAddress("glGenQueries");
+    query_counter = (QueryCounter)SDL_GL_GetProcAddress("glQueryCounter");
+    GetQueryiv get_queryiv = (GetQueryiv)SDL_GL_GetProcAddress("glGetQueryiv");
+    get_query_objectiv = (GetQueryObjectiv)SDL_GL_GetProcAddress("glGetQueryObjectiv");
+    get_query_objectui64v = (GetQueryObjectui64v)SDL_GL_GetProcAddress("glGetQueryObjectui64v");
+    if (!gen_queries || !query_counter || !get_queryiv || !get_query_objectiv || !get_query_objectui64v) {
+        io_debugf("NX_GPU disabled: ARB_timer_query entry points missing");
+        return;
+    }
+    int bits = 0;
+    get_queryiv(GL_TIMESTAMP, GL_QUERY_COUNTER_BITS, &bits);
+    if (bits <= 0) {
+        io_debugf("NX_GPU disabled: GL_TIMESTAMP has %d counter bits", bits);
+        return;
+    }
+    gen_queries(RING, begin_q);
+    gen_queries(RING, end_q);
+    enabled = true;
+    io_debugf("NX_GPU timestamp queries enabled (%d bits, ring %d); NX_GPU every report: "
+        "frames span/gap/period avg ms, span max ms, lost", bits, RING);
+}
+
+static void read_ready(void)
+{
+    // Read finished frames in order; stop at the first one the GPU has not reached yet.
+    while (next_read < frame) {
+        unsigned slot = next_read % RING;
+        if (issued[slot]) {
+            int available = 0;
+            get_query_objectiv(end_q[slot], GL_QUERY_RESULT_AVAILABLE, &available);
+            if (!available) {
+                if (frame - next_read < RING - 1)
+                    return;
+                ++lost;  // about to be reused; never wait for it
+                have_last_end = false;
+            } else {
+                uint64_t b = 0, e = 0;
+                get_query_objectui64v(begin_q[slot], GL_QUERY_RESULT, &b);
+                get_query_objectui64v(end_q[slot], GL_QUERY_RESULT, &e);
+                if (e >= b) {
+                    uint64_t span = e - b;
+                    ++n;
+                    span_sum += span;
+                    if (span > span_max) span_max = span;
+                    if (have_last_end && b >= last_end && e > last_end) {
+                        gap_sum += b - last_end;
+                        period_sum += e - last_end;
+                        ++period_n;
+                    }
+                }
+                last_end = e;
+                have_last_end = true;
+            }
+            issued[slot] = false;
+        }
+        ++next_read;
+    }
+}
+
+void nx_gpu_frame_end(void)
+{
+    if (!init_done)
+        init_gl();
+    if (!enabled)
+        return;
+    unsigned slot = frame % RING;
+    if (issued[slot]) {  // begin was written for this frame; close it
+        query_counter(end_q[slot], GL_TIMESTAMP);
+        ++frame;
+    }
+}
+
+void nx_gpu_frame_begin(void)
+{
+    if (!enabled)
+        return;
+    read_ready();
+    unsigned slot = frame % RING;
+    if (frame - next_read >= RING) {  // ring full (results very late): skip this frame
+        ++lost;
+        return;
+    }
+    query_counter(begin_q[slot], GL_TIMESTAMP);
+    issued[slot] = true;
+}
+
+void nx_gpu_report(bool final)
+{
+    log_clocks();
+    if (!enabled)
+        return;
+    io_debugf("NX_GPU%s frames=%" PRIu64 " span/gap/period=%.3f/%.3f/%.3fms span_max=%.3fms lost=%" PRIu64,
+        final ? " final" : "", n, n ? span_sum / 1e6 / n : 0.0, period_n ? gap_sum / 1e6 / period_n : 0.0,
+        period_n ? period_sum / 1e6 / period_n : 0.0, span_max / 1e6, lost);
+    n = span_sum = span_max = gap_sum = period_sum = period_n = lost = 0;
+}
