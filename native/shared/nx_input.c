@@ -56,6 +56,7 @@ typedef struct NxPadSample {
     uint32_t device_style;
     uint32_t active_style;
     uint32_t sources;
+    uint8_t plus_minus; /* bit 0 = Plus held, bit 1 = Minus held, any mapping */
     bool connected;
     bool supported;
 } NxPadSample;
@@ -68,6 +69,8 @@ typedef struct NxPadSlot {
     /* Published only by BeginUpdate, never by the worker. */
     bool snapshot_ready;
     bool snapshot_supported;
+    /* Set when Plus+Minus are both held, cleared once both are released. */
+    bool fps_combo;
 } NxPadSlot;
 
 /* Frame timing (NX_PHASE log lines, SDL_PollEvent/FNA3D_SwapBuffers wrappers) is a
@@ -94,6 +97,7 @@ static bool registered;
 static bool worker_attempted;
 static bool worker_running;
 static bool stopping;
+static bool fps_key_down;
 #if defined(MONO_NX_PHASE_TIMING)
 static uint64_t start_tick;
 static uint64_t report_tick;
@@ -138,6 +142,8 @@ static NxPadSample read_pad(unsigned index)
             mapping = raw_right_joy;
     }
     uint64_t held = padGetButtons(pad);
+    sample.plus_minus = ((held & HidNpadButton_Plus) ? 1u : 0u) |
+        ((held & HidNpadButton_Minus) ? 2u : 0u);
     for (unsigned button = 0; button < NX_INPUT_RAW_BUTTONS; ++button) {
         if (held & mapping[button])
             sample.buttons |= UINT32_C(1) << button;
@@ -318,18 +324,52 @@ static void begin_tick(void) { ensure_worker(); }
 static void end_tick(void) {}
 #endif
 
+/* Plus+Minus toggles Terraria's frame-rate display: the game reads F10 from
+ * FNA's keyboard state, which FNA builds from SDL key events. Game thread only.
+ */
+static void set_fps_key(bool down)
+{
+    if (down == fps_key_down)
+        return;
+    SDL_Event event;
+    memset(&event, 0, sizeof(event));
+    event.type = down ? SDL_KEYDOWN : SDL_KEYUP;
+    event.key.timestamp = SDL_GetTicks();
+    event.key.state = down ? SDL_PRESSED : SDL_RELEASED;
+    event.key.keysym.scancode = SDL_SCANCODE_F10;
+    event.key.keysym.sym = SDLK_F10;
+    if (SDL_PushEvent(&event) == 1)
+        fps_key_down = down;
+    else
+        io_debugf("NX_INPUT F10 %s push failed: %s", down ? "down" : "up", SDL_GetError());
+}
+
 static void begin_update(void)
 {
     ensure_worker();
     if (worker_running) {
+        bool combo = false;
         mutexLock(&input_lock);
         for (unsigned i = 0; i < NX_INPUT_CONTROLLERS; ++i) {
             NxPadSlot *slot = &slots[i];
             nx_button_latch_advance(&slot->latch);
             slot->snapshot_ready = slot->sampled;
             slot->snapshot_supported = slot->sample.supported;
+            uint8_t plus_minus = slot->sample.connected ? slot->sample.plus_minus : 0;
+            if (plus_minus == 3u && slot->sample.supported)
+                slot->fps_combo = true;
+            else if (plus_minus == 0)
+                slot->fps_combo = false;
+            if (slot->fps_combo) {
+                /* Only full controllers can hold both, so the raw order is
+                 * raw_default (Plus b10, Minus b11). Hide them from the game.
+                 */
+                slot->latch.presented &= ~((UINT32_C(1) << 10) | (UINT32_C(1) << 11));
+                combo = true;
+            }
         }
         mutexUnlock(&input_lock);
+        set_fps_key(combo);
     }
 #if defined(MONO_NX_PHASE_TIMING)
     if (tick_phase.active)

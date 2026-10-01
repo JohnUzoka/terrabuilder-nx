@@ -88,6 +88,10 @@ for line in (ROOT / 'recovery46/link-arguments.txt').read_text().splitlines():
 objects_dir = ROOT / 'nochroma42/native/interpreter/build'
 objects = [objects_dir / name for name in recorded['OBJECTS']]
 assert len(objects) == 18 and all(p.is_file() for p in objects)
+# R58_OBJECT_OVERRIDES (build73): candidate-only replacements for launcher objects,
+# e.g. "nx_input.o=/build/release58/v73-input/nx_input.o". The control replay keeps build52's.
+OBJECT_OVERRIDES = dict(v.split('=', 1) for v in os.environ.get('R58_OBJECT_OVERRIDES', '').split())
+assert all(n in {o.name for o in objects} and Path(p).is_file() for n, p in OBJECT_OVERRIDES.items()), OBJECT_OVERRIDES
 shutil.copy2(ROOT / 'hint52/native/aot-method-tables.ld', OUT / 'aot-method-tables.ld')
 assert (OUT / 'aot-method-tables.ld').read_bytes() == (ROOT / 'nochroma42/native/interpreter/aot-method-tables.ld').read_bytes()
 # R58_RUNTIME=release (build65): the candidate links the Release native Mono runtime and its
@@ -122,6 +126,8 @@ for variant in ('control-replay', 'candidate'):
         # R58_MAIN_DEFINES=-DMONO_NX_NET_TRACE=1 (build68). The control replay is untouched.
         flags += os.environ.get('R58_EXTRA_LDFLAGS', '').split()
     objs = [main_obj if (variant == 'candidate' and o.name == 'main.o') else o for o in objects]
+    if variant == 'candidate':
+        objs = [Path(OBJECT_OVERRIDES.get(o.name, o)) for o in objs]
     libraries, aot_objects = [], []
     for value in recorded['LIBS']:
         if value.startswith(str(ORIGINAL_LINK_BASE) + '/') and value.endswith('.o'):
