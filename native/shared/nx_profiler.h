@@ -6,6 +6,9 @@
 // See nx_profiler.c for the method and /mono/prof.bin's format.
 void nx_profiler_start(void);
 void nx_profiler_stop(void);
+// Also sample one other thread (e.g. Mesa's glthread worker, from its own thread); flag 8.
+// Mesa declares it weak, so builds without the profiler still link.
+void nx_profiler_add_thread(uint32_t thread_handle);
 
 // Scans a copied stack (8-byte words, leaf first) for return addresses: values inside
 // [code_start, code_end) whose preceding instruction is BL or BLR. code_copy gives read access to

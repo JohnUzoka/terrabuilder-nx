@@ -1,4 +1,6 @@
 // Sampling profiler for the game's main thread (measurement builds, MONO_NX_PROFILER=1).
+// One extra thread (Mesa's glthread worker) can be registered with nx_profiler_add_thread;
+// it is sampled the same way right after the main thread and its samples carry flag 8.
 //
 // A native thread on core 2 wakes every 2.5 ms (400 Hz), pauses the main thread with
 // svcSetThreadActivity, reads its registers with svcGetThreadContext3, copies up to 96 KB of its
@@ -13,7 +15,8 @@
 //   sample: u64 tick, u32 pc, u32 lr, u32 stack_depth, u16 count, u16 flags, u32 frames[count]
 //   pc/lr/frames are offsets from code_start (= ELF addresses); 0xffffffff = outside the code.
 //   frames: the innermost INNER_FRAMES and outermost OUTER_FRAMES return addresses found.
-//   flags: 1 = stack deeper than the copy, 2 = pc outside the code, 4 = middle frames elided.
+//   flags: 1 = stack deeper than the copy, 2 = pc outside the code, 4 = middle frames elided,
+//          8 = the registered extra thread (not the main thread).
 // Every 10 s the log gets an NX_PROF line (samples, failures, pause cost, stack depth).
 
 #include "nx_profiler.h"
@@ -73,6 +76,7 @@ static volatile bool prof_stop;
 static bool prof_running;
 static FILE *prof_file;
 static Handle main_thread;
+static volatile Handle extra_thread;
 static uint64_t code_start, code_end;
 static uint64_t stack_copy[STACK_COPY_BYTES / 8];
 static uint32_t scanned[SCAN_FRAMES];
@@ -97,19 +101,19 @@ static void flush_buffer(void)
     buffer_used = 0;
 }
 
-static void sample_once(void)
+static void sample_once(Handle thread, uint16_t thread_flag)
 {
     ThreadContext context;
     size_t copied = 0;
     uint64_t depth = 0;
-    Result rc = svcSetThreadActivity(main_thread, ThreadActivity_Paused);
+    Result rc = svcSetThreadActivity(thread, ThreadActivity_Paused);
     if (R_FAILED(rc)) {
         if (pause_failures++ == 0)
             io_debugf("NX_PROF pause failed rc=0x%x", rc);
         return;
     }
     uint64_t paused = armGetSystemTick();
-    Result context_rc = svcGetThreadContext3(&context, main_thread);
+    Result context_rc = svcGetThreadContext3(&context, thread);
     if (R_SUCCEEDED(context_rc)) {
         MemoryInfo info;
         u32 page_info;
@@ -120,7 +124,7 @@ static void sample_once(void)
             memcpy(stack_copy, (const void *)context.sp, copied & ~(size_t)7);
         }
     }
-    svcSetThreadActivity(main_thread, ThreadActivity_Runnable);
+    svcSetThreadActivity(thread, ThreadActivity_Runnable);
     uint64_t pause = armGetSystemTick() - paused;
     if (R_FAILED(context_rc)) {
         if (context_failures++ == 0)
@@ -134,8 +138,9 @@ static void sample_once(void)
     window_pause_sum += pause;
     if (pause > pause_ticks_max) pause_ticks_max = pause;
     if (pause > window_pause_max) window_pause_max = pause;
-    if (depth > depth_max) depth_max = depth;
-    if (depth > STACK_COPY_BYTES) ++truncated;
+    // Main thread only: a pthread stack lives inside a larger heap mapping, so its depth is meaningless.
+    if (!thread_flag && depth > depth_max) depth_max = depth;
+    if (!thread_flag && depth > STACK_COPY_BYTES) ++truncated;
 
     if (buffer_used + sizeof(SampleHeader) + MAX_FRAMES * 4 > BUFFER_BYTES)
         flush_buffer();
@@ -155,8 +160,8 @@ static void sample_once(void)
         memcpy(frames + INNER_FRAMES * 4, scanned + found - OUTER_FRAMES, OUTER_FRAMES * 4);
         header.count = MAX_FRAMES;
     }
-    header.flags = (depth > STACK_COPY_BYTES ? 1 : 0) | (header.pc == OUTSIDE ? 2 : 0)
-        | (found > MAX_FRAMES ? 4 : 0);
+    header.flags = (!thread_flag && depth > STACK_COPY_BYTES ? 1 : 0) | (header.pc == OUTSIDE ? 2 : 0)
+        | (found > MAX_FRAMES ? 4 : 0) | thread_flag;
     memcpy(buffer + buffer_used, &header, sizeof header);
     buffer_used += sizeof header + header.count * 4u;
 }
@@ -183,7 +188,9 @@ static void profiler_worker(void *arg)
     uint64_t start = armGetSystemTick();
     uint64_t next_report = start + 10 * armGetSystemTickFreq();
     while (!prof_stop) {
-        sample_once();
+        sample_once(main_thread, 0);
+        if (extra_thread)
+            sample_once(extra_thread, 8);
         if (context_failures > 100 || pause_failures > 100) {
             io_debugf("NX_PROF stopping: the kernel refuses thread pause/context reads");
             break;
@@ -241,6 +248,14 @@ void nx_profiler_start(void)
     }
     io_debugf("NX_PROF sampling the main thread every %u us into %s (code 0x%llx size 0x%llx, scan at 0x%x)",
         interval_us, PROF_PATH, (unsigned long long)code_start, (unsigned long long)code_size, scan_offset);
+}
+
+void nx_profiler_add_thread(Handle thread)
+{
+    if (!prof_running || extra_thread)
+        return;
+    extra_thread = thread;
+    io_debugf("NX_PROF also sampling thread handle 0x%x (flag 8)", thread);
 }
 
 void nx_profiler_stop(void)

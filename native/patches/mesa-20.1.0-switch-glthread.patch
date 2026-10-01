@@ -1,6 +1,6 @@
 diff -ruN '--exclude=__pycache__' mesa-stock-src/src/egl/drivers/switch/egl_switch.c mesa-20.1.0-rc3/src/egl/drivers/switch/egl_switch.c
 --- a/src/egl/drivers/switch/egl_switch.c	2026-10-01 02:55:09.889547478 -0600
-+++ b/src/egl/drivers/switch/egl_switch.c	2026-10-01 03:09:26.721385329 -0600
++++ b/src/egl/drivers/switch/egl_switch.c	2026-10-01 09:40:06.254582496 -0600
 @@ -54,6 +54,7 @@
  #include "util/format/u_format.h"
  #include "util/u_inlines.h"
@@ -9,26 +9,34 @@ diff -ruN '--exclude=__pycache__' mesa-stock-src/src/egl/drivers/switch/egl_swit
  
  #include "state_tracker/st_api.h"
  #include "state_tracker/st_gl_api.h"
-@@ -455,6 +456,18 @@
+@@ -455,6 +456,26 @@
      return 0;
  }
  
 +// glthread calls this on its worker thread at startup (st_set_background_context
 +// dereferences it unconditionally). No window-system state to set up; just keep the
 +// worker off the application's main core (0) and at the main thread's priority.
++// The launcher's sampling profiler (measurement builds only) can also sample this thread.
++extern void nx_profiler_add_thread(uint32_t thread_handle) __attribute__((weak));
++
 +static void
 +switch_st_set_background_context(struct st_context_iface *stctx, struct util_queue_monitoring *queue_info)
 +{
++    // MESA_GLTHREAD_CORE picks the worker's core (default 1); it must be in the process core mask.
++    int core = (int)debug_get_num_option("MESA_GLTHREAD_CORE", 1);
 +    u64 core_mask = 0;
-+    if (R_SUCCEEDED(svcGetInfo(&core_mask, InfoType_CoreMask, CUR_PROCESS_HANDLE, 0)) && (core_mask & 2))
-+        svcSetThreadCoreMask(CUR_THREAD_HANDLE, 1, core_mask);
++    if (core >= 0 && core < 64 && R_SUCCEEDED(svcGetInfo(&core_mask, InfoType_CoreMask, CUR_PROCESS_HANDLE, 0))
++        && (core_mask & (1ull << core)))
++        svcSetThreadCoreMask(CUR_THREAD_HANDLE, core, core_mask);
 +    svcSetThreadPriority(CUR_THREAD_HANDLE, 0x2C);
++    if (nx_profiler_add_thread)
++        nx_profiler_add_thread(threadGetCurHandle());
 +}
 +
  static EGLBoolean
  switch_initialize(_EGLDriver *drv, _EGLDisplay *dpy)
  {
-@@ -490,6 +503,7 @@
+@@ -490,6 +511,7 @@
      }
  
      stmgr->get_param = switch_st_get_param;
@@ -36,7 +44,7 @@ diff -ruN '--exclude=__pycache__' mesa-stock-src/src/egl/drivers/switch/egl_swit
  
      // Create nouveau screen
      TRACE("Creating nouveau screen\n");
-@@ -607,6 +621,11 @@
+@@ -607,6 +629,11 @@
          goto cleanup;
      }
  
@@ -48,7 +56,7 @@ diff -ruN '--exclude=__pycache__' mesa-stock-src/src/egl/drivers/switch/egl_swit
      return &context->base;
  
  cleanup:
-@@ -682,6 +701,11 @@
+@@ -682,6 +709,11 @@
      struct switch_egl_surface* surface = switch_egl_surface(surf);
      struct switch_egl_context* context = switch_egl_context(surface->base.CurrentContext);
  

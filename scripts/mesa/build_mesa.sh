@@ -1,5 +1,5 @@
 #!/bin/bash
-# Rebuild devkitPro's switch-mesa 20.1.0-5 (libEGL.a + libglapi.a) with the glthread patch (builds 75/76).
+# Rebuild devkitPro's switch-mesa 20.1.0-5 (libEGL.a + libglapi.a) with the glthread patch (builds 75–77).
 # Host: ./build_mesa.sh <workdir>   (needs podman; ~20 min, ~1.5 GB). STOCK=1 skips the glthread patch
 # (for comparing against the installed portlibs library); output then goes to <workdir>/stock-lib/.
 # Output: <workdir>/glthread-lib/{libEGL.a,libglapi.a}; link them ahead of portlibs with
