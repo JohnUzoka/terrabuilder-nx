@@ -6,6 +6,10 @@
 #include <SDL2/SDL.h>
 #include <FNA3D/FNA3D.h>
 #include <mono/metadata/loader.h>
+#include <mono/metadata/appdomain.h>
+#include <mono/metadata/class.h>
+#include <mono/metadata/image.h>
+#include <mono/metadata/object.h>
 #include <inttypes.h>
 #include <string.h>
 
@@ -97,7 +101,8 @@ static bool registered;
 static bool worker_attempted;
 static bool worker_running;
 static bool stopping;
-static bool fps_key_down;
+static bool fps_combo_down;
+static bool fps_shown;
 #if defined(MONO_NX_PHASE_TIMING)
 static uint64_t start_tick;
 static uint64_t report_tick;
@@ -324,24 +329,33 @@ static void begin_tick(void) { ensure_worker(); }
 static void end_tick(void) {}
 #endif
 
-/* Plus+Minus toggles Terraria's frame-rate display: the game reads F10 from
- * FNA's keyboard state, which FNA builds from SDL key events. Game thread only.
+/* Plus+Minus toggles Terraria's frame-rate display (the game's F10) by setting
+ * Terraria.Main.showFrameRate directly; the embedding calls switch to GC-unsafe
+ * mode themselves. Game thread only, from the BeginUpdate hook.
  */
-static void set_fps_key(bool down)
+static void toggle_fps_display(void)
 {
-    if (down == fps_key_down)
+    static MonoVTable *vtable;
+    static MonoClassField *field;
+    static bool failed;
+    if (failed)
         return;
-    SDL_Event event;
-    memset(&event, 0, sizeof(event));
-    event.type = down ? SDL_KEYDOWN : SDL_KEYUP;
-    event.key.timestamp = SDL_GetTicks();
-    event.key.state = down ? SDL_PRESSED : SDL_RELEASED;
-    event.key.keysym.scancode = SDL_SCANCODE_F10;
-    event.key.keysym.sym = SDLK_F10;
-    if (SDL_PushEvent(&event) == 1)
-        fps_key_down = down;
-    else
-        io_debugf("NX_INPUT F10 %s push failed: %s", down ? "down" : "up", SDL_GetError());
+    if (!field) {
+        MonoImage *image = mono_image_loaded("Terraria");
+        MonoClass *klass = image ? mono_class_from_name(image, "Terraria", "Main") : NULL;
+        field = klass ? mono_class_get_field_from_name(klass, "showFrameRate") : NULL;
+        vtable = field ? mono_class_vtable(mono_get_root_domain(), klass) : NULL;
+        if (!vtable) {
+            failed = true;
+            field = NULL;
+            io_debugf("NX_INPUT FPS toggle unavailable: Terraria.Main.showFrameRate not found");
+            return;
+        }
+    }
+    fps_shown = !fps_shown;
+    MonoBoolean value = fps_shown;
+    mono_field_static_set_value(vtable, field, &value);
+    io_debugf("NX_INPUT Plus+Minus: FPS display %s", fps_shown ? "on" : "off");
 }
 
 static void begin_update(void)
@@ -369,7 +383,9 @@ static void begin_update(void)
             }
         }
         mutexUnlock(&input_lock);
-        set_fps_key(combo);
+        if (combo && !fps_combo_down)
+            toggle_fps_display();
+        fps_combo_down = combo;
     }
 #if defined(MONO_NX_PHASE_TIMING)
     if (tick_phase.active)
