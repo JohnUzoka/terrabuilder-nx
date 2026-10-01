@@ -10,7 +10,7 @@ PKG=https://raw.githubusercontent.com/devkitPro/pacman-packages/master/switch/me
 mkdir -p "$W" && cd "$W"
 IMG=localhost/mesabuild-r28:local
 podman build -q -t $IMG -f "$HERE/Containerfile" "$HERE"
-OUT=glthread-lib; PATCH="$PATCHES/mesa-20.1.0-switch-glthread.patch"
+OUT=glthread-lib; PATCH="$PATCHES/mesa-20.1.0-switch-glthread.patch $PATCHES/mesa-20.1.0-switch-gpu-wait.patch"
 [ "${STOCK:-0}" = 1 ] && { OUT=stock-lib; PATCH=; }
 [ -f mesa-20.1.0-rc3.tar.xz ] || curl -sfLO https://archive.mesa3d.org/older-versions/20.x/mesa-20.1.0-rc3.tar.xz
 echo "c90b75ea34302ebde9b81b87c5642fa864c40fe9c4ad34ce0793170c1413168d  mesa-20.1.0-rc3.tar.xz" | sha256sum -c -
