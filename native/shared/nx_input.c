@@ -19,11 +19,10 @@
 #include <string.h>
 
 /* Graphics-driver environment, read by Mesa when FNA3D creates its context:
- * MESA_GLTHREAD runs GL on a worker thread (off: it costs more than it saves in handheld),
- * MESA_GLTHREAD_CORE picks that worker's core (core 1 is contended), MESA_SWITCH_BUFFERS sets
- * the swapchain size, MESA_NO_ERROR skips GL error validation. Four buffers: the display
- * releases a buffer about a refresh after replacing it, so with three, frames slightly slower
- * than 60 fps can lock into waiting a whole extra refresh for a free buffer (48 -> 27 fps).
+ * MESA_GLTHREAD runs GL on a worker thread, taking driver work off the game thread (about
+ * +4 fps in world now that the swapchain wait happens on the GPU), MESA_GLTHREAD_CORE picks
+ * that worker's core (core 2 is left to the audio threads), MESA_SWITCH_BUFFERS sets the
+ * swapchain size (the display only cycles two), MESA_NO_ERROR skips GL error validation.
  * Lines "KEY=VALUE" in /mono/nx_env.txt override these defaults or add variables
  * ("KEY=" sets an empty value) without rebuilding the NRO.
  * The sd card is mounted in __appInit, before constructors run.
@@ -33,8 +32,8 @@ static char nx_env_summary[256];
 
 __attribute__((constructor)) static void nx_env_init(void)
 {
-    setenv("MESA_GLTHREAD", "false", 1);
-    setenv("MESA_GLTHREAD_CORE", "2", 1);
+    setenv("MESA_GLTHREAD", "true", 1);
+    setenv("MESA_GLTHREAD_CORE", "1", 1);
     setenv("MESA_SWITCH_BUFFERS", "4", 1);
     setenv("MESA_NO_ERROR", "1", 1);
     int overrides = 0;
