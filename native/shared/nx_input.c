@@ -32,14 +32,24 @@
  * The sd card is mounted in __appInit, before constructors run.
  */
 #define NX_ENV_PATH "/mono/nx_env.txt"
-static char nx_env_summary[256];
+#ifndef MONO_NX_BUILD_MARKER
+#define MONO_NX_BUILD_MARKER "unknown"
+#endif
+static char nx_env_summary[352];
+
+static void nx_env_default(const char *key, const char *value)
+{
+    if (!getenv(key))
+        setenv(key, value, 0);
+}
 
 __attribute__((constructor)) static void nx_env_init(void)
 {
-    setenv("MESA_GLTHREAD", "true", 1);
-    setenv("MESA_GLTHREAD_CORE", "1", 1);
-    setenv("MESA_SWITCH_BUFFERS", "4", 1);
-    setenv("MESA_NO_ERROR", "1", 1);
+    nx_env_default("MESA_GLTHREAD", "true");
+    nx_env_default("MESA_GLTHREAD_CORE", "1");
+    nx_env_default("MESA_SWITCH_GLTHREAD", "1");
+    nx_env_default("MESA_SWITCH_BUFFERS", "4");
+    nx_env_default("MESA_NO_ERROR", "1");
     int overrides = 0;
     FILE *file = fopen(NX_ENV_PATH, "r");
     if (file) {
@@ -57,12 +67,14 @@ __attribute__((constructor)) static void nx_env_init(void)
     }
     const char *glthread = getenv("MESA_GLTHREAD");
     const char *core = getenv("MESA_GLTHREAD_CORE");
+    const char *switch_glthread = getenv("MESA_SWITCH_GLTHREAD");
     const char *buffers = getenv("MESA_SWITCH_BUFFERS");
     const char *no_error = getenv("MESA_NO_ERROR");
     snprintf(nx_env_summary, sizeof nx_env_summary,
-        "NX_ENV MESA_GLTHREAD=%s MESA_GLTHREAD_CORE=%s MESA_SWITCH_BUFFERS=%s MESA_NO_ERROR=%s; "
-        "%d override(s) from %s%s",
-        glthread ? glthread : "(unset)", core ? core : "(unset)", buffers ? buffers : "(unset)",
+        "NX_ENV build=%s MESA_GLTHREAD=%s MESA_GLTHREAD_CORE=%s MESA_SWITCH_GLTHREAD=%s "
+        "MESA_SWITCH_BUFFERS=%s MESA_NO_ERROR=%s; %d override(s) from %s%s",
+        MONO_NX_BUILD_MARKER, glthread ? glthread : "(unset)", core ? core : "(unset)",
+        switch_glthread ? switch_glthread : "(unset)", buffers ? buffers : "(unset)",
         no_error ? no_error : "(unset)", overrides,
         NX_ENV_PATH, file ? "" : " (absent)");
     /* Touch as mouse: devkitPro SDL's SWITCH_InitTouch sets SDL_TOUCH_MOUSE_EVENTS=0 at

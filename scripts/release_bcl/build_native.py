@@ -17,8 +17,6 @@ ORIGINAL_LINK_BASE = ROOT / 'aot42-windows'
 BASE = ROOT / 'hint52/aot-final'
 CANDIDATE = VARIANT_DIR / 'aot-final'
 CONTROL = ROOT / 'hint52/native/candidate'
-sys.path.insert(0, str(ROOT / 'runtime-fix/python'))
-from elftools.elf.elffile import ELFFile
 
 
 def sha(path):
@@ -28,20 +26,22 @@ def sha(path):
 
 def allocated(path):
     rows = {}
-    with Path(path).open('rb') as stream:
-        image = ELFFile(stream)
-        for section in image.iter_sections():
-            if not section['sh_flags'] & 2:
-                continue
-            digest = None
-            if section['sh_type'] != 'SHT_NOBITS':
-                stream.seek(section['sh_offset'])
-                state, remaining = hashlib.sha256(), section['sh_size']
-                while remaining:
-                    data = stream.read(min(1 << 20, remaining)); assert data
-                    state.update(data); remaining -= len(data)
-                digest = state.hexdigest()
-            rows[section.name] = dict(address=section['sh_addr'], size=section['sh_size'], sha256=digest)
+    data = Path(path).read_bytes()
+    assert data[:4] == b'\x7fELF' and data[4] == 2 and data[5] == 1, 'expected ELF64 little-endian'
+    e_shoff, = struct.unpack_from('<Q', data, 40)
+    e_shentsize, e_shnum, e_shstrndx = struct.unpack_from('<HHH', data, 58)
+    headers = [struct.unpack_from('<IIQQQQIIQQ', data, e_shoff + i * e_shentsize) for i in range(e_shnum)]
+    shstr = headers[e_shstrndx]
+    names = data[shstr[4]:shstr[4] + shstr[5]]
+    for sh_name, sh_type, sh_flags, sh_addr, sh_offset, sh_size, *_ in headers:
+        if not sh_flags & 2:  # SHF_ALLOC
+            continue
+        end = names.find(b'\0', sh_name)
+        name = names[sh_name:end].decode()
+        digest = None
+        if sh_type != 8:  # SHT_NOBITS
+            digest = hashlib.sha256(data[sh_offset:sh_offset + sh_size]).hexdigest()
+        rows[name] = dict(address=sh_addr, size=sh_size, sha256=digest)
     return rows
 
 
@@ -91,7 +91,21 @@ assert len(objects) == 18 and all(p.is_file() for p in objects)
 # R58_OBJECT_OVERRIDES (build73): candidate-only replacements for launcher objects,
 # e.g. "nx_input.o=/build/release58/v73-input/nx_input.o". The control replay keeps build52's.
 OBJECT_OVERRIDES = dict(v.split('=', 1) for v in os.environ.get('R58_OBJECT_OVERRIDES', '').split())
+if os.environ.get('R58_COMPILE_NX_INPUT') == '1':
+    nx_input_obj = OUT / 'nx_input.o'
+    run(['/opt/devkitpro/devkitA64/bin/aarch64-none-elf-gcc',
+         '-march=armv8-a+crc+crypto', '-mtune=cortex-a57', '-mtp=soft', '-fPIE', '-g', '-O2',
+         '-ffunction-sections', '-Wall', '-Wextra', '-D__SWITCH__',
+         '-DMONO_NX_PHASE_TIMING=1', '-DMONO_NX_GPU_TIMING=1',
+         *os.environ.get('R58_NX_INPUT_DEFINES', '').split(),
+         '-I/work/native/shared', '-I/build/nochroma42/native/shared', '-I/mono-nx/native/shared',
+         '-I/mono-nx/dotnet_runtime/artifacts/bin/mono/libnx.arm64.Debug/include/mono-2.0',
+         '-I/fna-install/include', '-I/opt/devkitpro/libnx/include', '-I/opt/devkitpro/portlibs/switch/include',
+         '-c', '/work/native/shared/nx_input.c', '-o', nx_input_obj], 'compile-nx-input')
+    OBJECT_OVERRIDES['nx_input.o'] = str(nx_input_obj)
 assert all(n in {o.name for o in objects} and Path(p).is_file() for n, p in OBJECT_OVERRIDES.items()), OBJECT_OVERRIDES
+DROP_LIBS = set(os.environ.get('R58_DROP_LIBS', '').split())
+EXTRA_LIBS = os.environ.get('R58_EXTRA_LIBS', '').split()
 shutil.copy2(ROOT / 'hint52/native/aot-method-tables.ld', OUT / 'aot-method-tables.ld')
 assert (OUT / 'aot-method-tables.ld').read_bytes() == (ROOT / 'nochroma42/native/interpreter/aot-method-tables.ld').read_bytes()
 # R58_RUNTIME=release (build65): the candidate links the Release native Mono runtime and its
@@ -135,6 +149,8 @@ for variant in ('control-replay', 'candidate'):
             if len(aot_objects) == 1:
                 libraries.append(None)  # placeholder: the AOT objects stay contiguous here
             continue
+        if variant == 'candidate' and value in DROP_LIBS:
+            continue
         libraries.append(RUNTIME_SWAP.get(value, value) if variant == 'candidate' else value)
     # The native verifier maps linked method tables to modules by object name order,
     # so extra framework modules join the recorded (name-sorted) AOT run in sorted order.
@@ -148,6 +164,8 @@ for variant in ('control-replay', 'candidate'):
             aot_objects.insert(aot_objects.index(owner) + 1, str(sidecar))
     i = libraries.index(None)
     libraries[i:i + 1] = aot_objects
+    if variant == 'candidate':
+        libraries += EXTRA_LIBS
     run(['/opt/devkitpro/devkitA64/bin/aarch64-none-elf-gcc', *flags, *objs, *recorded['LIBPATHS'], *libraries,
          '-o', folder / 'mono_nx_fna.elf'], 'link-' + variant)
     if variant == 'control-replay':
