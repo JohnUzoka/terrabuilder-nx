@@ -1,0 +1,106 @@
+*** Begin Patch
+*** Add File: AssGenAssets.cs
++global using AssGen;
++using System;
++using Microsoft.Xna.Framework.Graphics;
++using ReLogic.Content;
++using Terraria.ModLoader;
++
++namespace AssGen;
++
++public static class Assets
++{
++    private static Lazy<Asset<Texture2D>> _box = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/box"));
++    public static Asset<Texture2D> box => _box.Value;
++
++    private static Lazy<Asset<Texture2D>> _corner = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/corner"));
++    public static Asset<Texture2D> corner => _corner.Value;
++
++    public static class GUI
++    {
++        private static Lazy<Asset<Texture2D>> _Box = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/GUI/Box"));
++        public static Asset<Texture2D> Box => _Box.Value;
++
++        private static Lazy<Asset<Texture2D>> _Cross = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/GUI/Cross"));
++        public static Asset<Texture2D> Cross => _Cross.Value;
++
++        private static Lazy<Asset<Texture2D>> _Down = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/GUI/Down"));
++        public static Asset<Texture2D> Down => _Down.Value;
++
++        private static Lazy<Asset<Texture2D>> _DownLarge = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/GUI/DownLarge"));
++        public static Asset<Texture2D> DownLarge => _DownLarge.Value;
++
++        private static Lazy<Asset<Texture2D>> _Eye = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/GUI/Eye"));
++        public static Asset<Texture2D> Eye => _Eye.Value;
++
++        private static Lazy<Asset<Texture2D>> _EyeClosed = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/GUI/EyeClosed"));
++        public static Asset<Texture2D> EyeClosed => _EyeClosed.Value;
++
++        private static Lazy<Asset<Texture2D>> _Gradient = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/GUI/Gradient"));
++        public static Asset<Texture2D> Gradient => _Gradient.Value;
++
++        private static Lazy<Asset<Texture2D>> _Null = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/GUI/Null"));
++        public static Asset<Texture2D> Null => _Null.Value;
++
++        private static Lazy<Asset<Texture2D>> _PlusB = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/GUI/PlusB"));
++        public static Asset<Texture2D> PlusB => _PlusB.Value;
++
++        private static Lazy<Asset<Texture2D>> _PlusG = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/GUI/PlusG"));
++        public static Asset<Texture2D> PlusG => _PlusG.Value;
++
++        private static Lazy<Asset<Texture2D>> _PlusP = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/GUI/PlusP"));
++        public static Asset<Texture2D> PlusP => _PlusP.Value;
++
++        private static Lazy<Asset<Texture2D>> _PlusR = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/GUI/PlusR"));
++        public static Asset<Texture2D> PlusR => _PlusR.Value;
++
++        private static Lazy<Asset<Texture2D>> _Refresh = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/GUI/Refresh"));
++        public static Asset<Texture2D> Refresh => _Refresh.Value;
++
++        private static Lazy<Asset<Texture2D>> _Up = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/GUI/Up"));
++        public static Asset<Texture2D> Up => _Up.Value;
++
++        private static Lazy<Asset<Texture2D>> _UpLarge = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/GUI/UpLarge"));
++        public static Asset<Texture2D> UpLarge => _UpLarge.Value;
++    }
++
++    public static class Items
++    {
++        private static Lazy<Asset<Texture2D>> _ChestWand = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/Items/ChestWand"));
++        public static Asset<Texture2D> ChestWand => _ChestWand.Value;
++
++        private static Lazy<Asset<Texture2D>> _CustomDataWand = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/Items/CustomDataWand"));
++        public static Asset<Texture2D> CustomDataWand => _CustomDataWand.Value;
++
++        private static Lazy<Asset<Texture2D>> _MultistructureWand = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/Items/MultistructureWand"));
++        public static Asset<Texture2D> MultistructureWand => _MultistructureWand.Value;
++
++        private static Lazy<Asset<Texture2D>> _PortingWand = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/Items/PortingWand"));
++        public static Asset<Texture2D> PortingWand => _PortingWand.Value;
++
++        private static Lazy<Asset<Texture2D>> _StructureWand = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/Items/StructureWand"));
++        public static Asset<Texture2D> StructureWand => _StructureWand.Value;
++
++        private static Lazy<Asset<Texture2D>> _TestWand = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/Items/TestWand"));
++        public static Asset<Texture2D> TestWand => _TestWand.Value;
++    }
++
++    public static class Tiles
++    {
++        private static Lazy<Asset<Texture2D>> _NullBlock = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/Tiles/NullBlock"));
++        public static Asset<Texture2D> NullBlock => _NullBlock.Value;
++
++        private static Lazy<Asset<Texture2D>> _NullBlockItem = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/Tiles/NullBlockItem"));
++        public static Asset<Texture2D> NullBlockItem => _NullBlockItem.Value;
++
++        private static Lazy<Asset<Texture2D>> _NullTileAndWallPlacer = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/Tiles/NullTileAndWallPlacer"));
++        public static Asset<Texture2D> NullTileAndWallPlacer => _NullTileAndWallPlacer.Value;
++
++        private static Lazy<Asset<Texture2D>> _NullWall = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/Tiles/NullWall"));
++        public static Asset<Texture2D> NullWall => _NullWall.Value;
++
++        private static Lazy<Asset<Texture2D>> _NullWallItem = new(() => ModContent.Request<Texture2D>("StructureHelper/Assets/Tiles/NullWallItem"));
++        public static Asset<Texture2D> NullWallItem => _NullWallItem.Value;
++    }
++}
+*** End Patch

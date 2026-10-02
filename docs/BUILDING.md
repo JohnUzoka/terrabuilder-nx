@@ -58,6 +58,10 @@ tModLoader 1.4.4.x release folder:
 ./terrabuilder build --target tmodloader \
   --game-dir ~/.cache/terraria-switch-build/tmod/release \
   --mods none --workdir ~/.cache/terrabuilder -y
+
+./terrabuilder build --target tmodloader \
+  --game-dir ~/.cache/terraria-switch-build/tmod/release \
+  --mods FargowiltasSouls --workdir ~/.cache/terrabuilder -y
 ```
 
 `--game-dir` is the tModLoader folder, not the vanilla GOG folder. The validator
@@ -85,13 +89,23 @@ restricted to open-source tested mods pinned to upstream commits:
 | StructureHelper | 3.1.1 | `ScalarVector1/StructureHelper` tag `3.1.1` (`f224c11e...`) | MIT | |
 | Fargo's Souls Mod | 1.7.3.7 | `Fargowilta/FargowiltasSouls` commit `226fadea...` | MIT | Fargo's Mutant, Luminance, StructureHelper |
 
-The source-build scaffold clones each selected repo at its pinned commit and
-invokes tML's `tModLoader.targets` in a container. On this machine, Luminance's
-C# compilation succeeds after applying the named `SetFactory` compatibility edit,
-but tML's package step currently fails because the desktop packager tries to load
-a Linux `FNA3D` shared library that is not present in the retained tModLoader
-folder or build image. Until that host packager dependency is supplied or bypassed,
-the verified first-release CLI path is `--mods none`.
+The source-build path clones each selected repo at its pinned commit and invokes
+tML's `tModLoader.targets` in a container. For the host-only desktop ModCompile
+step, the CLI caches .NET 8 under `~/.cache/terrabuilder/dotnet8`, builds
+FNA3D 26.07 from source under `~/.cache/terrabuilder/native-host/`, and exposes
+that FNA3D plus tML's Linux SDL2/FAudio libraries through `LD_LIBRARY_PATH`.
+These host native libraries are build-time inputs only and are never copied into
+the Switch SD payload.
+
+Two recorded source patches are currently required for reproducible Linux builds:
+Luminance 1.0.3 gets the upstream `SetFactory` compatibility fix, and
+StructureHelper 3.1.1 replaces AssGen 3.0.0's Windows-path-only generated assets
+with the equivalent checked source wrapper. Fargo's Souls builds from source with
+all source-built mod assemblies AOT/LLVM-compiled. The prepared `tModLoader.dll`
+uses the interpreter fallback in this source-mod variant because non-LLVM AOT
+fails inside Mono with `Unable to open file '(null)': Bad file descriptor`, while
+LLVM optimization of that prepared assembly is pathologically slow on this WSL2
+machine.
 
 Known issues printed after every tModLoader build: Fargo's Souls in-world
 performance is roughly 15-20 fps; Plus+Minus FPS toggle and D-pad menu navigation

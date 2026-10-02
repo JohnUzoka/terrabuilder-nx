@@ -100,6 +100,7 @@ def main():
                                  'original_sha256': member_info['member_sha256']}
     environment = dict(os.environ, DOTNET_ROOT=str(dotnet.parent), TERRARIA_BUILD_CACHE=str(root),
                        DOTNET_CLI_HOME=str(out / 'dotnet-home'),
+                       DOTNET_SYSTEM_GLOBALIZATION_INVARIANT='1',
                        DOTNET_CLI_TELEMETRY_OPTOUT='1', DOTNET_SKIP_FIRST_TIME_EXPERIENCE='1')
     commands = []
 

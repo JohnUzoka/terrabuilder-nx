@@ -97,6 +97,10 @@ tModLoader builds are experimental:
 ./terrabuilder build --target tmodloader \
   --game-dir ~/.cache/terraria-switch-build/tmod/release \
   --mods none --workdir ~/.cache/terrabuilder -y
+
+./terrabuilder build --target tmodloader \
+  --game-dir ~/.cache/terraria-switch-build/tmod/release \
+  --mods FargowiltasSouls --workdir ~/.cache/terrabuilder -y
 ```
 
 Outputs are written under `~/.cache/terrabuilder/out/tmodloader-*/`: an NRO,
@@ -107,9 +111,14 @@ The curated mod catalog lives in `terrabuilder_pkg/curated_tmod_mods.json` and i
 limited to tested open-source mods pinned to upstream commits: Luminance,
 Fargo's Mutant, StructureHelper, and Fargo's Souls. Dependencies are auto-selected
 when `--mods` names a dependent mod. No Steam Workshop packages or mod binaries are
-redistributed by the CLI. Current mod-from-source packaging reaches tML's
-`ModCompile` step but is blocked on this machine by the desktop tModLoader packager
-requiring a Linux `FNA3D` shared library; `--mods none` is fully wired and verified.
+redistributed by the CLI. The CLI builds host-only Linux FNA3D 26.07, reuses the
+tML Linux SDL2/FAudio libraries for desktop `ModCompile`, and caches .NET 8 under
+`~/.cache/terrabuilder`; those host libraries are not copied into the Switch
+payload. Luminance and StructureHelper use recorded compatibility patches for
+tML 1.4.4.9/Linux source builds. Fargo's Souls source builds currently AOT/LLVM
+the source-built mod assemblies and use the interpreter fallback for the prepared
+`tModLoader.dll`, whose non-LLVM AOT fails in Mono and whose LLVM pass is
+pathologically slow on this machine.
 
 Known tModLoader issues: Fargo's Souls in-world performance is about 15-20 fps;
 Plus+Minus FPS toggle and D-pad menu navigation do not work yet; multiplayer is

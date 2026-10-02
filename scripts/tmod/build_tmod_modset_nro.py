@@ -84,6 +84,8 @@ assert 'tModLoader.dll' not in replacements and 'FNA.dll' not in replacements
 
 extra_aot = config.get('extra_aot', [])
 assert len(extra_aot) == len(set(extra_aot))
+skip_aot_modules = config.get('skip_aot_modules', [])
+assert len(skip_aot_modules) == len(set(skip_aot_modules))
 
 corelib_name = config.get('corelib')
 llvm_modules = config.get('llvm_modules', [])
@@ -93,6 +95,8 @@ compile_fna = config.get('compile_fna', False) or ('FNA.dll' in llvm_modules) or
 reuse_base = config.get('reuse_base')
 reuse_modules = config.get('reuse_modules', [])
 assert len(reuse_modules) == len(set(reuse_modules))
+aot_workers = int(config.get('aot_workers', 4))
+assert aot_workers >= 1
 
 for filename, destinations in replacements.items():
     assert Path(filename).name == filename and filename.endswith('.dll')
@@ -155,7 +159,9 @@ if compile_fna:
 compiled.extend(aot_replacements)
 compiled.extend(extra_aot)
 compiled.extend(external_members.keys())
+compiled = [name for name in compiled if name not in skip_aot_modules]
 assert len(compiled) == len(set(compiled)), 'Duplicate compiled assembly'
+assert set(skip_aot_modules) <= {'tModLoader.dll'}, 'Only tModLoader.dll can use the interpreter fallback'
 input_hashes = {name: sha(INPUT / name) for name in set(compiled) | replacements.keys() | {'FNA.dll'}}
 baseline = json.loads((BASE / 'manifest.json').read_text())
 binding_base = baseline['provenance_and_binding']
@@ -225,7 +231,7 @@ def compile_one(name):
 
 to_compile = [name for name in compiled if name not in reuse_modules]
 if to_compile:
-    with ThreadPoolExecutor(max_workers=max(1, min(4, len(to_compile)))) as pool:
+    with ThreadPoolExecutor(max_workers=max(1, min(aot_workers, len(to_compile)))) as pool:
         list(pool.map(compile_one, to_compile))
 assert all(sha(INPUT / name) == digest for name, digest in input_hashes.items()), 'AOT input changed'
 NATIVE.mkdir()

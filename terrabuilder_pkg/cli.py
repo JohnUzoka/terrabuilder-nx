@@ -19,6 +19,12 @@ HEAVY_LOCK = Path.home() / ".cache/terraria-switch-build/.heavy.lock"
 MONO_IMAGE = "localhost/monobuild:local"
 LLVM_IMAGE = "localhost/monobuild-llvm:local"
 MESA_IMAGE = "localhost/mesabuild-r28:local"
+HOST_FNA3D = {
+    "repo": "https://github.com/FNA-XNA/FNA3D.git",
+    "tag": "26.07",
+    "commit": "1ac4231ed9f0cfa1211e46b27dc8fb4ef3830eb8",
+    "mojoshader_commit": "abdc80360c1d4560ab8f356035dcd53ae6e9b87f",
+}
 
 V88_WRAPS = [
     "SDL_PollEvent", "FNA3D_SwapBuffers", "SDL_StartTextInput", "SDL_StopTextInput",
@@ -356,10 +362,109 @@ def tmod_variant_key(tmod_dir: Path, mods: list[str], catalog: dict[str, dict], 
     return "tmodcli-" + h.hexdigest()[:12]
 
 
+def apply_recorded_patch(checkout: Path, patch: Path) -> None:
+    marker = ".terrabuilder-" + patch.name + ".applied"
+    target = None
+    add_file = False
+    old: list[str] = []
+    new: list[str] = []
+    for line in patch.read_text().splitlines():
+        if line.startswith("*** Update File: "):
+            target = checkout / line.split(": ", 1)[1]
+            add_file = False
+        elif line.startswith("*** Add File: "):
+            target = checkout / line.split(": ", 1)[1]
+            add_file = True
+        elif line.startswith("-") and not line.startswith("---"):
+            old.append(line[1:])
+        elif line.startswith("+") and not line.startswith("+++"):
+            new.append(line[1:])
+    if target is None:
+        raise SystemExit(f"patch missing target: {patch}")
+    if add_file:
+        data = "\n".join(new) + "\n"
+        if target.exists() and target.read_text() != data:
+            raise SystemExit(f"failed to apply recorded patch {patch}: {target.name} already exists")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(data)
+    else:
+        data = target.read_text()
+        for idx, before in enumerate(old):
+            after = new[idx] if idx < len(new) else ""
+            if before in data:
+                data = data.replace(before, after, 1)
+            elif after not in data:
+                raise SystemExit(f"failed to apply recorded patch {patch}: context not found")
+        target.write_text(data)
+    (checkout / marker).write_text(sha256(patch) + "\n")
+
+
+def ensure_host_fna3d(workdir: Path, tmod_dir: Path) -> Path:
+    out = workdir / "native-host" / f"fna3d-{HOST_FNA3D['tag']}"
+    receipt = out / "receipt.json"
+    if receipt.exists() and (out / "libFNA3D.so.0").exists():
+        return out
+    src = workdir / "native-host" / f"fna3d-{HOST_FNA3D['tag']}-src"
+    build = workdir / "native-host" / f"fna3d-{HOST_FNA3D['tag']}-build"
+    eng = engine() or "podman"
+    if not src.exists():
+        run(["git", "clone", "--recursive", "--depth", "1", "--branch", HOST_FNA3D["tag"], HOST_FNA3D["repo"], str(src)])
+    else:
+        run(["git", "-C", str(src), "fetch", "--depth", "1", "origin", HOST_FNA3D["commit"]])
+    run(["git", "-C", str(src), "checkout", "--detach", HOST_FNA3D["commit"]])
+    run(["git", "-C", str(src), "submodule", "update", "--init", "--recursive"])
+    if not (build / "libFNA3D.so.0").exists():
+        cmd = [eng, "run", "--rm", "--entrypoint", "/bin/bash",
+               "-v", f"{workdir}:/tb", MONO_IMAGE, "-lc",
+               "apt-get update -qq && "
+               "apt-get install -y --no-install-recommends libsdl2-dev >/tmp/apt-terrabuilder-fna3d.log && "
+               f"cmake -S /tb/native-host/fna3d-{HOST_FNA3D['tag']}-src "
+               f"-B /tb/native-host/fna3d-{HOST_FNA3D['tag']}-build "
+               "-DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_SDL3=OFF && "
+               f"cmake --build /tb/native-host/fna3d-{HOST_FNA3D['tag']}-build --parallel 4"]
+        run(cmd)
+    out.mkdir(parents=True, exist_ok=True)
+    for path in build.glob("libFNA3D.so*"):
+        target = out / path.name
+        if target.exists() or target.is_symlink():
+            target.unlink()
+        if path.is_symlink():
+            target.symlink_to(os.readlink(path))
+        else:
+            shutil.copy2(path, target)
+    native_linux = tmod_dir / "Libraries/Native/Linux"
+    for name in ("libSDL2-2.0.so.0", "libFAudio.so.0"):
+        if (native_linux / name).exists():
+            shutil.copy2(native_linux / name, out / name)
+    write_json(receipt, {
+        "source": HOST_FNA3D,
+        "libFNA3D_sha256": sha256(out / "libFNA3D.so.0.26.07"),
+        "note": "Host-side tModLoader ModCompile dependency only; never copied to Switch payload.",
+    })
+    return out
+
+
+def ensure_dotnet8(workdir: Path) -> Path:
+    dotnet = workdir / "dotnet8" / "dotnet"
+    if dotnet.exists():
+        return dotnet
+    install_dir = workdir / "dotnet8"
+    install_dir.mkdir(parents=True, exist_ok=True)
+    script = install_dir / "dotnet-install.sh"
+    if not script.exists():
+        run(["curl", "-fsSL", "https://dot.net/v1/dotnet-install.sh", "-o", str(script)])
+    run(["bash", str(script), "--channel", "8.0", "--install-dir", str(install_dir), "--runtime", "dotnet", "--no-path"])
+    run(["bash", str(script), "--channel", "8.0", "--install-dir", str(install_dir), "--no-path"])
+    return dotnet
+
+
 def build_curated_mod_sources(tmod_dir: Path, mods: list[str], workdir: Path, catalog: dict[str, dict]) -> Path:
     cache_key = hashlib.sha256(
         (sha256(tmod_dir / "tModLoader.dll") + "\n" +
-         "\n".join(f"{m}:{catalog[m]['commit']}" for m in mods)).encode()
+         "\n".join(
+             f"{m}:{catalog[m]['commit']}:{','.join(catalog[m].get('patches', []))}"
+             for m in mods
+         )).encode()
     ).hexdigest()[:12]
     packages = workdir / "tmod" / "packages" / cache_key
     done = packages / ".complete.json"
@@ -369,7 +474,10 @@ def build_curated_mod_sources(tmod_dir: Path, mods: list[str], workdir: Path, ca
     packages.mkdir(parents=True, exist_ok=True)
     src_root = workdir / "tmod" / "sources"
     src_root.mkdir(parents=True, exist_ok=True)
+    (workdir / "tmod-home").mkdir(parents=True, exist_ok=True)
     shutil.copy2(tmod_dir / "tMLMod.targets", src_root / "tModLoader.targets")
+    host_native = ensure_host_fna3d(workdir, tmod_dir)
+    dotnet8 = ensure_dotnet8(workdir)
     built_dlls: dict[str, Path] = {}
     built_packages: dict[str, Path] = {}
     build_order = [m for m in mods if m != "FargowiltasSouls"] + ([m for m in mods if m == "FargowiltasSouls"])
@@ -381,44 +489,48 @@ def build_curated_mod_sources(tmod_dir: Path, mods: list[str], workdir: Path, ca
             run(["git", "clone", "--filter=blob:none", meta["repo"], str(checkout)])
         run(["git", "-C", str(checkout), "fetch", "--depth", "1", "origin", meta["commit"]])
         run(["git", "-C", str(checkout), "checkout", "--detach", meta["commit"]])
-        if name == "Luminance":
-            balancing = checkout / "Core/Balancing/InternalBalancingManager.cs"
-            text = balancing.read_text()
-            text = text.replace("SetFactory factory = new(ContentSamples.NpcsByNetId.Count);",
-                                'SetFactory factory = new(ContentSamples.NpcsByNetId.Count, "NPC");')
-            balancing.write_text(text)
+        run(["git", "-C", str(checkout), "reset", "--hard", meta["commit"]])
+        run(["git", "-C", str(checkout), "clean", "-fdx"])
+        for patch_name in meta.get("patches", []):
+            apply_recorded_patch(checkout, Path(__file__).with_name("patches") / patch_name)
         for dep_name, dep_dll in built_dlls.items():
             if dep_name in meta.get("dependencies", []):
                 shutil.copy2(dep_dll, checkout / (dep_name + ".dll"))
         before = {p.resolve() for p in checkout.rglob("*.tmod")}
-        cmd = [eng, "run", "--rm", "--entrypoint", "/root/.dotnet/dotnet",
+        cmd = [eng, "run", "--rm", "--entrypoint", "/tb/dotnet8/dotnet",
                "-e", "DOTNET_CLI_HOME=/tb/dotnet-home",
+               "-e", "DOTNET_ROOT=/tb/dotnet8",
                "-e", "DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1",
                "-e", "DOTNET_CLI_TELEMETRY_OPTOUT=1",
-               "-e", "DOTNET_ROLL_FORWARD=Major",
-               "-e", "PATH=/root/.dotnet:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+               "-e", "HOME=/tb/tmod-home",
+               "-e", "PATH=/tb/dotnet8:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+               "-e", f"LD_LIBRARY_PATH=/tb/{host_native.relative_to(workdir).as_posix()}:/tml/Libraries/Native/Linux",
+               "-e", "SDL_VIDEODRIVER=dummy",
+               "-e", "SDL_AUDIODRIVER=dummy",
                "-v", f"{workdir}:/tb",
                "-v", f"{tmod_dir}:/tml:ro",
                "-v", f"{LEGACY / 'recovery46/sdk-pristine'}:/mono-nx:ro",
                "-w", f"/tb/tmod/sources/{name}",
                MONO_IMAGE,
-               "build", "-c", "Release", f"-p:tMLSteamPath=/tml/",
-               "-p:TreatWarningsAsErrors=false", "-p:NoWarn=0619"]
+               "build", f"{name}.csproj", "-c", "Debug", f"-p:tMLSteamPath=/tml/",
+               "-p:TreatWarningsAsErrors=false", "-p:NoWarn=0619",
+               "-p:DebugType=none", "-p:DebugSymbols=false",
+               "-p:GenerateTargetFrameworkAttribute=false"]
         try:
             run(cmd, heavy=True)
         except subprocess.CalledProcessError as exc:
             raise SystemExit(
                 f"failed to build {name} from source at {meta['commit']}. "
-                "The current known blocker is tModLoader's desktop ModCompile package step "
-                "requiring a Linux FNA3D shared library in the tModLoader folder/container. "
-                "Use --mods none until that host packager dependency is supplied."
+                "See the build output above for the tML ModCompile or C# compiler error."
             ) from exc
         dlls = sorted(checkout.rglob(f"{name}.dll"), key=lambda p: p.stat().st_mtime, reverse=True)
         if dlls:
             built_dlls[name] = dlls[0]
         after = [p for p in checkout.rglob("*.tmod") if p.resolve() not in before]
         if not after:
-            after = sorted(checkout.rglob("*.tmod"), key=lambda p: p.stat().st_mtime, reverse=True)
+            candidates = list(checkout.rglob("*.tmod")) + list((workdir / "tmod-home").rglob("*.tmod"))
+            after = sorted([p for p in candidates if p.name == name + ".tmod"],
+                           key=lambda p: p.stat().st_mtime, reverse=True)
         if name != "StructureHelper":
             if not after:
                 raise SystemExit(f"built {name} but no .tmod package was produced")
@@ -431,7 +543,39 @@ def build_curated_mod_sources(tmod_dir: Path, mods: list[str], workdir: Path, ca
 
 def seed_tmod_input(variant: str, mods: list[str], packages: Path | None, catalog: dict[str, dict]) -> Path:
     out = LEGACY / "tmod" / variant
+    if out.exists() and (out / "manifest.json").exists():
+        return out
     if out.exists():
+        shutil.rmtree(out)
+    selected_packages = [m for m in mods if m != "StructureHelper"]
+    if selected_packages:
+        primary = "FargowiltasSouls" if "FargowiltasSouls" in mods else selected_packages[0]
+        label = "+".join(selected_packages)
+        run([sys.executable, str(ROOT / "scripts/tmod/prepare_modset.py"),
+             "--cache-root", str(LEGACY), "--mods-dir", str(packages),
+             "--variant", variant, "--primary", primary, "--label", label,
+             "--base", "tmod27", "--game", str(LEGACY / "tmod/tmod27-nxfix-mp/tModLoader_patched_nxfix.dll"),
+             "--interpret-hooks"])
+        config_path = out / "input/modset.json"
+        config = json.loads(config_path.read_text())
+        baseline_config = json.loads((LEGACY / "tmod/tmod27/input/modset.json").read_text())
+        llvm_modules = set(baseline_config.get("llvm_modules", []))
+        llvm_modules.discard("tModLoader.dll")
+        for mod_name in selected_packages:
+            llvm_modules.add(mod_name + ".dll")
+        if "FargowiltasSouls" in mods and "StructureHelper" in mods:
+            llvm_modules.add("StructureHelper.dll")
+        config["llvm_modules"] = sorted(llvm_modules)
+        config["extra_aot"] = baseline_config.get("extra_aot", [])
+        config["reuse_base"] = "tmod27"
+        config["reuse_modules"] = ["ReLogic.dll", "System.Linq.dll"]
+        config["aot_workers"] = 1
+        config["skip_aot_modules"] = ["tModLoader.dll"]
+        write_json(config_path, config)
+        nxcrypto = LEGACY / "hint52/aot-final/runtime-romfs/NxCrypto.dll"
+        if nxcrypto.exists():
+            shutil.copy2(nxcrypto, out / "input/NxCrypto.dll")
+        write_json(out / "source-mods.json", {"mods": mods, "catalog": [catalog[m] for m in mods]})
         return out
     src = LEGACY / "tmod/tmod27/input"
     if not src.exists():
@@ -441,10 +585,6 @@ def seed_tmod_input(variant: str, mods: list[str], packages: Path | None, catalo
     for name in ("tModLoader.dll", "FNA.dll", "System.Reflection.Metadata.dll", "TerrariaHooks.dll", "MonoMod.RuntimeDetour.dll"):
         if (src / name).exists():
             shutil.copy2(src / name, inputs / name)
-    selected_packages = [m for m in mods if m != "StructureHelper"]
-    if packages:
-        for m in selected_packages:
-            shutil.copy2(packages / (m + ".tmod"), inputs / (m + ".tmod"))
     config = json.loads((src / "modset.json").read_text())
     primary = "FargowiltasSouls" if "FargowiltasSouls" in mods else (selected_packages[0] if selected_packages else "")
     config["mod"] = primary

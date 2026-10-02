@@ -13,9 +13,10 @@
       "license": "MIT",
       "spdx_license": "MIT",
       "dependencies": [],
+      "patches": ["Luminance-1.0.3-tml-2026.7.patch"],
       "tested": true,
       "build_requirements": [".NET 8 SDK", "tModLoader 1.4.4.x release with tMLMod.targets"],
-      "notes": "Library mod; tested package metadata version 1.0.3, loader 2026.7.3.0."
+      "notes": "Library mod; tested package metadata version 1.0.3, loader 2026.7.3.0. A recorded compatibility patch replaces obsolete unnamed SetFactory usage required by current tML 1.4.4.9 ModCompile."
     },
     {
       "id": "Fargowiltas",
@@ -43,9 +44,10 @@
       "license": "MIT",
       "spdx_license": "MIT",
       "dependencies": [],
+      "patches": ["StructureHelper-3.1.1-disable-assgen.patch", "StructureHelper-3.1.1-generated-assets.patch"],
       "tested": true,
       "build_requirements": [".NET 8 SDK", "tModLoader 1.4.4.x release with tMLMod.targets"],
-      "notes": "Bundled as lib/StructureHelper.dll inside the tested Fargo's Souls package; source tag 3.1.1 matches build.txt."
+      "notes": "Bundled as lib/StructureHelper.dll inside the tested Fargo's Souls package; source tag 3.1.1 matches build.txt. Recorded patches replace AssGen 3.0.0's Windows-path-only source generation with the equivalent asset wrapper for Linux container builds."
     },
     {
       "id": "FargowiltasSouls",
