@@ -24,6 +24,31 @@ The work directory is `~/.cache/terraria-switch-build` (override with
 `TERRABUILDER_CACHE`). In every container command below it is mounted as
 `/build`, and this repo is mounted read-only as `/work`.
 
+### First-release CLI path
+
+For day-to-day use, prefer the repository-root CLI:
+
+```sh
+./terrabuilder doctor
+./terrabuilder toolchain pack --workdir ~/.cache/terrabuilder
+./terrabuilder build --target vanilla \
+  --game-dir "$HOME/GOG Games/Terraria1_4_5_8/game" \
+  --profile release --workdir ~/.cache/terrabuilder -y
+```
+
+The CLI stages a content-hashed build under `~/.cache/terrabuilder`, reuses the
+validated open-source toolchain artifacts from the legacy cache, patches only the
+user's local GOG assemblies, AOT-compiles the game-derived modules locally, relinks
+with source-built launcher objects, and writes
+`~/.cache/terrabuilder/out/Terraria.nro` plus a receipt JSON. `--profile profiler`
+emits `Terraria-profiler.nro`. `toolchain pack` records artifact SHA-256s and
+provenance in `toolchain/manifest.json`; publishing that bundle still requires
+adding full upstream license notices.
+
+The `--from-source` toolchain path intentionally delegates to the existing scripts
+below and is long-running. Runtime/BCL/Mesa/LLVM build steps must be run under
+`flock ~/.cache/terraria-switch-build/.heavy.lock` on this WSL2 machine.
+
 ## 1. Sources
 
 | What | Where | Revision |

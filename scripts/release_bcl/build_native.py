@@ -17,6 +17,7 @@ ORIGINAL_LINK_BASE = ROOT / 'aot42-windows'
 BASE = ROOT / 'hint52/aot-final'
 CANDIDATE = VARIANT_DIR / 'aot-final'
 CONTROL = ROOT / 'hint52/native/candidate'
+SKIP_CONTROL = os.environ.get('R58_SKIP_CONTROL') == '1'
 
 
 def sha(path):
@@ -64,9 +65,12 @@ def run(argv, label):
 # Launcher main.o: identical recipe to build42's (byte-verified), plus the new flag,
 # against build58's registration header.
 header58 = (CANDIDATE / 'mono_aot_modules.h').read_text().splitlines()[1:]
-header52 = (BASE / 'mono_aot_modules.h').read_text().splitlines()[-7:]
-assert header58[:7] == header52, 'AOT registration symbols of the seven build52 modules changed'
-extra_symbols = header58[7:]
+if SKIP_CONTROL:
+    extra_symbols = header58
+else:
+    header52 = (BASE / 'mono_aot_modules.h').read_text().splitlines()[-7:]
+    assert header58[:7] == header52, 'AOT registration symbols of the seven build52 modules changed'
+    extra_symbols = header58[7:]
 # Extra framework modules (build59): every object not among build52's seven.
 base_objects = {Path(v).name for v in shlex.split((ROOT / 'recovery46/link-arguments.txt').read_text().split('LIBS=', 1)[1].splitlines()[0])
                 if v.startswith(str(ORIGINAL_LINK_BASE) + '/') and v.endswith('.o')}
@@ -74,7 +78,7 @@ base_objects = {Path(v).name for v in shlex.split((ROOT / 'recovery46/link-argum
 # after their module object and are not part of the registered/verified module set.
 llvm_objects = sorted(CANDIDATE.glob('*-llvm.o'))
 extra_objects = sorted(p for p in CANDIDATE.glob('*.o') if p.name not in base_objects and p not in llvm_objects)
-assert len(extra_objects) == len(extra_symbols), (extra_objects, extra_symbols)
+assert SKIP_CONTROL or len(extra_objects) == len(extra_symbols), (extra_objects, extra_symbols)
 main_obj = OUT / 'main.o'
 # R58_MAIN_DEFINES adds launcher-only defines, e.g. "-DMONO_NX_GC_STATS=1" (build66).
 run(['/build/release58/compile_main.sh', '/work/native/interpreter/source/main.c', main_obj,
@@ -87,7 +91,7 @@ for line in (ROOT / 'recovery46/link-arguments.txt').read_text().splitlines():
     recorded[key] = shlex.split(value)
 objects_dir = ROOT / 'nochroma42/native/interpreter/build'
 objects = [objects_dir / name for name in recorded['OBJECTS']]
-assert len(objects) == 18 and all(p.is_file() for p in objects)
+assert len(objects) == 18
 # R58_OBJECT_OVERRIDES (build73): candidate-only replacements for launcher objects,
 # e.g. "nx_input.o=/build/release58/v73-input/nx_input.o". The control replay keeps build52's.
 OBJECT_OVERRIDES = dict(v.split('=', 1) for v in os.environ.get('R58_OBJECT_OVERRIDES', '').split())
@@ -104,10 +108,18 @@ if os.environ.get('R58_COMPILE_NX_INPUT') == '1':
          '-c', '/work/native/shared/nx_input.c', '-o', nx_input_obj], 'compile-nx-input')
     OBJECT_OVERRIDES['nx_input.o'] = str(nx_input_obj)
 assert all(n in {o.name for o in objects} and Path(p).is_file() for n, p in OBJECT_OVERRIDES.items()), OBJECT_OVERRIDES
+if SKIP_CONTROL:
+    missing = [o.name for o in objects if o.name != 'main.o' and o.name not in OBJECT_OVERRIDES]
+    assert not missing, 'R58_SKIP_CONTROL requires overrides for retained launcher objects: ' + ', '.join(missing)
+else:
+    assert all(p.is_file() for p in objects)
 DROP_LIBS = set(os.environ.get('R58_DROP_LIBS', '').split())
 EXTRA_LIBS = os.environ.get('R58_EXTRA_LIBS', '').split()
-shutil.copy2(ROOT / 'hint52/native/aot-method-tables.ld', OUT / 'aot-method-tables.ld')
-assert (OUT / 'aot-method-tables.ld').read_bytes() == (ROOT / 'nochroma42/native/interpreter/aot-method-tables.ld').read_bytes()
+if SKIP_CONTROL:
+    shutil.copy2('/work/native/interpreter/aot-method-tables.ld', OUT / 'aot-method-tables.ld')
+else:
+    shutil.copy2(ROOT / 'hint52/native/aot-method-tables.ld', OUT / 'aot-method-tables.ld')
+    assert (OUT / 'aot-method-tables.ld').read_bytes() == (ROOT / 'nochroma42/native/interpreter/aot-method-tables.ld').read_bytes()
 # R58_RUNTIME=release (build65): the candidate links the Release native Mono runtime and its
 # four statically linked components instead of the Debug-config ones. Same fork commit and
 # allocator patch; struct layouts verified identical. The control replay keeps build52's.
@@ -131,7 +143,7 @@ if llvm_objects:
                      '        *-llvm.o(.data .data.*)\n        *-llvm.o(.rodata .rodata.*)\n'
                      '    } :data\n}\nINSERT BEFORE .data.rel.ro;\n')
 
-for variant in ('control-replay', 'candidate'):
+for variant in (('candidate',) if SKIP_CONTROL else ('control-replay', 'candidate')):
     folder = OUT / variant
     folder.mkdir()
     flags = [('-Wl,-Map,' + str(OUT / (variant + '.map'))) if f.startswith('-Wl,-Map,') else f for f in recorded['LDFLAGS']]
@@ -172,28 +184,44 @@ for variant in ('control-replay', 'candidate'):
         assert allocated(CONTROL / 'mono_nx_fna.elf') == allocated(folder / 'mono_nx_fna.elf'), 'build52 replay differs'
         print('PASS exact52 allocated-section replay', flush=True)
 
-with (CONTROL / 'mono_nx_fna.nro').open('rb') as stream:
-    header = stream.read(128); assert header[16:20] == b'NRO0'
-    image_size = struct.unpack_from('<I', header, 24)[0]
-    stream.seek(image_size); assets = stream.read(56); assert assets[:4] == b'ASET'
-    icon_offset, icon_size, nacp_offset, nacp_size = struct.unpack_from('<4Q', assets, 8)
-    stream.seek(image_size + nacp_offset); original_nacp = stream.read(nacp_size)
-    stream.seek(image_size + icon_offset); icon = stream.read(icon_size)
-nacp = bytearray(original_nacp)
-new_title = os.environ.get('R58_TITLE', 'Terraria 58 Release BCL').encode()
-changed = []
-for language in range(16):
-    start = language * 0x300
-    old = bytes(nacp[start:start + 0x200]).split(b'\0', 1)[0]
-    assert old in (b'', b'Terraria 52 Hint Guard')
-    if old:
-        nacp[start:start + 0x200] = new_title.ljust(0x200, b'\0'); changed.append(language)
-assert 0 in changed
-nacp_path = OUT / 'candidate/mono_nx_fna.nacp'; nacp_path.write_bytes(nacp)
-icon_path = OUT / 'icon.jpg'; icon_path.write_bytes(icon)
-run(['/opt/devkitpro/tools/bin/elf2nro', OUT / 'candidate/mono_nx_fna.elf', OUT / 'candidate/mono_nx_fna.nro',
-     '--nacp=' + str(nacp_path), '--romfsdir=' + str(CANDIDATE / 'runtime-romfs'), '--icon=' + str(icon_path)], 'package-candidate')
-report = dict(passed=True, controlAllocatedSectionsIdentical=True, commands=commands, title=new_title.decode(),
+if SKIP_CONTROL:
+    title = os.environ.get('R58_TITLE', 'Terraria').encode()[:0x1ff]
+    author = os.environ.get('R58_AUTHOR', 'terrabuilder-nx').encode()[:0xff]
+    version = os.environ.get('R58_NACP_VERSION', '1.4.5.8').encode()[:0xf]
+    nacp = bytearray(0x4000)
+    for language in range(16):
+        start = language * 0x300
+        nacp[start:start+0x200] = title.ljust(0x200, b'\0')
+        nacp[start+0x200:start+0x300] = author.ljust(0x100, b'\0')
+    nacp[0x3060:0x3070] = version.ljust(0x10, b'\0')
+    new_title = title
+    nacp_path = OUT / 'candidate/mono_nx_fna.nacp'; nacp_path.write_bytes(nacp)
+    package_cmd = ['/opt/devkitpro/tools/bin/elf2nro', OUT / 'candidate/mono_nx_fna.elf', OUT / 'candidate/mono_nx_fna.nro',
+                   '--nacp=' + str(nacp_path), '--romfsdir=' + str(CANDIDATE / 'runtime-romfs')]
+else:
+    with (CONTROL / 'mono_nx_fna.nro').open('rb') as stream:
+        header = stream.read(128); assert header[16:20] == b'NRO0'
+        image_size = struct.unpack_from('<I', header, 24)[0]
+        stream.seek(image_size); assets = stream.read(56); assert assets[:4] == b'ASET'
+        icon_offset, icon_size, nacp_offset, nacp_size = struct.unpack_from('<4Q', assets, 8)
+        stream.seek(image_size + nacp_offset); original_nacp = stream.read(nacp_size)
+        stream.seek(image_size + icon_offset); icon = stream.read(icon_size)
+    nacp = bytearray(original_nacp)
+    new_title = os.environ.get('R58_TITLE', 'Terraria 58 Release BCL').encode()
+    changed = []
+    for language in range(16):
+        start = language * 0x300
+        old = bytes(nacp[start:start + 0x200]).split(b'\0', 1)[0]
+        assert old in (b'', b'Terraria 52 Hint Guard')
+        if old:
+            nacp[start:start + 0x200] = new_title.ljust(0x200, b'\0'); changed.append(language)
+    assert 0 in changed
+    nacp_path = OUT / 'candidate/mono_nx_fna.nacp'; nacp_path.write_bytes(nacp)
+    icon_path = OUT / 'icon.jpg'; icon_path.write_bytes(icon)
+    package_cmd = ['/opt/devkitpro/tools/bin/elf2nro', OUT / 'candidate/mono_nx_fna.elf', OUT / 'candidate/mono_nx_fna.nro',
+                   '--nacp=' + str(nacp_path), '--romfsdir=' + str(CANDIDATE / 'runtime-romfs'), '--icon=' + str(icon_path)]
+run(package_cmd, 'package-candidate')
+report = dict(passed=True, controlAllocatedSectionsIdentical=(not SKIP_CONTROL), commands=commands, title=new_title.decode(),
               mainObjectSha256=sha(main_obj), candidateElfSha256=sha(OUT / 'candidate/mono_nx_fna.elf'),
               candidateNroSha256=sha(OUT / 'candidate/mono_nx_fna.nro'),
               candidateNroBytes=(OUT / 'candidate/mono_nx_fna.nro').stat().st_size)

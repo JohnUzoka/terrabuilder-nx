@@ -65,6 +65,30 @@ directory defaults to `~/.cache/terraria-switch-build` (override with
 `TERRABUILDER_CACHE`), mounted as `/build`; this repo is mounted read-only as `/work`.
 Exact recipes for every build are in `docs/findings.md`.
 
+## CLI quickstart
+
+The first-release CLI is `./terrabuilder` and uses only Python's standard library
+on the host. It builds from the user's own clean GOG Terraria install; game files,
+patched assemblies, RomFS trees, icons, and game AOT objects stay local.
+
+```sh
+./terrabuilder doctor
+./terrabuilder toolchain pack --workdir ~/.cache/terrabuilder
+./terrabuilder build --target vanilla \
+  --game-dir "$HOME/GOG Games/Terraria1_4_5_8/game" \
+  --profile release --workdir ~/.cache/terrabuilder -y
+```
+
+Outputs are `~/.cache/terrabuilder/out/Terraria.nro` and a JSON receipt. Use
+`--profile profiler` for a profiler-enabled NRO at `Terraria-profiler.nro`.
+Heavy container steps are serialized with
+`~/.cache/terraria-switch-build/.heavy.lock`; the default workdir is
+`~/.cache/terrabuilder` and can be overridden with `--workdir`.
+
+`terrabuilder build` without flags prompts for `vanilla | tmodloader` and the game
+directory. tModLoader currently exits cleanly with a "coming in this release"
+message while its pipeline is wired separately.
+
 ## Status
 
 Current working build: 64 (LLVM Terraria + FNA + CoreLib, Release CoreLib/framework);
