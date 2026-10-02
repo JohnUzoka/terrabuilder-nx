@@ -25,8 +25,9 @@ This project does not distribute Terraria, tModLoader, GOG game files, or game-d
 | libjpeg-turbo | devkitPro portlibs (`-ljpeg`) | BSD-3-Clause IJG Zlib | https://github.com/libjpeg-turbo/libjpeg-turbo | SDL2_image JPEG support. | No local patch found. |
 | libwebp | devkitPro portlibs (`-lwebp`) | BSD-3-Clause | https://chromium.googlesource.com/webm/libwebp | SDL2_image WebP support. | No local patch found. |
 | glad | devkitPro portlibs (`-lglad`) | MIT | https://github.com/Dav1dde/glad | OpenGL loader support. | No local patch found. |
-| OpenAL Soft | devkitPro portlibs (`-lopenal`) | LGPL-2.0-or-later | https://github.com/kcat/openal-soft | OpenAL implementation linked for audio compatibility. | No local patch found. |
+
+OpenAL Soft was present in the inherited link line only through the unused OpenAL dl-shim. The release-hygiene link drops `dl_shim_openal.o` and `-lopenal`; the final NRO map has no `libopenal.a` members.
 
 ## Toolchain bundle inclusion note
 
-`terrabuilder toolchain pack` currently implements its manifest and artifact list in `terrabuilder_pkg/cli.py`, which this task was instructed not to edit. The packer should copy `THIRD_PARTY_NOTICES.md`, `CREDITS.md`, and `licenses/` into the bundle root and replace the manifest `licenses` TODO with a file list plus source-offer text for LGPL/static-link components. See `release-hygiene-report.md` for the exact patch suggestion.
+`terrabuilder toolchain pack` currently implements its manifest and artifact list in `terrabuilder_pkg/cli.py`, which this task was instructed not to edit. The packer should copy `THIRD_PARTY_NOTICES.md`, `CREDITS.md`, and `licenses/` into the bundle root and replace the manifest `licenses` TODO with a generated file list plus source/notice text. See `release-hygiene-report.md` for the exact patch suggestion.

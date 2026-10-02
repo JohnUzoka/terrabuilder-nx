@@ -92,6 +92,8 @@ for line in (ROOT / 'recovery46/link-arguments.txt').read_text().splitlines():
 objects_dir = ROOT / 'nochroma42/native/interpreter/build'
 objects = [objects_dir / name for name in recorded['OBJECTS']]
 assert len(objects) == 18
+DROP_OBJECTS = set(os.environ.get('R58_DROP_OBJECTS', 'dl_shim_openal.o').split())
+assert DROP_OBJECTS <= {o.name for o in objects}, DROP_OBJECTS
 # R58_OBJECT_OVERRIDES (build73): candidate-only replacements for launcher objects,
 # e.g. "nx_input.o=/build/release58/v73-input/nx_input.o". The control replay keeps build52's.
 OBJECT_OVERRIDES = dict(v.split('=', 1) for v in os.environ.get('R58_OBJECT_OVERRIDES', '').split())
@@ -112,11 +114,11 @@ if os.environ.get('R58_COMPILE_NX_INPUT') == '1':
     OBJECT_OVERRIDES['nx_input.o'] = str(nx_input_obj)
 assert all(n in {o.name for o in objects} and Path(p).is_file() for n, p in OBJECT_OVERRIDES.items()), OBJECT_OVERRIDES
 if SKIP_CONTROL:
-    missing = [o.name for o in objects if o.name != 'main.o' and o.name not in OBJECT_OVERRIDES]
+    missing = [o.name for o in objects if o.name != 'main.o' and o.name not in DROP_OBJECTS and o.name not in OBJECT_OVERRIDES]
     assert not missing, 'R58_SKIP_CONTROL requires overrides for retained launcher objects: ' + ', '.join(missing)
 else:
     assert all(p.is_file() for p in objects)
-DROP_LIBS = set(os.environ.get('R58_DROP_LIBS', '').split())
+DROP_LIBS = {'-lopenal'} | set(os.environ.get('R58_DROP_LIBS', '').split())
 EXTRA_LIBS = os.environ.get('R58_EXTRA_LIBS', '').split()
 if SKIP_CONTROL:
     shutil.copy2('/work/native/interpreter/aot-method-tables.ld', OUT / 'aot-method-tables.ld')
@@ -156,7 +158,7 @@ for variant in (('candidate',) if SKIP_CONTROL else ('control-replay', 'candidat
         flags += os.environ.get('R58_EXTRA_LDFLAGS', '').split()
     objs = [main_obj if (variant == 'candidate' and o.name == 'main.o') else o for o in objects]
     if variant == 'candidate':
-        objs = [Path(OBJECT_OVERRIDES.get(o.name, o)) for o in objs]
+        objs = [Path(OBJECT_OVERRIDES.get(o.name, o)) for o in objs if o.name not in DROP_OBJECTS]
     libraries, aot_objects = [], []
     for value in recorded['LIBS']:
         if value.startswith(str(ORIGINAL_LINK_BASE) + '/') and value.endswith('.o'):

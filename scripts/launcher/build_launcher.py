@@ -33,7 +33,6 @@ BASE_DEFINES = [
     "-DDLSHIM_SDL2=1",
     "-DDLSHIM_SDL2_IMAGE=1",
     "-DDLSHIM_OPENGL=1",
-    "-DDLSHIM_OPENAL=1",
     "-DDLSHIM_FNA3D=1",
     "-DDLSHIM_FNA=1",
     "-DDLSHIM_STUBS=1",
@@ -71,7 +70,6 @@ LINK_ORDER = [
     "dl_shim_SDL2.o",
     "dl_shim_SDL2_image.o",
     "dl_shim_opengl.o",
-    "dl_shim_openal.o",
 ]
 
 MONO_NX_SOURCES = {
@@ -87,7 +85,6 @@ MONO_NX_SOURCES = {
     "dl_shim_SDL2.o": "/mono-nx/native/shared/dl_shim_sdl2/dl_shim_SDL2.c",
     "dl_shim_SDL2_image.o": "/mono-nx/native/shared/dl_shim_sdl2_image/dl_shim_SDL2_image.c",
     "dl_shim_opengl.o": "/mono-nx/native/shared/dl_shim_opengl/dl_shim_opengl.c",
-    "dl_shim_openal.o": "/mono-nx/native/shared/dl_shim_openal/dl_shim_openal.c",
 }
 
 REPO_SOURCES = {
