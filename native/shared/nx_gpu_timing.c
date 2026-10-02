@@ -38,6 +38,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 
+#if defined(MONO_NX_GPU_TIMING)
 #define GL_TIMESTAMP 0x8E28
 #define GL_QUERY_COUNTER_BITS 0x8864
 #define GL_QUERY_RESULT 0x8866
@@ -71,7 +72,9 @@ static uint64_t sw_last_queue;
 static bool clocks_ready;
 static ClkrstSession cpu_s, gpu_s, emc_s;
 static bool cpu_ok, gpu_ok, emc_ok;
+#endif
 
+#if defined(MONO_NX_GPU_TIMING)
 static void init_clocks(void)
 {
     clocks_ready = true;
@@ -205,6 +208,7 @@ void nx_gpu_frame_begin(void)
     query_counter(begin_q[slot], GL_TIMESTAMP);
     issued[slot] = true;
 }
+#endif
 
 Result __real_nwindowDequeueBuffer(NWindow *nw, s32 *out_slot, NvMultiFence *out_fence);
 Result __real_nwindowQueueBuffer(NWindow *nw, s32 slot, const NvMultiFence *fence);
@@ -224,12 +228,17 @@ Result __wrap_nwindowDequeueBuffer(NWindow *nw, s32 *out_slot, NvMultiFence *out
         uint64_t t0 = armTicksToNs(armGetSystemTick());
         if (R_FAILED(nvMultiFenceWait(&fence, 0))) {
             nvMultiFenceWait(&fence, -1);
+#if defined(MONO_NX_GPU_TIMING)
             uint64_t w = armTicksToNs(armGetSystemTick()) - t0;
             ++sw_blocked;
             sw_wait_ns += w;
             if (w > sw_wait_max) sw_wait_max = w;
+#else
+            (void)t0;
+#endif
         }
     }
+#if defined(MONO_NX_GPU_TIMING)
     ++sw_deq;
     if (slot >= 0 && slot < SWAP_SLOTS) ++sw_slot[slot];
     if (sw_last_queue) {
@@ -237,6 +246,7 @@ Result __wrap_nwindowDequeueBuffer(NWindow *nw, s32 *out_slot, NvMultiFence *out
         ++sw_lat_n;
         sw_last_queue = 0;
     }
+#endif
     return rc;
 }
 
@@ -274,7 +284,10 @@ Result __wrap_nwindowConfigureBuffer(NWindow *nw, s32 slot, NvGraphicBuffer *buf
         int count = v && *v ? atoi(v) : 4;
         if (count > 0) {
             Result rc = bq_set_buffer_count(&nw->bq, count);
+#if defined(MONO_NX_GPU_TIMING)
             io_debugf("NX_SWAP SetBufferCount(%d) rc=0x%x", count, rc);
+#endif
+            (void)rc;
         }
     }
     return __real_nwindowConfigureBuffer(nw, slot, buf);
@@ -302,11 +315,14 @@ Result __wrap_nwindowQueueBuffer(NWindow *nw, s32 slot, const NvMultiFence *fenc
         paced = (paced && now < paced + 2 * period) ? paced + period : now;
     }
     Result rc = __real_nwindowQueueBuffer(nw, slot, fence);
+#if defined(MONO_NX_GPU_TIMING)
     sw_last_queue = armTicksToNs(armGetSystemTick());
     if (R_SUCCEEDED(rc) && nw->consumer_running_behind) ++sw_behind;
+#endif
     return rc;
 }
 
+#if defined(MONO_NX_GPU_TIMING)
 static void log_swap(bool final)
 {
     if (!sw_deq)
@@ -334,3 +350,4 @@ void nx_gpu_report(bool final)
         period_n ? period_sum * TICK_SCALE / 1e6 / period_n : 0.0, span_max * TICK_SCALE / 1e6, lost);
     n = span_sum = span_max = gap_sum = period_sum = period_n = lost = 0;
 }
+#endif

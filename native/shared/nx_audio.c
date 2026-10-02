@@ -235,6 +235,9 @@ void __wrap_audrenWaitFrame(void)
     }
     for (int i = 0; i < frames; ++i)
         __real_audrenWaitFrame();
-    if (++calls % 2000 == 0)
+    if (++calls % 2000 == 0) {
+#if defined(MONO_NX_AUDIO_DIAG)
         io_debugf("NX_AUDIO renderer waits=%llu", (unsigned long long)calls);
+#endif
+    }
 }

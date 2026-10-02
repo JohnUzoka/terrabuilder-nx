@@ -576,6 +576,22 @@ void __wrap_FNA3D_SwapBuffers(FNA3D_Device *device,
 #endif
     record_phase(&swap_phase, begin, armGetSystemTick());
 }
+#else
+extern __typeof__(SDL_PollEvent) __real_SDL_PollEvent;
+extern __typeof__(FNA3D_SwapBuffers) __real_FNA3D_SwapBuffers;
+
+int SDLCALL __wrap_SDL_PollEvent(SDL_Event *event)
+{
+    return __real_SDL_PollEvent(event);
+}
+
+void __wrap_FNA3D_SwapBuffers(FNA3D_Device *device,
+    FNA3D_Rect *sourceRectangle, FNA3D_Rect *destinationRectangle,
+    void *overrideWindowHandle)
+{
+    __real_FNA3D_SwapBuffers(device, sourceRectangle, destinationRectangle,
+        overrideWindowHandle);
+}
 #endif
 
 /* Matches managed static byte GetButton(IntPtr controller, int button). */
@@ -630,8 +646,6 @@ void nx_input_register(void)
     mono_add_internal_call("Terraria.NxInputDiag.InputDiagnostics::GetButton", (const void *)get_button);
 #if defined(MONO_NX_PHASE_TIMING)
     io_debugf("NX_INPUT internal calls registered; NX_PHASE every 5s (count=window/total; first=-1 means not reached; poll/swap=native inclusive wall time, may overlap Tick)");
-#else
-    io_debugf("NX_INPUT internal calls registered; frame timing not built (MONO_NX_PHASE_TIMING=0)");
 #endif
 }
 

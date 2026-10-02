@@ -129,7 +129,7 @@ def q(words: list[str] | tuple[str, ...]) -> str:
     return " ".join(shlex.quote(str(w)) for w in words)
 
 
-def compile_argv(obj: str, src: str, out: str, *, profiler: bool, v88_sources: bool) -> list[str]:
+def compile_argv(obj: str, src: str, out: str, *, profiler: bool, diagnostics: bool, v88_sources: bool) -> list[str]:
     if obj == "main.o":
         defines = [
             "-D__SWITCH__",
@@ -159,7 +159,10 @@ def compile_argv(obj: str, src: str, out: str, *, profiler: bool, v88_sources: b
     flags = [GCC, *ARCH, "-g", "-O2", "-ffunction-sections", "-Wall", *BASE_DEFINES, *INCLUDES]
     if obj in {"nx_input.o", "nx_audio.o", "nx_gpu_timing.o"}:
         flags.insert(flags.index("-Wall") + 1, "-Wextra")
-        flags += ["-DMONO_NX_PHASE_TIMING=1", "-DMONO_NX_GPU_TIMING=1"]
+        if obj in {"nx_input.o", "nx_gpu_timing.o"} and diagnostics:
+            flags += ["-DMONO_NX_PHASE_TIMING=1", "-DMONO_NX_GPU_TIMING=1"]
+        if obj == "nx_audio.o" and diagnostics:
+            flags.append("-DMONO_NX_AUDIO_DIAG=1")
         if v88_sources:
             flags.insert(flags.index("-I/work/native/shared"), "-I/build/release58/v81-input")
             flags.insert(flags.index("-I/work/native/shared"), "-I/build/release58/v81-input/inc")
@@ -183,11 +186,13 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", type=Path, default=None, help="output directory under TERRABUILDER_CACHE")
     ap.add_argument("--profiler", action="store_true", help="build v88-style profiler main.o and nx_profiler.o")
+    ap.add_argument("--debug-diagnostics", action="store_true", help="restore release-debug NX_PHASE/NX_GPU/NX_AUDIO diagnostics")
     ap.add_argument("--v88-sources", action="store_true", help="use retained v88 sources for nx_input/audio/gpu timing")
     ap.add_argument("--force", action="store_true", help="remove and recreate the output directory")
     args = ap.parse_args()
 
-    profile = "profiler" if args.profiler else "release"
+    diagnostics = args.debug_diagnostics or args.profiler
+    profile = "profiler" if args.profiler else "debug" if diagnostics else "release"
     flavor = "v88-sources" if args.v88_sources else "repo-head"
     out_dir = (args.out or CACHE / "launcher-src" / f"{profile}-{flavor}").resolve()
     if out_dir.exists():
@@ -212,7 +217,7 @@ def main() -> int:
     for obj in object_names:
         src = source_for[obj]
         dst = f"{obj_container}/{obj}"
-        argv = compile_argv(obj, src, dst, profiler=args.profiler, v88_sources=args.v88_sources)
+        argv = compile_argv(obj, src, dst, profiler=args.profiler, diagnostics=diagnostics, v88_sources=args.v88_sources)
         commands.append(argv)
         objects[obj] = {"source": src, "argv": argv, "path": dst}
 
@@ -246,6 +251,7 @@ def main() -> int:
 
     manifest = {
         "profile": profile,
+        "diagnostics": diagnostics,
         "sourceFlavor": flavor,
         "monoNxCommit": "8be547c (github.com/JohnUzoka/mono-nx fna-support)",
         "objects": objects,

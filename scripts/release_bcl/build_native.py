@@ -97,10 +97,13 @@ assert len(objects) == 18
 OBJECT_OVERRIDES = dict(v.split('=', 1) for v in os.environ.get('R58_OBJECT_OVERRIDES', '').split())
 if os.environ.get('R58_COMPILE_NX_INPUT') == '1':
     nx_input_obj = OUT / 'nx_input.o'
+    nx_input_defines = []
+    if os.environ.get('R58_DIAGNOSTICS') == '1':
+        nx_input_defines += ['-DMONO_NX_PHASE_TIMING=1', '-DMONO_NX_GPU_TIMING=1']
     run(['/opt/devkitpro/devkitA64/bin/aarch64-none-elf-gcc',
          '-march=armv8-a+crc+crypto', '-mtune=cortex-a57', '-mtp=soft', '-fPIE', '-g', '-O2',
          '-ffunction-sections', '-Wall', '-Wextra', '-D__SWITCH__',
-         '-DMONO_NX_PHASE_TIMING=1', '-DMONO_NX_GPU_TIMING=1',
+         *nx_input_defines,
          *os.environ.get('R58_NX_INPUT_DEFINES', '').split(),
          '-I/work/native/shared', '-I/build/nochroma42/native/shared', '-I/mono-nx/native/shared',
          '-I/mono-nx/dotnet_runtime/artifacts/bin/mono/libnx.arm64.Debug/include/mono-2.0',
