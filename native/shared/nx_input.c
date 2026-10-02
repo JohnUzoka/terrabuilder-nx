@@ -7,7 +7,11 @@
 
 #include <switch.h>
 #include <SDL2/SDL.h>
+#if __has_include(<FNA3D/FNA3D.h>)
 #include <FNA3D/FNA3D.h>
+#else
+#include <FNA3D.h>
+#endif
 #include <mono/metadata/loader.h>
 #include <mono/metadata/appdomain.h>
 #include <mono/metadata/class.h>

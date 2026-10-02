@@ -8,8 +8,8 @@
 // handles the two direct Terraria calls; it is not a general SDL3 port.
 
 #include <SDL2/SDL.h>
-#include "../shared_mono_nx/dl_shim_base.h"
-#include "../shared_mono_nx/io_util.h"
+#include "dl_shim_base.h"
+#include "io_util.h"
 
 extern void *getsym_SDL2(const char *name);
 

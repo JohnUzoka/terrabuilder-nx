@@ -17,6 +17,8 @@ INSTALL_DIR="$ROOT_DIR/native/install"
 SHIM_DIR="$ROOT_DIR/native/shared"
 
 PREFIX="${DEVKITPRO:-/opt/devkitpro}/devkitA64/bin/aarch64-none-elf-"
+WORK_DIR="${ROOT_DIR}/native/build/dl-shim-symbols"
+mkdir -p "$WORK_DIR"
 
 # FNA3D
 echo "=== Generating FNA3D dl_shim ==="
@@ -30,14 +32,14 @@ fi
 # Filter: uppercase T = text section (code), defined and global.
 ${PREFIX}nm "$FNA3D_LIB" 2>/dev/null | \
     awk '$2=="T" && $3 ~ /^FNA3D_/' | \
-    awk '{print $3}' | sort -u > /tmp/fna3d_symbols.txt
+    awk '{print $3}' | sort -u > "$WORK_DIR/fna3d_symbols.txt"
 
-echo "  Found $(wc -l < /tmp/fna3d_symbols.txt) FNA3D symbols"
+echo "  Found $(wc -l < "$WORK_DIR/fna3d_symbols.txt") FNA3D symbols"
 
 cat > "$SHIM_DIR/dl_shim_FNA3D.c" << EOF
 // Auto-generated from libFNA3D.a exported symbols.
 // DO NOT EDIT - regenerate with gen_dl_shim.sh after rebuilding FNA3D.
-#include "../shared_mono_nx/dl_shim_base.h"
+#include "dl_shim_base.h"
 
 void *getsym_FNA3D(const char *name)
 {
@@ -45,7 +47,7 @@ EOF
 
 while IFS= read -r sym; do
     printf '\tSYM_RESOLVE(%s);\n' "$sym" >> "$SHIM_DIR/dl_shim_FNA3D.c"
-done < /tmp/fna3d_symbols.txt
+done < "$WORK_DIR/fna3d_symbols.txt"
 
 printf '\treturn NULL;\n}\n' >> "$SHIM_DIR/dl_shim_FNA3D.c"
 
@@ -59,14 +61,14 @@ fi
 
 ${PREFIX}nm "$FAUDIO_LIB" 2>/dev/null | \
     awk '$2=="T" && $3 ~ /^FAudio|^FACT|^FAPOFX|^XNA_|^F3D/' | \
-    awk '{print $3}' | sort -u > /tmp/faudio_symbols.txt
+    awk '{print $3}' | sort -u > "$WORK_DIR/faudio_symbols.txt"
 
-echo "  Found $(wc -l < /tmp/faudio_symbols.txt) FAudio family symbols"
+echo "  Found $(wc -l < "$WORK_DIR/faudio_symbols.txt") FAudio family symbols"
 
 cat > "$SHIM_DIR/dl_shim_FAudio.c" << EOF
 // Auto-generated from libFAudio.a exported symbols.
 // DO NOT EDIT - regenerate with gen_dl_shim.sh after rebuilding FAudio.
-#include "../shared_mono_nx/dl_shim_base.h"
+#include "dl_shim_base.h"
 
 // FNA loads all audio functions under the "FAudio" library name.
 // FAudio, FAudioFX, FACT, and FAPOFX are all compiled into libFAudio.a.
@@ -76,7 +78,7 @@ EOF
 
 while IFS= read -r sym; do
     printf '\tSYM_RESOLVE(%s);\n' "$sym" >> "$SHIM_DIR/dl_shim_FAudio.c"
-done < /tmp/faudio_symbols.txt
+done < "$WORK_DIR/faudio_symbols.txt"
 
 printf '\treturn NULL;\n}\n' >> "$SHIM_DIR/dl_shim_FAudio.c"
 

@@ -91,13 +91,25 @@ current HEAD. The shipped builds link the retained copies in
 `recovery46/native-deps/install` (FNA3D `2c616bf8`), whose loaded code is verified
 against build 42. Pin the same commits if you rebuild them.
 
-The launcher overlay (`native/interpreter`) builds with the devkitPro Makefile
-(`make MONO_NX_USE_AOT=1 MONO_NX_USE_ROMFS=1 MONO_NX_EMBEDDED_BCL=1 ...`).
-**Retained artifact:** the release pipeline does not run this Makefile. It replays
-build 42's recorded link line (`recovery46/link-arguments.txt`) and launcher objects
-(`nochroma42/native/interpreter/build/*.o`), and recompiles only `main.c`
-(`scripts/release_bcl/compile_main.sh`). `build_native.py` first proves the replay
-reproduces build 52's allocated sections exactly before building a candidate.
+The release launcher objects can now be rebuilt from source with the pinned
+mono-nx checkout and retained native-deps install:
+
+```sh
+scripts/launcher/build_launcher.py --out $W/launcher-src/release
+scripts/launcher/build_launcher.py --profiler --out $W/launcher-src/profiler
+```
+
+The default profile keeps the input/audio/FPS and swapchain wrappers but omits
+`MONO_NX_PROFILER` and `nx_profiler.o`. `--profiler` builds the v88-style sampling
+profiler object as well. For provenance checks against v88, add `--v88-sources`
+to use the retained v81/v86 input/audio/swap sources; normal builds use the repo
+`native/shared` sources (including current `nx_input.c` defaults). Link these
+objects by passing `R58_OBJECT_OVERRIDES` for the 18 launcher objects and adding
+the extra wrapper objects in `R58_EXTRA_LDFLAGS`.
+
+`build_native.py` still replays build 42's recorded link line first
+(`recovery46/link-arguments.txt`) and verifies build 52 allocated sections before
+building a candidate.
 
 ### 3.2 Game payload (RomFS)
 
@@ -152,10 +164,10 @@ podman run --rm -v $W:/build -v $W/recovery46/sdk-pristine:/mono-nx:ro \
 It builds a second checkout of the same fork branch at `$W/runtime-llvm`, producing
 `artifacts/bin/mono/linux.x64.Debug/cross/linux-x64/libnx-arm64/{mono-aot-cross,opt,llc}`.
 
-The .NET build scripts in 3.3–3.5 read a CA bundle from `$W/runtime-fix/amd-ca-bundle.crt`
-and use `$W/runtime-fix/nuget-packages` as the NuGet cache (TLS interception on the
-original build machine). Without a proxy, point `SSL_CERT_FILE` at your system bundle
-or remove those exports.
+The .NET build scripts in 3.3–3.5 use `$W/nuget-packages` by default (override
+with `NUGET_PACKAGES`). Behind a TLS-intercepting proxy, set
+`TERRABUILDER_CA_BUNDLE=/build/path/to/ca-bundle.crt`; otherwise the container's
+system CA bundle is used.
 
 ### 3.6 AOT compile, link, package: the current working build
 
