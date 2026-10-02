@@ -79,8 +79,11 @@ patched assemblies, RomFS trees, icons, and game AOT objects stay local.
   --profile release --workdir ~/.cache/terrabuilder -y
 ```
 
-Outputs are `~/.cache/terrabuilder/out/Terraria.nro` and a JSON receipt. Use
-`--profile profiler` for a profiler-enabled NRO at `Terraria-profiler.nro`.
+Outputs are `~/.cache/terrabuilder/out/Terraria.nro` and a JSON receipt.
+Release builds omit timing/profiler diagnostics and do not link OpenAL. Use
+`--profile debug` (or `--debug-diagnostics`) for phase/GPU/audio diagnostics, and
+`--profile profiler` for diagnostics plus a profiler-enabled NRO at
+`Terraria-profiler.nro`.
 Heavy container steps are serialized with
 `~/.cache/terraria-switch-build/.heavy.lock`; the default workdir is
 `~/.cache/terrabuilder` and can be overridden with `--workdir`.

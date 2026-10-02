@@ -40,10 +40,12 @@ The CLI stages a content-hashed build under `~/.cache/terrabuilder`, reuses the
 validated open-source toolchain artifacts from the legacy cache, patches only the
 user's local GOG assemblies, AOT-compiles the game-derived modules locally, relinks
 with source-built launcher objects, and writes
-`~/.cache/terrabuilder/out/Terraria.nro` plus a receipt JSON. `--profile profiler`
-emits `Terraria-profiler.nro`. `toolchain pack` records artifact SHA-256s and
-provenance in `toolchain/manifest.json`; publishing that bundle still requires
-adding full upstream license notices.
+`~/.cache/terrabuilder/out/Terraria.nro` plus a receipt JSON. Release builds omit
+timing/profiler diagnostics and drop the unused OpenAL shim/link. `--profile debug`
+or `--debug-diagnostics` restores phase/GPU/audio diagnostics; `--profile profiler`
+also emits `Terraria-profiler.nro`. `toolchain pack` records artifact SHA-256s,
+provenance, and bundled `THIRD_PARTY_NOTICES.md`/`CREDITS.md`/`licenses/**` files
+in `toolchain/manifest.json`.
 
 The `--from-source` toolchain path intentionally delegates to the existing scripts
 below and is long-running. Runtime/BCL/Mesa/LLVM build steps must be run under
@@ -78,6 +80,10 @@ Outputs are under `~/.cache/terrabuilder/out/tmodloader-<selection>/`:
 
 Heavy AOT/link/container steps are wrapped with
 `flock ~/.cache/terraria-switch-build/.heavy.lock`.
+
+tModLoader release builds use the same quiet launcher defaults and OpenAL-free
+link behavior as vanilla. Debug/profiler profiles opt back into the timing wraps
+and launcher diagnostics.
 
 Curated mod metadata is in `terrabuilder_pkg/curated_tmod_mods.json`. The list is
 restricted to open-source tested mods pinned to upstream commits:

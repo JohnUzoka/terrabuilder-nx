@@ -26,8 +26,9 @@ HOST_FNA3D = {
     "mojoshader_commit": "abdc80360c1d4560ab8f356035dcd53ae6e9b87f",
 }
 
-V88_WRAPS = [
-    "SDL_PollEvent", "FNA3D_SwapBuffers", "SDL_StartTextInput", "SDL_StopTextInput",
+DIAGNOSTIC_WRAPS = ["SDL_PollEvent", "FNA3D_SwapBuffers"]
+BEHAVIOR_WRAPS = [
+    "SDL_StartTextInput", "SDL_StopTextInput",
     "SDL_SetThreadPriority", "SDL_OpenAudioDevice", "audrenWaitFrame", "SDL_PauseAudioDevice",
     "SDL_CloseAudioDevice", "nwindowDequeueBuffer", "nwindowQueueBuffer", "nwindowSetSwapInterval",
     "nwindowConfigureBuffer",
@@ -203,6 +204,19 @@ def toolchain_pack(workdir: Path) -> Path:
                     os.link(src, dst)
                 except OSError:
                     shutil.copy2(src, dst)
+    notice_files: list[Path] = []
+    for name in ("THIRD_PARTY_NOTICES.md", "CREDITS.md"):
+        src = ROOT / name
+        if src.exists():
+            shutil.copy2(src, tc / name)
+            notice_files.append(tc / name)
+    licenses_src = ROOT / "licenses"
+    licenses_dst = tc / "licenses"
+    if licenses_dst.exists():
+        shutil.rmtree(licenses_dst)
+    if licenses_src.exists():
+        shutil.copytree(licenses_src, licenses_dst)
+        notice_files.extend(sorted(p for p in licenses_dst.rglob("*") if p.is_file()))
     manifest = {
         "schema_version": 1,
         "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -214,7 +228,10 @@ def toolchain_pack(workdir: Path) -> Path:
             {"name": "Mesa", "version": "20.1.0-rc3 + devkitPro switch patches + terrabuilder patches", "script": "scripts/mesa/build_mesa.sh"},
             {"name": "FNA3D/FAudio/MojoShader", "script": "scripts/build_native_deps.sh", "license": "zlib/libpng-style upstream notices; include upstream license files before publishing a bundle asset"},
         ],
-        "licenses": "TODO for release asset: copy full upstream notices for dotnet/runtime, mono-nx, Mesa, FNA3D, FAudio, MojoShader, LLVM/Clang, devkitPro/libnx/portlibs.",
+        "licenses": {
+            "note": "Bundle includes open-source/toolchain notices only; game-derived Terraria/tModLoader files are built locally and are not distributed.",
+            "files": file_manifest(notice_files, tc),
+        },
         "artifacts": file_manifest(list((tc / "artifacts").rglob("*")), tc),
         "build_scripts": ["scripts/release_bcl/build_release_managed.sh", "scripts/release_bcl/build_runtime_release.sh", "scripts/release_bcl/build_llvm_cross.sh", "scripts/mesa/build_mesa.sh", "scripts/build_native_deps.sh"],
     }
@@ -355,6 +372,7 @@ def parse_mod_flags(value: str | None, catalog: dict[str, dict]) -> list[str]:
 
 def tmod_variant_key(tmod_dir: Path, mods: list[str], catalog: dict[str, dict], profile: str) -> str:
     h = hashlib.sha256()
+    h.update(b"openal-free-quiet-launcher-v1")
     h.update(sha256(tmod_dir / "tModLoader.dll").encode())
     h.update(profile.encode())
     for mod in mods:
@@ -541,7 +559,23 @@ def build_curated_mod_sources(tmod_dir: Path, mods: list[str], workdir: Path, ca
     return packages
 
 
-def seed_tmod_input(variant: str, mods: list[str], packages: Path | None, catalog: dict[str, dict]) -> Path:
+def profile_wraps(profile: str) -> list[str]:
+    return [*(DIAGNOSTIC_WRAPS if profile in ("debug", "profiler") else []), *BEHAVIOR_WRAPS]
+
+
+def launcher_config(profile: str, launcher: Path) -> dict:
+    extra = ["nx_audio.o", "nx_gpu_timing.o"]
+    if profile == "profiler":
+        extra.append("nx_profiler.o")
+    manifest = launcher / "launcher-build.json"
+    if manifest.is_relative_to(LEGACY):
+        manifest_path = "/build/" + manifest.relative_to(LEGACY).as_posix()
+    else:
+        manifest_path = str(manifest)
+    return {"manifest": manifest_path, "extra_objects": extra}
+
+
+def seed_tmod_input(variant: str, mods: list[str], packages: Path | None, catalog: dict[str, dict], profile: str, launcher: Path) -> Path:
     out = LEGACY / "tmod" / variant
     if out.exists() and (out / "manifest.json").exists():
         return out
@@ -571,6 +605,14 @@ def seed_tmod_input(variant: str, mods: list[str], packages: Path | None, catalo
         config["reuse_modules"] = ["ReLogic.dll", "System.Linq.dll"]
         config["aot_workers"] = 1
         config["skip_aot_modules"] = ["tModLoader.dll"]
+        config["launcher_objects"] = launcher_config(profile, launcher)
+        config["extra_ldflags"] = ["-Wl," + ",".join("--wrap=" + w for w in profile_wraps(profile))]
+        native = dict(config.get("native", {}))
+        native["gc_stats"] = profile in ("debug", "profiler")
+        native["frame_stats"] = profile in ("debug", "profiler")
+        native["debug_diagnostics"] = profile in ("debug", "profiler")
+        native["profiler"] = profile == "profiler"
+        config["native"] = native
         write_json(config_path, config)
         nxcrypto = LEGACY / "hint52/aot-final/runtime-romfs/NxCrypto.dll"
         if nxcrypto.exists():
@@ -597,6 +639,14 @@ def seed_tmod_input(variant: str, mods: list[str], packages: Path | None, catalo
         "tModLoader.dll", "FNA.dll", "ReLogic.dll", "System.Linq.dll",
         "System.Text.RegularExpressions.dll", "System.Collections.Concurrent.dll",
     ]
+    config["launcher_objects"] = launcher_config(profile, launcher)
+    config["extra_ldflags"] = ["-Wl," + ",".join("--wrap=" + w for w in profile_wraps(profile))]
+    native = dict(config.get("native", {}))
+    native["gc_stats"] = profile in ("debug", "profiler")
+    native["frame_stats"] = profile in ("debug", "profiler")
+    native["debug_diagnostics"] = profile in ("debug", "profiler")
+    native["profiler"] = profile == "profiler"
+    config["native"] = native
     write_json(inputs / "modset.json", config)
     write_json(out / "source-mods.json", {"mods": mods, "catalog": [catalog[m] for m in mods]})
     return out
@@ -627,8 +677,11 @@ def build_tmodloader(args: argparse.Namespace, tmod_dir: Path, mods: list[str], 
     out_root = Path(args.out).expanduser().resolve() if args.out else workdir / "out"
     tmeta = validate_tmodloader(tmod_dir)
     variant = tmod_variant_key(tmod_dir, mods, catalog, args.profile)
+    stamps = workdir / "stamps" / variant
+    stamps.mkdir(parents=True, exist_ok=True)
+    launcher_dir = launcher_stage(LEGACY, args.profile, stamps)
     packages = build_curated_mod_sources(tmod_dir, mods, workdir, catalog) if mods else None
-    seed_tmod_input(variant, mods, packages, catalog)
+    seed_tmod_input(variant, mods, packages, catalog, args.profile, launcher_dir)
     run_tmod_pipeline(variant, workdir)
     src_root = LEGACY / "tmod" / variant
     out_dir = out_root / ("tmodloader-" + ("no-mods" if not mods else "-".join(mods).lower()))
@@ -681,8 +734,9 @@ def build(args: argparse.Namespace) -> int:
     variant = "cli-" + profile
     vdir = workdir / "release58" / variant
     aot = vdir / "aot-final"
-    receipt = out_root / ("Terraria-profiler.receipt.json" if profile == "profiler" else "Terraria.receipt.json")
-    final_nro = out_root / ("Terraria-profiler.nro" if profile == "profiler" else "Terraria.nro")
+    suffix = "" if profile == "release" else f"-{profile}"
+    receipt = out_root / f"Terraria{suffix}.receipt.json"
+    final_nro = out_root / f"Terraria{suffix}.nro"
     stamps = workdir / "stamps" / variant
     stamps.mkdir(parents=True, exist_ok=True)
     stage_info: dict[str, object] = {"input": meta, "stages": {}}
@@ -896,25 +950,37 @@ def augment_toolchain_aot(aot: Path, info: dict) -> None:
     info["stages"]["toolchain_aot_reuse"] = added
 
 
-def launcher_stage(workdir: Path, profile: str, stamps: Path, info: dict) -> Path:
-    out = workdir / "launcher-src" / profile
-    key = profile + sha256(ROOT / "native/shared/nx_input.c")
+def launcher_stage(cache_root: Path, profile: str, stamps: Path, info: dict | None = None) -> Path:
+    out = cache_root / "launcher-src" / profile
+    key = profile + sha256(ROOT / "scripts/launcher/build_launcher.py") + sha256(ROOT / "native/shared/nx_input.c")
     stamp = stamps / "launcher.stamp"
     if stamp_ok(stamp, key) and (out / "launcher-build.json").exists():
         print("launcher: cached")
     else:
         if out.exists(): shutil.rmtree(out)
-        env = os.environ.copy(); env["TERRABUILDER_CACHE"] = str(workdir)
+        env = os.environ.copy(); env["TERRABUILDER_CACHE"] = str(cache_root)
         cmd = [sys.executable, str(ROOT / "scripts/launcher/build_launcher.py"), "--out", str(out), "--force"]
-        if profile == "profiler": cmd.append("--profiler")
+        if profile == "debug":
+            cmd.append("--debug-diagnostics")
+        elif profile == "profiler":
+            cmd.append("--profiler")
         run(cmd, env=env)
         write_stamp(stamp, key)
-    info["stages"]["launcher"] = json.loads((out / "launcher-build.json").read_text())
+    if info is not None:
+        info["stages"]["launcher"] = json.loads((out / "launcher-build.json").read_text())
     return out
 
 
 def native_stage(workdir: Path, variant: str, aot: Path, launcher: Path, profile: str, stamps: Path, info: dict, final_nro: Path) -> None:
-    key = tree_hash(aot / "runtime-romfs") + sha256(aot / "mono_aot_modules.h") + profile
+    key = (
+        tree_hash(aot / "runtime-romfs")
+        + sha256(aot / "mono_aot_modules.h")
+        + sha256(ROOT / "scripts/release_bcl/build_native.py")
+        + sha256(launcher / "launcher-build.json")
+        + profile
+        + ",".join(profile_wraps(profile))
+        + "openal-free"
+    )
     stamp = stamps / "native.stamp"
     vdir = workdir / "release58" / variant
     if stamp_ok(stamp, key) and (vdir / "native/candidate/mono_nx_fna.nro").exists():
@@ -923,15 +989,16 @@ def native_stage(workdir: Path, variant: str, aot: Path, launcher: Path, profile
         native = vdir / "native"
         if native.exists(): shutil.rmtree(native)
         overrides = []
-        for name in ["core.o","dl_shim.o","dl_shim_dotnet.o","dl_shim_libnx.o","dl_shim_stubs.o","heap.o","io_shims.o","io_util.o","ini.o","dl_shim_FAudio.o","dl_shim_FNA3D.o","dl_shim_SDL3.o","nx_input.o","dl_shim_SDL2.o","dl_shim_SDL2_image.o","dl_shim_opengl.o","dl_shim_openal.o"]:
+        for name in ["core.o","dl_shim.o","dl_shim_dotnet.o","dl_shim_libnx.o","dl_shim_stubs.o","heap.o","io_shims.o","io_util.o","ini.o","dl_shim_FAudio.o","dl_shim_FNA3D.o","dl_shim_SDL3.o","nx_input.o","dl_shim_SDL2.o","dl_shim_SDL2_image.o","dl_shim_opengl.o"]:
             p = launcher / "objects" / name
             if p.exists(): overrides.append(f"{name}={rel_to_mount(p, workdir, '/build')}")
         extra_objs = [launcher / "objects/nx_gpu_timing.o", launcher / "objects/nx_audio.o"]
         if profile == "profiler": extra_objs.append(launcher / "objects/nx_profiler.o")
-        extra_flags = ["-L/build/gfx/v88-lib", *[rel_to_mount(p, workdir, "/build") for p in extra_objs], *["-Wl,--wrap=" + w for w in V88_WRAPS]]
+        extra_flags = ["-L/build/gfx/v88-lib", *[rel_to_mount(p, workdir, "/build") for p in extra_objs], *["-Wl,--wrap=" + w for w in profile_wraps(profile)]]
         env = os.environ.copy()
         env.update({"R58_VARIANT": variant, "R58_RUNTIME": "release", "R58_SKIP_CONTROL": "1", "R58_OBJECT_OVERRIDES": " ".join(overrides), "R58_EXTRA_LDFLAGS": " ".join(extra_flags), "R58_TITLE": "Terraria", "R58_NACP_VERSION": "1.4.5.8"})
-        if profile == "profiler": env["R58_MAIN_DEFINES"] = "-DMONO_NX_PROFILER=1"
+        if profile == "profiler":
+            env["R58_MAIN_DEFINES"] = "-DMONO_NX_PROFILER=1"
         eng = engine() or "podman"
         # Build env is clearer as repeated -e before image.
         cmd = [eng, "run", "--rm", "--userns=keep-id", "--entrypoint", "/usr/bin/python3"]
@@ -960,7 +1027,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = p.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("doctor"); d.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR); d.set_defaults(func=doctor)
     t = sub.add_parser("toolchain"); t.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR); t.add_argument("toolcmd", nargs="?", choices=["pack"]); t.add_argument("--from-source", action="store_true"); t.add_argument("--bundle"); t.set_defaults(func=toolchain)
-    b = sub.add_parser("build"); b.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR); b.add_argument("--target", choices=["vanilla","tmodloader"]); b.add_argument("--game-dir", help="Vanilla game folder for --target vanilla; tModLoader 1.4.4.x folder for --target tmodloader"); b.add_argument("--mods", help="Comma-separated curated tModLoader mods, or 'none'"); b.add_argument("--out"); b.add_argument("--profile", choices=["release","profiler"], default="release"); b.add_argument("-y", "--yes", action="store_true"); b.set_defaults(func=build)
+    b = sub.add_parser("build"); b.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR); b.add_argument("--target", choices=["vanilla","tmodloader"]); b.add_argument("--game-dir", help="Vanilla game folder for --target vanilla; tModLoader 1.4.4.x folder for --target tmodloader"); b.add_argument("--mods", help="Comma-separated curated tModLoader mods, or 'none'"); b.add_argument("--out"); b.add_argument("--profile", choices=["release","debug","profiler"], default="release"); b.add_argument("--debug-diagnostics", action="store_const", const="debug", dest="profile", help="alias for --profile debug"); b.add_argument("-y", "--yes", action="store_true"); b.set_defaults(func=build)
     c = sub.add_parser("compare"); c.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR); c.set_defaults(func=compare)
     args = p.parse_args(argv)
     return args.func(args)
