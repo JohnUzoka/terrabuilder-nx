@@ -272,6 +272,77 @@ Console.WriteLine("FIX MonoLaunch.Main: non-Windows branch runs Main_End on a 32
 
 Console.WriteLine("KEEP SoundEngine: audio support path left enabled for SDL switch + shared FAudio");
 
+var tcpSocket = module.GetType("Terraria.Net.Sockets.TcpSocket") ?? throw new InvalidOperationException("TcpSocket not found");
+var isConnected = tcpSocket.Methods.Single(m => m.Name == "Terraria.Net.Sockets.ISocket.IsConnected");
+{
+    var body = isConnected.Body;
+    if (body.Instructions.Count != 13 ||
+        body.Instructions[0].OpCode != OpCodes.Ldarg_0 ||
+        body.Instructions[1].OpCode != OpCodes.Ldfld ||
+        body.Instructions[5].Operand is not MethodReference { Name: "get_Client" } ||
+        body.Instructions[11].Operand is not MethodReference { Name: "get_Connected" })
+        throw new InvalidOperationException("unexpected TcpSocket.ISocket.IsConnected shape");
+
+    var fConnection = (FieldReference)body.Instructions[1].Operand;
+    var mGetClient = (MethodReference)body.Instructions[5].Operand;
+    var mGetConnected = (MethodReference)body.Instructions[11].Operand;
+    var tObjectDisposedException = new TypeReference("System", "ObjectDisposedException", module, module.TypeSystem.CoreLibrary);
+    var vConnection = new VariableDefinition(fConnection.FieldType);
+    var vSocket = new VariableDefinition(mGetClient.ReturnType);
+    var vResult = new VariableDefinition(module.TypeSystem.Boolean);
+    body.Instructions.Clear();
+    body.Variables.Clear();
+    body.ExceptionHandlers.Clear();
+    body.Variables.Add(vConnection);
+    body.Variables.Add(vSocket);
+    body.Variables.Add(vResult);
+    body.InitLocals = true;
+
+    var il = body.GetILProcessor();
+    var returnFalse = il.Create(OpCodes.Ldc_I4_0);
+    var tryStart = il.Create(OpCodes.Ldloc, vConnection);
+    var returnResult = il.Create(OpCodes.Ldloc, vResult);
+    var handler = il.Create(OpCodes.Pop);
+    var falseInTry = il.Create(OpCodes.Ldc_I4_0);
+
+    il.Append(il.Create(OpCodes.Ldarg_0));
+    il.Append(il.Create(OpCodes.Ldfld, fConnection));
+    il.Append(il.Create(OpCodes.Stloc, vConnection));
+    il.Append(il.Create(OpCodes.Ldloc, vConnection));
+    il.Append(il.Create(OpCodes.Brfalse, returnFalse));
+    il.Append(tryStart);
+    il.Append(il.Create(OpCodes.Callvirt, mGetClient));
+    il.Append(il.Create(OpCodes.Stloc, vSocket));
+    il.Append(il.Create(OpCodes.Ldloc, vSocket));
+    il.Append(il.Create(OpCodes.Brfalse, falseInTry));
+    il.Append(il.Create(OpCodes.Ldloc, vConnection));
+    il.Append(il.Create(OpCodes.Callvirt, mGetConnected));
+    il.Append(il.Create(OpCodes.Stloc, vResult));
+    il.Append(il.Create(OpCodes.Leave, returnResult));
+    il.Append(falseInTry);
+    il.Append(il.Create(OpCodes.Stloc, vResult));
+    il.Append(il.Create(OpCodes.Leave, returnResult));
+    il.Append(handler);
+    il.Append(il.Create(OpCodes.Ldc_I4_0));
+    il.Append(il.Create(OpCodes.Stloc, vResult));
+    il.Append(il.Create(OpCodes.Leave, returnResult));
+    il.Append(returnResult);
+    il.Append(il.Create(OpCodes.Ret));
+    il.Append(returnFalse);
+    il.Append(il.Create(OpCodes.Ret));
+    body.ExceptionHandlers.Add(new ExceptionHandler(ExceptionHandlerType.Catch)
+    {
+        CatchType = tObjectDisposedException,
+        TryStart = tryStart,
+        TryEnd = handler,
+        HandlerStart = handler,
+        HandlerEnd = returnResult,
+    });
+    if (UnderflowingPops(isConnected, unrepairable).Count > 0 || unrepairable.Count > 0)
+        throw new InvalidOperationException("TcpSocket.ISocket.IsConnected does not verify after patch: " + string.Join("; ", unrepairable));
+    Console.WriteLine("FIX TcpSocket.ISocket.IsConnected: snapshot connection/client and return false on ObjectDisposedException");
+}
+
 string[] processMemoryMethods =
 {
     "Terraria.ModLoader.Core.MemoryTracking::Finish", "Terraria.ModLoader.Core.MemoryTracking::InGameUpdate",
