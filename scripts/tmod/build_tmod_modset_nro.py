@@ -225,7 +225,7 @@ def compile_one(name):
 
 to_compile = [name for name in compiled if name not in reuse_modules]
 if to_compile:
-    with ThreadPoolExecutor(max_workers=max(1, len(to_compile))) as pool:
+    with ThreadPoolExecutor(max_workers=max(1, min(4, len(to_compile)))) as pool:
         list(pool.map(compile_one, to_compile))
 assert all(sha(INPUT / name) == digest for name, digest in input_hashes.items()), 'AOT input changed'
 NATIVE.mkdir()
@@ -278,6 +278,11 @@ if native_config.get('frame_stats'):
          NATIVE / 'frame_stats.o', *frame_defines], 'compile-frame-stats', NATIVE)
     added_objects['frame_stats.o'] = NATIVE / 'frame_stats.o'
     extra_ldflags.append('-Wl,--wrap=SDL_GL_SwapWindow' + ('' if mesa_guard else ',--wrap=nouveau_bo_new'))
+launcher_config = config.get('launcher_objects')
+launcher_manifest = None
+if launcher_config:
+    assert set(launcher_config) <= {'manifest', 'override_objects', 'extra_objects'}, 'Unknown launcher_objects key'
+    launcher_manifest = json.loads(Path(launcher_config['manifest']).read_text())
 shutil.copy2(ROOT / 'hint52/native/aot-method-tables.ld', NATIVE / 'aot-method-tables.ld')
 sidecars = sorted(AOT.glob('*-llvm.o'))
 if sidecars:
@@ -293,6 +298,25 @@ recorded = {}
 for line in (ROOT / 'recovery46/link-arguments.txt').read_text().splitlines():
     key, value = line.split('=', 1)
     recorded[key] = shlex.split(value)
+if launcher_config:
+    launcher_records = launcher_manifest['objects']
+    override_names = launcher_config.get('override_objects')
+    if override_names is None:
+        override_names = [name for name in recorded['OBJECTS'] if name not in object_overrides and name in launcher_records]
+    for name in override_names:
+        assert name in recorded['OBJECTS'], f'launcher override is not a recorded object: {name}'
+        assert name not in object_overrides, f'launcher override conflicts with tmod object: {name}'
+        rec = launcher_records[name]
+        path = Path(rec['path'])
+        assert sha(path) == rec['sha256'], f'launcher object hash mismatch: {name}'
+        object_overrides[name] = path
+    for name in launcher_config.get('extra_objects', []):
+        assert name not in recorded['OBJECTS'], f'launcher extra is already in recorded objects: {name}'
+        assert name not in added_objects, f'launcher extra conflicts with tmod object: {name}'
+        rec = launcher_records[name]
+        path = Path(rec['path'])
+        assert sha(path) == rec['sha256'], f'launcher extra hash mismatch: {name}'
+        added_objects[name] = path
 objects_dir = ROOT / 'nochroma42/native/interpreter/build'
 assert set(object_overrides) <= set(recorded['OBJECTS'])
 objects = [object_overrides.get(name, objects_dir / name) for name in recorded['OBJECTS']]
@@ -336,7 +360,13 @@ for sidecar in sidecars:
 libraries[index:index + 1] = aot_objects
 candidate = NATIVE / 'candidate'
 candidate.mkdir()
-run(['aarch64-none-elf-gcc', *recorded['LDFLAGS'], *extra_ldflags, *objects, *recorded['LIBPATHS'], *libraries,
+for path in config.get('native_library_paths', []):
+    assert Path(path).is_dir(), f'native library path missing: {path}'
+for flag in config.get('extra_ldflags', []):
+    assert isinstance(flag, str) and flag.startswith('-Wl,'), f'invalid extra_ldflag: {flag}'
+extra_libpaths = ['-L' + path for path in config.get('native_library_paths', [])]
+extra_ldflags.extend(config.get('extra_ldflags', []))
+run(['aarch64-none-elf-gcc', *recorded['LDFLAGS'], *extra_ldflags, *objects, *extra_libpaths, *recorded['LIBPATHS'], *libraries,
      '-o', candidate / 'tmodloader.elf'], 'link-candidate', NATIVE)
 
 shutil.copytree(BASE / 'romfs', ROMFS)
@@ -415,5 +445,7 @@ manifest = {'candidate': VARIANT, 'content': baseline['content'], 'runtime_prove
                                      for name, paths in replacements.items()},
             'launcher_objects': {name: {'path': str(path), 'sha256': sha(path)} for name, path in {**object_overrides, **added_objects}.items()},
             'final_deliverables': deliverables}
+if launcher_manifest:
+    manifest['launcher_manifest'] = launcher_manifest
 (OUT / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
 print('PASS fixed modset:', json.dumps(manifest['final_deliverables']), flush=True)
