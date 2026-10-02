@@ -47,7 +47,8 @@ def main():
     build.mkdir(parents=True)
     mounts=['-v', f'{game}:/game:ro']
     fna_container = '/game/FNA.dll'
-    pod(f'{DOTNET} build /work/managed/nx_crypto/NxCrypto.csproj -c Release -o /build/patch-vanilla-work/build/nxcrypto -p:BaseIntermediateOutputPath=/build/patch-vanilla-work/obj/nxcrypto/ >/dev/null && {DOTNET} build /work/managed/nx_input_diag/NxInputDiag.csproj -c Release -o /build/patch-vanilla-work/build/nxinput -p:BaseIntermediateOutputPath=/build/patch-vanilla-work/obj/nxinput/ -p:FNAPath="{fna_container}" >/dev/null && {DOTNET} build /work/scripts/patch_vanilla/PatchVanilla.csproj -c Release -o /build/patch-vanilla-work/build/tool -p:BaseIntermediateOutputPath=/build/patch-vanilla-work/obj/tool/ -p:CecilPath={CECIL} >/dev/null', mounts)
+    common='-p:Deterministic=true -p:ContinuousIntegrationBuild=true -p:PathMap=/work=/_/repo -p:UseSharedCompilation=false'
+    pod(f'{DOTNET} build /work/managed/nx_crypto/NxCrypto.csproj -c Release -o /build/patch-vanilla-work/build/nxcrypto -p:BaseIntermediateOutputPath=/build/patch-vanilla-work/obj/nxcrypto/ {common} >/dev/null && {DOTNET} build /work/managed/nx_input_diag/NxInputDiag.csproj -c Release -o /build/patch-vanilla-work/build/nxinput -p:BaseIntermediateOutputPath=/build/patch-vanilla-work/obj/nxinput/ -p:FNAPath="{fna_container}" {common} >/dev/null && {DOTNET} build /work/scripts/patch_vanilla/PatchVanilla.csproj -c Release -o /build/patch-vanilla-work/build/tool -p:BaseIntermediateOutputPath=/build/patch-vanilla-work/obj/tool/ -p:CecilPath={CECIL} {common} >/dev/null', mounts)
     if out.exists(): shutil.rmtree(out)
     out.mkdir(parents=True)
     out_container = '/build/' + str(out.relative_to(CACHE))

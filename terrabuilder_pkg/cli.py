@@ -296,7 +296,10 @@ def build(args: argparse.Namespace) -> int:
     # AOT/RomFS are profile-independent; reuse the sibling profile's completed tree.
     other = "cli-profiler" if profile == "release" else "cli-release"
     other_aot = workdir / "release58" / other / "aot-final"
-    if not (aot / "build-manifest.json").exists() and (other_aot / "build-manifest.json").exists():
+    if other_aot.joinpath("build-manifest.json").exists() and (
+        not (aot / "build-manifest.json").exists()
+        or tree_hash(aot / "runtime-romfs") == tree_hash(other_aot / "runtime-romfs")
+    ):
         if json.loads((other_aot / "build-manifest.json").read_text()).get("status") == "complete":
             if aot.exists():
                 shutil.rmtree(aot)
@@ -329,7 +332,14 @@ def write_stamp(stamp: Path, key: str) -> None:
 
 
 def run_patch_stage(game_dir: Path, workdir: Path, stamps: Path, info: dict) -> Path:
-    key = sha256(game_dir / "Terraria.exe") + sha256(game_dir / "FNA.dll")
+    patch_sources = sorted((ROOT / "scripts/patch_vanilla").glob("*.cs")) + [
+        ROOT / "scripts/patch_vanilla/PatchVanilla.csproj",
+        ROOT / "managed/nx_crypto/NxCrypto.cs",
+        ROOT / "managed/nx_crypto/NxCrypto.csproj",
+        ROOT / "managed/nx_input_diag/NxInputDiag.cs",
+        ROOT / "managed/nx_input_diag/NxInputDiag.csproj",
+    ]
+    key = sha256(game_dir / "Terraria.exe") + sha256(game_dir / "FNA.dll") + "".join(sha256(p) for p in patch_sources if p.exists())
     out = workdir / "patch" / key[:16]
     stamp = stamps / "patch-managed.stamp"
     if stamp_ok(stamp, key) and out.exists():
@@ -340,12 +350,15 @@ def run_patch_stage(game_dir: Path, workdir: Path, stamps: Path, info: dict) -> 
         env = os.environ.copy(); env["TERRABUILDER_CACHE"] = str(workdir); env["TERRABUILDER_LEGACY_CACHE"] = str(LEGACY)
         run([sys.executable, str(ROOT / "scripts/patch_vanilla/run.py"), str(game_dir), "--out", str(out), "--workdir", str(workdir)], env=env, heavy=True)
         write_stamp(stamp, key)
-    info["stages"]["patch_managed"] = {n: sha256(out / n) for n in ["Terraria.exe", "FNA.dll", "ReLogic.dll", "NxCrypto.dll", "NxInputDiag.dll"]}
+    info["stages"]["patch_managed"] = {p.name: sha256(p) for p in sorted(out.glob("*.dll"))}
+    info["stages"]["patch_managed"]["Terraria.exe"] = sha256(out / "Terraria.exe")
     return out
 
 
 def romfs_stage(game_dir: Path, patched: Path, romfs: Path, workdir: Path, stamps: Path, info: dict) -> None:
-    key = sha256(patched / "Terraria.exe") + sha256(patched / "FNA.dll") + sha256(game_dir / "Terraria.exe")
+    legacy_facade_names = ("mscorlib.dll", "System.IO.Packaging.dll", "System.Security.Permissions.dll")
+    legacy_facades = {name: LEGACY / "hint52/aot-final/runtime-romfs" / name for name in legacy_facade_names}
+    key = tree_hash(patched) + sha256(game_dir / "Terraria.exe") + "".join(sha256(p) for p in legacy_facades.values())
     stamp = stamps / "romfs.stamp"
     if stamp_ok(stamp, key) and romfs.exists():
         print("romfs: cached")
@@ -355,8 +368,14 @@ def romfs_stage(game_dir: Path, patched: Path, romfs: Path, workdir: Path, stamp
         from scripts.pack_terraria_romfs import copy_game_payload
         rel_fw = workdir / "runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64"
         copy_game_payload(game_dir, romfs, tuple(), runtime_facades_dir=rel_fw)
-        for name in ["Terraria.exe", "FNA.dll", "ReLogic.dll", "NxCrypto.dll", "NxInputDiag.dll"]:
-            shutil.copy2(patched / name, romfs / name)
+        for source in sorted(patched.glob("*.dll")):
+            shutil.copy2(source, romfs / source.name)
+        shutil.copy2(patched / "Terraria.exe", romfs / "Terraria.exe")
+        # These v88/v89s root facades are project/toolchain compatibility
+        # overrides, not game code. They must shadow the net9 facade closure copied
+        # above or metadata binding and runtime dependency resolution changes.
+        for name, source in legacy_facades.items():
+            shutil.copy2(source, romfs / name)
         core_dir = workdir / "runtime-source/artifacts/bin/mono/libnx.arm64.Release"
         (romfs / "mono/lib_net9.0").mkdir(parents=True, exist_ok=True)
         shutil.copy2(core_dir / "System.Private.CoreLib.dll", romfs / "mono/lib_net9.0/System.Private.CoreLib.dll")
@@ -393,7 +412,7 @@ def repair_incomplete_aot(aot: Path) -> bool:
         return False
     manifest = json.loads(manifest_path.read_text())
     if manifest.get("status") == "complete":
-        return True
+        return False
     if not manifest.get("modules") or any(m.get("status") != "compiled" for m in manifest["modules"]):
         return False
     v88 = json.loads((LEGACY / "release58/v88/aot-final/build-manifest.json").read_text())
@@ -427,6 +446,10 @@ def aot_stage(aot: Path, workdir: Path, stamps: Path, info: dict) -> None:
     else:
         for p in aot.glob("*.o"):
             p.unlink()
+        for stale in ("runtime-metadata", "prepare-tool", "prepare-obj"):
+            path = aot / stale
+            if path.exists():
+                shutil.rmtree(path)
         logs = aot / "logs"; logs.mkdir(exist_ok=True)
         core_obj = workdir / "release58/v88/aot-final/System.Private.CoreLib.dll.o"
         if not core_obj.exists():
@@ -488,7 +511,7 @@ def launcher_stage(workdir: Path, profile: str, stamps: Path, info: dict) -> Pat
         env = os.environ.copy(); env["TERRABUILDER_CACHE"] = str(workdir)
         cmd = [sys.executable, str(ROOT / "scripts/launcher/build_launcher.py"), "--out", str(out), "--force"]
         if profile == "profiler": cmd.append("--profiler")
-        run(cmd, env=env, heavy=True)
+        run(cmd, env=env)
         write_stamp(stamp, key)
     info["stages"]["launcher"] = json.loads((out / "launcher-build.json").read_text())
     return out
