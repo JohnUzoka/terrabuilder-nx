@@ -239,11 +239,20 @@ assert all(name.replace('.', '_').isidentifier() for name in modules)
 (NATIVE / 'mono_aot_modules.h').write_text(''.join(
     'REGISTER_AOT_MODULE(mono_aot_module_' + name.replace('.', '_') + '_info);\n' for name in modules))
 native_config = config.get('native', {})
-assert set(native_config) <= {'libnx_heap_permille', 'gc_stats', 'mesa_guard', 'nv_transfermem_mb', 'frame_stats'}, 'Unknown native key'
+assert set(native_config) <= {'libnx_heap_permille', 'gc_stats', 'mesa_guard', 'nv_transfermem_mb', 'frame_stats', 'repo_nx_input', 'real_audio'}, 'Unknown native key'
 main_defines = ['-DMONO_NX_EMBEDDED_BCL=1', '-DMONO_NX_FATAL_DIAG=1']
 if native_config.get('gc_stats'):
     main_defines.append('-DMONO_NX_GC_STATS=1')
-run([ROOT / 'release58/compile_main.sh', ROOT / 'tmod/launcher_build/main_tmod.c', NATIVE / 'main_tmod.o',
+main_source = ROOT / 'tmod/launcher_build/main_tmod.c'
+if native_config.get('real_audio'):
+    patched_main = NATIVE / 'main_tmod_real_audio.c'
+    lines = main_source.read_text().splitlines(keepends=True)
+    main_text = ''.join(line for line in lines if 'SDL_AUDIODRIVER", "dummy"' not in line)
+    if 'SDL_AUDIODRIVER", "dummy"' in main_text:
+        raise RuntimeError('failed to remove tModLoader dummy audio driver default')
+    patched_main.write_text(main_text)
+    main_source = patched_main
+run([ROOT / 'release58/compile_main.sh', main_source, NATIVE / 'main_tmod.o',
      *main_defines, '-I' + str(NATIVE)], 'compile-main', NATIVE)
 object_overrides = {'main.o': NATIVE / 'main_tmod.o'}
 added_objects = {}
@@ -278,6 +287,23 @@ if native_config.get('frame_stats'):
          NATIVE / 'frame_stats.o', *frame_defines], 'compile-frame-stats', NATIVE)
     added_objects['frame_stats.o'] = NATIVE / 'frame_stats.o'
     extra_ldflags.append('-Wl,--wrap=SDL_GL_SwapWindow' + ('' if mesa_guard else ',--wrap=nouveau_bo_new'))
+if native_config.get('repo_nx_input'):
+    mono_inc = '/mono-nx/dotnet_runtime/artifacts/bin/mono/libnx.arm64.Debug/include/mono-2.0'
+    nx_input_flags = [
+        'aarch64-none-elf-gcc', '-march=armv8-a+crc+crypto', '-mtune=cortex-a57', '-mtp=soft',
+        '-fPIE', '-g', '-O2', '-ffunction-sections', '-Wall', '-Wextra',
+        '-D__SWITCH__', '-DMONO_NX_USE_AOT=1', '-DMONO_NX_GL_COMPAT=1', '-DMONO_NX_USE_ROMFS=1',
+        '-DDLSHIM_SDL2=1', '-DDLSHIM_SDL2_IMAGE=1', '-DDLSHIM_OPENGL=1', '-DDLSHIM_OPENAL=1',
+        '-DDLSHIM_FNA3D=1', '-DDLSHIM_FNA=1', '-DDLSHIM_STUBS=1', '-DDLSHIM_SDL3=1',
+        '-DU_DISABLE_RENAMING=1', '-DMONO_NX_PHASE_TIMING=1', '-DMONO_NX_GPU_TIMING=1',
+        '-I/build/aot42-windows', '-I/work/native/shared', '-I/mono-nx/native/shared',
+        '-I/mono-nx/native/shared/third_party/ini', '-I' + mono_inc, '-I/mono-nx/icu/libnx/include',
+        '-I/opt/devkitpro/libnx/include', '-I/opt/devkitpro/portlibs/switch/include',
+        '-I/opt/devkitpro/portlibs/switch/include/SDL2', '-I/fna-install/include',
+        '-c', '/work/native/shared/nx_input.c', '-o', NATIVE / 'nx_input.o'
+    ]
+    run(nx_input_flags, 'compile-nx-input', NATIVE)
+    object_overrides['nx_input.o'] = NATIVE / 'nx_input.o'
 launcher_config = config.get('launcher_objects')
 launcher_manifest = None
 if launcher_config:

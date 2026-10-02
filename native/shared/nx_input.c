@@ -450,6 +450,8 @@ static void toggle_fps_display(void)
         return;
     if (!field) {
         MonoImage *image = mono_image_loaded("Terraria");
+        if (!image)
+            image = mono_image_loaded("tModLoader");
         MonoClass *klass = image ? mono_class_from_name(image, "Terraria", "Main") : NULL;
         field = klass ? mono_class_get_field_from_name(klass, "showFrameRate") : NULL;
         vtable = field ? mono_class_vtable(mono_get_root_domain(), klass) : NULL;
