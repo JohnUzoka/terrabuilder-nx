@@ -49,6 +49,55 @@ The `--from-source` toolchain path intentionally delegates to the existing scrip
 below and is long-running. Runtime/BCL/Mesa/LLVM build steps must be run under
 `flock ~/.cache/terraria-switch-build/.heavy.lock` on this WSL2 machine.
 
+### tModLoader CLI path (experimental)
+
+The CLI can also build the Nintendo Switch tModLoader port from a local
+tModLoader 1.4.4.x release folder:
+
+```sh
+./terrabuilder build --target tmodloader \
+  --game-dir ~/.cache/terraria-switch-build/tmod/release \
+  --mods none --workdir ~/.cache/terrabuilder -y
+```
+
+`--game-dir` is the tModLoader folder, not the vanilla GOG folder. The validator
+checks `tModLoader.deps.json` for a `tModLoader/1.4.4.x` target and requires
+`tModLoader.dll`, `tMLMod.targets`, and `Content/`.
+
+Outputs are under `~/.cache/terrabuilder/out/tmodloader-<selection>/`:
+
+- `tmodloader.nro`
+- `sdcard/` payload containing `switch/tmodloader/Terraria/tModLoader/Mods/`
+  and `enabled.json`
+- `receipt.json` with the NRO SHA-256, curated mod metadata, build manifest, and
+  AOT MVID verifier result
+
+Heavy AOT/link/container steps are wrapped with
+`flock ~/.cache/terraria-switch-build/.heavy.lock`.
+
+Curated mod metadata is in `terrabuilder_pkg/curated_tmod_mods.json`. The list is
+restricted to open-source tested mods pinned to upstream commits:
+
+| Mod | Version | Upstream | License | Dependencies |
+| --- | --- | --- | --- | --- |
+| Luminance | 1.0.3 | `DominicKarma/Luminance` tag `v1.0.3` (`1c187584...`) | MIT | |
+| Fargo's Mutant Mod | 3.3.6.7 | `Fargowilta/Fargowiltas` commit `0153d4aa...` | MIT | |
+| StructureHelper | 3.1.1 | `ScalarVector1/StructureHelper` tag `3.1.1` (`f224c11e...`) | MIT | |
+| Fargo's Souls Mod | 1.7.3.7 | `Fargowilta/FargowiltasSouls` commit `226fadea...` | MIT | Fargo's Mutant, Luminance, StructureHelper |
+
+The source-build scaffold clones each selected repo at its pinned commit and
+invokes tML's `tModLoader.targets` in a container. On this machine, Luminance's
+C# compilation succeeds after applying the named `SetFactory` compatibility edit,
+but tML's package step currently fails because the desktop packager tries to load
+a Linux `FNA3D` shared library that is not present in the retained tModLoader
+folder or build image. Until that host packager dependency is supplied or bypassed,
+the verified first-release CLI path is `--mods none`.
+
+Known issues printed after every tModLoader build: Fargo's Souls in-world
+performance is roughly 15-20 fps; Plus+Minus FPS toggle and D-pad menu navigation
+do not work yet; multiplayer is untested; only the curated open-source mod list is
+available.
+
 ## 1. Sources
 
 | What | Where | Revision |

@@ -85,9 +85,36 @@ Heavy container steps are serialized with
 `~/.cache/terraria-switch-build/.heavy.lock`; the default workdir is
 `~/.cache/terrabuilder` and can be overridden with `--workdir`.
 
-`terrabuilder build` without flags prompts for `vanilla | tmodloader` and the game
-directory. tModLoader currently exits cleanly with a "coming in this release"
-message while its pipeline is wired separately.
+`terrabuilder build` without flags first prompts for either
+`Vanilla Terraria (GOG 1.4.5.x)` or `tModLoader (1.4.4) (experimental)`, then
+prompts for the matching game directory. Vanilla input must be a clean GOG
+1.4.5.x folder. tModLoader input must be a 1.4.4.x release folder containing
+`tModLoader.dll`, `tModLoader.deps.json`, `tMLMod.targets`, and `Content/`.
+
+tModLoader builds are experimental:
+
+```sh
+./terrabuilder build --target tmodloader \
+  --game-dir ~/.cache/terraria-switch-build/tmod/release \
+  --mods none --workdir ~/.cache/terrabuilder -y
+```
+
+Outputs are written under `~/.cache/terrabuilder/out/tmodloader-*/`: an NRO,
+`sdcard/` payload, and `receipt.json`. Copy the NRO to `sd:/switch/` and copy
+the contents of `sdcard/` to the SD root.
+
+The curated mod catalog lives in `terrabuilder_pkg/curated_tmod_mods.json` and is
+limited to tested open-source mods pinned to upstream commits: Luminance,
+Fargo's Mutant, StructureHelper, and Fargo's Souls. Dependencies are auto-selected
+when `--mods` names a dependent mod. No Steam Workshop packages or mod binaries are
+redistributed by the CLI. Current mod-from-source packaging reaches tML's
+`ModCompile` step but is blocked on this machine by the desktop tModLoader packager
+requiring a Linux `FNA3D` shared library; `--mods none` is fully wired and verified.
+
+Known tModLoader issues: Fargo's Souls in-world performance is about 15-20 fps;
+Plus+Minus FPS toggle and D-pad menu navigation do not work yet; multiplayer is
+untested on tModLoader; the mod list is intentionally limited to tested
+open-source mods.
 
 ## Status
 

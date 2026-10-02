@@ -62,12 +62,12 @@ def run(argv, label, cwd):
 
 
 config = json.loads((INPUT / 'modset.json').read_text())
-mod = config['mod']
-assert mod.isidentifier(), 'Expected one named mod, no paths'
+mod = config.get('mod', '')
+assert not mod or mod.isidentifier(), 'Expected one named mod, no paths'
 additional_mods = config.get('additional_mods', [])
 assert len(additional_mods) == len(set(additional_mods)), 'Duplicate additional_mods'
-assert mod not in additional_mods, 'Primary mod cannot be in additional_mods'
-all_mods = [mod, *additional_mods]
+assert not mod or mod not in additional_mods, 'Primary mod cannot be in additional_mods'
+all_mods = ([mod] if mod else []) + additional_mods
 for m in all_mods:
     assert m.isidentifier(), f'Invalid mod name: {m}'
 
@@ -461,12 +461,13 @@ for filename in compiled:
     binding[name] = record
 nro = candidate / 'tmodloader.nro'
 deliverables = {'candidate_nro': {'path': str(nro), 'bytes': nro.stat().st_size, 'sha256': sha(nro)},
-                'candidate_elf': {'path': str(candidate / 'tmodloader.elf'), 'sha256': sha(candidate / 'tmodloader.elf')},
-                'sd_mod': {'path': str(staged_packages[mod]), 'sha256': sha(staged_packages[mod])}}
+                'candidate_elf': {'path': str(candidate / 'tmodloader.elf'), 'sha256': sha(candidate / 'tmodloader.elf')}}
+if mod:
+    deliverables['sd_mod'] = {'path': str(staged_packages[mod]), 'sha256': sha(staged_packages[mod])}
 if additional_mods:
     deliverables['sd_mods'] = {m: {'path': str(p), 'sha256': sha(p)} for m, p in staged_packages.items()}
 manifest = {'candidate': VARIANT, 'content': baseline['content'], 'runtime_provenance': runtime_provenance,
-            'provenance_and_binding': binding, 'modset': dict(config, package=mod_info_by_name[mod]), 'reference_inputs': input_hashes,
+            'provenance_and_binding': binding, 'modset': dict(config, package=mod_info_by_name[mod] if mod else None), 'reference_inputs': input_hashes,
             'managed_replacements': {name: {'sha256': input_hashes[name], 'destinations': paths}
                                      for name, paths in replacements.items()},
             'launcher_objects': {name: {'path': str(path), 'sha256': sha(path)} for name, path in {**object_overrides, **added_objects}.items()},

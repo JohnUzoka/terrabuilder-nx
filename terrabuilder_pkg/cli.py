@@ -27,6 +27,12 @@ V88_WRAPS = [
     "nwindowConfigureBuffer",
 ]
 GAME_DLLS = ["Terraria.exe", "FNA.dll", "ReLogic.dll", "Newtonsoft.Json.dll", "NxCrypto.dll", "NxInputDiag.dll"]
+TMOD_WARNING = """\
+tModLoader (experimental) build notes:
+- In-world Fargo's Souls performance is currently about 15-20 fps.
+- Plus+Minus FPS toggle and D-pad menu navigation do not work yet.
+- Multiplayer is untested on tModLoader.
+- The mod list is limited to tested open-source mods built from pinned source."""
 
 
 def sha256(path: Path) -> str:
@@ -255,22 +261,272 @@ def validate_game(game: Path) -> dict:
     return {"terraria_sha256": terraria_sha, "fna_sha256": fna_sha, "version": version}
 
 
+def validate_tmodloader(game: Path) -> dict:
+    required = ["tModLoader.dll", "tModLoader.deps.json", "tMLMod.targets", "Content"]
+    missing = [n for n in required if not (game / n).exists()]
+    if missing:
+        raise SystemExit("tModLoader directory missing: " + ", ".join(missing))
+    deps = json.loads((game / "tModLoader.deps.json").read_text())
+    version = None
+    for target in deps.get("targets", {}):
+        for package in deps["targets"][target]:
+            if package.startswith("tModLoader/"):
+                version = package.split("/", 1)[1]
+                break
+        if version:
+            break
+    if not version or not version.startswith("1.4.4."):
+        raise SystemExit(f"unsupported tModLoader version {version or 'unknown'}; expected 1.4.4.x")
+    return {"tmodloader_sha256": sha256(game / "tModLoader.dll"), "version": version}
+
+
+def curated_mod_catalog() -> dict[str, dict]:
+    data = json.loads((Path(__file__).with_name("curated_tmod_mods.json")).read_text())
+    return {entry["id"]: entry for entry in data["mods"]}
+
+
+def dependency_closed_mods(selected: list[str], catalog: dict[str, dict]) -> list[str]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+
+    def add(name: str) -> None:
+        if name in seen:
+            return
+        if name not in catalog:
+            raise SystemExit(f"unknown curated mod: {name}")
+        for dep in catalog[name].get("dependencies", []):
+            add(dep)
+        seen.add(name)
+        ordered.append(name)
+
+    for item in selected:
+        add(item)
+    return ordered
+
+
+def ask_tmod_mods(catalog: dict[str, dict]) -> list[str]:
+    choices = [m for m in catalog.values() if m["id"] in ("Luminance", "Fargowiltas", "FargowiltasSouls")]
+    print("Select tested open-source mods to build from source:")
+    print("  0) no mods")
+    for i, mod in enumerate(choices, 1):
+        deps = mod.get("dependencies") or []
+        suffix = f" (auto-selects: {', '.join(deps)})" if deps else ""
+        print(f"  {i}) {mod['display_name']} {mod['version']} [{mod['spdx_license']}]" + suffix)
+    raw = ask("Mods (comma-separated numbers)", "0")
+    if raw.strip() in ("", "0", "none", "no mods"):
+        return []
+    selected = []
+    for token in re.split(r"[, ]+", raw.strip()):
+        if not token:
+            continue
+        if not token.isdigit() or not (1 <= int(token) <= len(choices)):
+            raise SystemExit(f"invalid mod selection: {token}")
+        selected.append(choices[int(token) - 1]["id"])
+    return dependency_closed_mods(selected, catalog)
+
+
 def ask(prompt: str, default: str | None = None) -> str:
     suffix = f" [{default}]" if default else ""
     value = input(prompt + suffix + ": ").strip()
     return value or (default or "")
 
 
+def parse_mod_flags(value: str | None, catalog: dict[str, dict]) -> list[str]:
+    if value is None:
+        return []
+    if value.strip().lower() in ("", "none", "no-mods", "no mods"):
+        return []
+    requested = [part.strip() for part in value.split(",") if part.strip()]
+    by_lower = {key.lower(): key for key in catalog}
+    selected = []
+    for item in requested:
+        key = by_lower.get(item.lower())
+        if not key:
+            raise SystemExit(f"unknown mod {item}; available: " + ", ".join(sorted(catalog)))
+        selected.append(key)
+    return dependency_closed_mods(selected, catalog)
+
+
+def tmod_variant_key(tmod_dir: Path, mods: list[str], catalog: dict[str, dict], profile: str) -> str:
+    h = hashlib.sha256()
+    h.update(sha256(tmod_dir / "tModLoader.dll").encode())
+    h.update(profile.encode())
+    for mod in mods:
+        h.update(mod.encode() + b"\0" + catalog[mod]["commit"].encode() + b"\0")
+    return "tmodcli-" + h.hexdigest()[:12]
+
+
+def build_curated_mod_sources(tmod_dir: Path, mods: list[str], workdir: Path, catalog: dict[str, dict]) -> Path:
+    cache_key = hashlib.sha256(
+        (sha256(tmod_dir / "tModLoader.dll") + "\n" +
+         "\n".join(f"{m}:{catalog[m]['commit']}" for m in mods)).encode()
+    ).hexdigest()[:12]
+    packages = workdir / "tmod" / "packages" / cache_key
+    done = packages / ".complete.json"
+    if done.exists() and all((packages / (m + ".tmod")).exists() for m in mods if m != "StructureHelper"):
+        print("tModLoader mod source build: cached")
+        return packages
+    packages.mkdir(parents=True, exist_ok=True)
+    src_root = workdir / "tmod" / "sources"
+    src_root.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(tmod_dir / "tMLMod.targets", src_root / "tModLoader.targets")
+    built_dlls: dict[str, Path] = {}
+    built_packages: dict[str, Path] = {}
+    build_order = [m for m in mods if m != "FargowiltasSouls"] + ([m for m in mods if m == "FargowiltasSouls"])
+    eng = engine() or "podman"
+    for name in build_order:
+        meta = catalog[name]
+        checkout = src_root / name
+        if not checkout.exists():
+            run(["git", "clone", "--filter=blob:none", meta["repo"], str(checkout)])
+        run(["git", "-C", str(checkout), "fetch", "--depth", "1", "origin", meta["commit"]])
+        run(["git", "-C", str(checkout), "checkout", "--detach", meta["commit"]])
+        if name == "Luminance":
+            balancing = checkout / "Core/Balancing/InternalBalancingManager.cs"
+            text = balancing.read_text()
+            text = text.replace("SetFactory factory = new(ContentSamples.NpcsByNetId.Count);",
+                                'SetFactory factory = new(ContentSamples.NpcsByNetId.Count, "NPC");')
+            balancing.write_text(text)
+        for dep_name, dep_dll in built_dlls.items():
+            if dep_name in meta.get("dependencies", []):
+                shutil.copy2(dep_dll, checkout / (dep_name + ".dll"))
+        before = {p.resolve() for p in checkout.rglob("*.tmod")}
+        cmd = [eng, "run", "--rm", "--entrypoint", "/root/.dotnet/dotnet",
+               "-e", "DOTNET_CLI_HOME=/tb/dotnet-home",
+               "-e", "DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1",
+               "-e", "DOTNET_CLI_TELEMETRY_OPTOUT=1",
+               "-e", "DOTNET_ROLL_FORWARD=Major",
+               "-e", "PATH=/root/.dotnet:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+               "-v", f"{workdir}:/tb",
+               "-v", f"{tmod_dir}:/tml:ro",
+               "-v", f"{LEGACY / 'recovery46/sdk-pristine'}:/mono-nx:ro",
+               "-w", f"/tb/tmod/sources/{name}",
+               MONO_IMAGE,
+               "build", "-c", "Release", f"-p:tMLSteamPath=/tml/",
+               "-p:TreatWarningsAsErrors=false", "-p:NoWarn=0619"]
+        try:
+            run(cmd, heavy=True)
+        except subprocess.CalledProcessError as exc:
+            raise SystemExit(
+                f"failed to build {name} from source at {meta['commit']}. "
+                "The current known blocker is tModLoader's desktop ModCompile package step "
+                "requiring a Linux FNA3D shared library in the tModLoader folder/container. "
+                "Use --mods none until that host packager dependency is supplied."
+            ) from exc
+        dlls = sorted(checkout.rglob(f"{name}.dll"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if dlls:
+            built_dlls[name] = dlls[0]
+        after = [p for p in checkout.rglob("*.tmod") if p.resolve() not in before]
+        if not after:
+            after = sorted(checkout.rglob("*.tmod"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if name != "StructureHelper":
+            if not after:
+                raise SystemExit(f"built {name} but no .tmod package was produced")
+            dest = packages / (name + ".tmod")
+            shutil.copy2(after[0], dest)
+            built_packages[name] = dest
+    write_json(done, {"mods": mods, "packages": {k: str(v) for k, v in built_packages.items()}})
+    return packages
+
+
+def seed_tmod_input(variant: str, mods: list[str], packages: Path | None, catalog: dict[str, dict]) -> Path:
+    out = LEGACY / "tmod" / variant
+    if out.exists():
+        return out
+    src = LEGACY / "tmod/tmod27/input"
+    if not src.exists():
+        raise SystemExit("validated tmod27 input cache is missing")
+    inputs = out / "input"
+    inputs.mkdir(parents=True)
+    for name in ("tModLoader.dll", "FNA.dll", "System.Reflection.Metadata.dll", "TerrariaHooks.dll", "MonoMod.RuntimeDetour.dll"):
+        if (src / name).exists():
+            shutil.copy2(src / name, inputs / name)
+    selected_packages = [m for m in mods if m != "StructureHelper"]
+    if packages:
+        for m in selected_packages:
+            shutil.copy2(packages / (m + ".tmod"), inputs / (m + ".tmod"))
+    config = json.loads((src / "modset.json").read_text())
+    primary = "FargowiltasSouls" if "FargowiltasSouls" in mods else (selected_packages[0] if selected_packages else "")
+    config["mod"] = primary
+    config["additional_mods"] = [m for m in selected_packages if m != primary]
+    config["mod_libraries"] = ([{"mod": "FargowiltasSouls", "member": "lib/StructureHelper.dll"}]
+                               if "FargowiltasSouls" in mods else [])
+    config["label"] = "no mods" if not selected_packages else "+".join(selected_packages)
+    config["reuse_base"] = "tmod27"
+    config["reuse_modules"] = [
+        "tModLoader.dll", "FNA.dll", "ReLogic.dll", "System.Linq.dll",
+        "System.Text.RegularExpressions.dll", "System.Collections.Concurrent.dll",
+    ]
+    write_json(inputs / "modset.json", config)
+    write_json(out / "source-mods.json", {"mods": mods, "catalog": [catalog[m] for m in mods]})
+    return out
+
+
+def run_tmod_pipeline(variant: str, workdir: Path) -> None:
+    out = LEGACY / "tmod" / variant
+    if (out / "native/candidate/tmodloader.nro").exists() and (out / "manifest.json").exists():
+        print("tModLoader native build: cached")
+        return
+    eng = engine() or "podman"
+    cmd = [eng, "run", "--rm", "--userns=keep-id", "--entrypoint", "python3",
+           "-e", f"TMOD_VARIANT={variant}", "-e", f"TMPDIR=/build/tmod/{variant}/container-tmp",
+           "-v", f"{LEGACY}:/build",
+           "-v", f"{ROOT}:/work:ro",
+           "-v", f"{LEGACY / 'recovery46/sdk-pristine'}:/mono-nx:ro",
+           "-v", f"{LEGACY / 'release58/mono-nx/native'}:/mono-nx/native:ro",
+           "-v", f"{LEGACY / 'recovery46/native-deps/install'}:/fna-install:ro",
+           LLVM_IMAGE, "/work/scripts/tmod/build_tmod_modset_nro.py"]
+    run(cmd, heavy=True)
+    verify = [sys.executable, str(ROOT / "scripts/tmod/verify_aot_dependencies.py"),
+              "--cache-root", str(LEGACY), "--variant", variant, "--json-out", str(out / "aot-mvid-check.json")]
+    run(verify)
+
+
+def build_tmodloader(args: argparse.Namespace, tmod_dir: Path, mods: list[str], catalog: dict[str, dict]) -> int:
+    workdir = args.workdir.expanduser().resolve()
+    out_root = Path(args.out).expanduser().resolve() if args.out else workdir / "out"
+    tmeta = validate_tmodloader(tmod_dir)
+    variant = tmod_variant_key(tmod_dir, mods, catalog, args.profile)
+    packages = build_curated_mod_sources(tmod_dir, mods, workdir, catalog) if mods else None
+    seed_tmod_input(variant, mods, packages, catalog)
+    run_tmod_pipeline(variant, workdir)
+    src_root = LEGACY / "tmod" / variant
+    out_dir = out_root / ("tmodloader-" + ("no-mods" if not mods else "-".join(mods).lower()))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    nro = out_dir / "tmodloader.nro"
+    shutil.copy2(src_root / "native/candidate/tmodloader.nro", nro)
+    sd_out = out_dir / "sdcard"
+    if sd_out.exists():
+        shutil.rmtree(sd_out)
+    shutil.copytree(src_root / "sdcard", sd_out)
+    manifest = json.loads((src_root / "manifest.json").read_text())
+    mvid = json.loads((src_root / "aot-mvid-check.json").read_text())
+    receipt = {"target": "tmodloader", "experimental": True, "variant": variant, "input": tmeta,
+               "mods": [catalog[m] for m in mods], "nro": {"path": str(nro), "sha256": sha256(nro), "bytes": nro.stat().st_size},
+               "sd_payload": str(sd_out), "aot_mvid_check": mvid, "manifest": manifest}
+    write_json(out_dir / "receipt.json", receipt)
+    print(f"Built {nro} {receipt['nro']['sha256']}")
+    print(f"Copy {nro} to sd:/switch/tmodloader.nro")
+    print(f"Copy contents of {sd_out}/ to the SD card root")
+    print(TMOD_WARNING)
+    return 0
+
+
 def build(args: argparse.Namespace) -> int:
     target = args.target
     game_dir = Path(args.game_dir).expanduser() if args.game_dir else None
     if not args.yes and (not target or not game_dir):
-        target = target or ask("Target (vanilla | tmodloader)", "vanilla")
+        if not target:
+            choice = ask("Target: 1) Vanilla Terraria (GOG 1.4.5.x)  2) tModLoader (1.4.4) (experimental)", "1")
+            target = "tmodloader" if choice.strip() in ("2", "tmodloader", "tmod") else "vanilla"
         game_dir = game_dir or Path(ask("Path to game files"))
     target = target or "vanilla"
     if target == "tmodloader":
-        print("tModLoader support coming in this release; not yet wired")
-        return 0
+        if not game_dir:
+            raise SystemExit("--game-dir is required in non-interactive mode and must point to a tModLoader 1.4.4.x folder")
+        catalog = curated_mod_catalog()
+        mods = parse_mod_flags(args.mods, catalog) if args.yes or args.mods is not None else ask_tmod_mods(catalog)
+        return build_tmodloader(args, game_dir.resolve(), mods, catalog)
     if target != "vanilla":
         raise SystemExit("--target must be vanilla or tmodloader")
     if not game_dir:
@@ -564,7 +820,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = p.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("doctor"); d.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR); d.set_defaults(func=doctor)
     t = sub.add_parser("toolchain"); t.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR); t.add_argument("toolcmd", nargs="?", choices=["pack"]); t.add_argument("--from-source", action="store_true"); t.add_argument("--bundle"); t.set_defaults(func=toolchain)
-    b = sub.add_parser("build"); b.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR); b.add_argument("--target", choices=["vanilla","tmodloader"]); b.add_argument("--game-dir"); b.add_argument("--out"); b.add_argument("--profile", choices=["release","profiler"], default="release"); b.add_argument("-y", "--yes", action="store_true"); b.set_defaults(func=build)
+    b = sub.add_parser("build"); b.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR); b.add_argument("--target", choices=["vanilla","tmodloader"]); b.add_argument("--game-dir", help="Vanilla game folder for --target vanilla; tModLoader 1.4.4.x folder for --target tmodloader"); b.add_argument("--mods", help="Comma-separated curated tModLoader mods, or 'none'"); b.add_argument("--out"); b.add_argument("--profile", choices=["release","profiler"], default="release"); b.add_argument("-y", "--yes", action="store_true"); b.set_defaults(func=build)
     c = sub.add_parser("compare"); c.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR); c.set_defaults(func=compare)
     args = p.parse_args(argv)
     return args.func(args)

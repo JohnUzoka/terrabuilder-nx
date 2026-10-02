@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "loader": "tModLoader 1.4.4.x / 2026.7.3.0",
+  "mods": [
+    {
+      "id": "Luminance",
+      "name": "Luminance",
+      "display_name": "Luminance",
+      "version": "1.0.3",
+      "repo": "https://github.com/DominicKarma/Luminance.git",
+      "commit": "1c187584650d268fef9b4f62f4e9587ab0d9e2f3",
+      "ref": "refs/tags/v1.0.3",
+      "license": "MIT",
+      "spdx_license": "MIT",
+      "dependencies": [],
+      "tested": true,
+      "build_requirements": [".NET 8 SDK", "tModLoader 1.4.4.x release with tMLMod.targets"],
+      "notes": "Library mod; tested package metadata version 1.0.3, loader 2026.7.3.0."
+    },
+    {
+      "id": "Fargowiltas",
+      "name": "Fargowiltas",
+      "display_name": "Fargo's Mutant Mod",
+      "version": "3.3.6.7",
+      "repo": "https://github.com/Fargowilta/Fargowiltas.git",
+      "commit": "0153d4aacd4bfaa02984ea1dd610b92e4deca201",
+      "ref": "refs/heads/master",
+      "license": "MIT",
+      "spdx_license": "MIT",
+      "dependencies": [],
+      "tested": true,
+      "build_requirements": [".NET 8 SDK", "tModLoader 1.4.4.x release with tMLMod.targets"],
+      "notes": "Pinned to the upstream commit whose build.txt reports version 3.3.6.7."
+    },
+    {
+      "id": "StructureHelper",
+      "name": "StructureHelper",
+      "display_name": "Structure Helper",
+      "version": "3.1.1",
+      "repo": "https://github.com/ScalarVector1/StructureHelper.git",
+      "commit": "f224c11eb09f0be12ee83665cdf097d38e6e1fe5",
+      "ref": "refs/tags/3.1.1",
+      "license": "MIT",
+      "spdx_license": "MIT",
+      "dependencies": [],
+      "tested": true,
+      "build_requirements": [".NET 8 SDK", "tModLoader 1.4.4.x release with tMLMod.targets"],
+      "notes": "Bundled as lib/StructureHelper.dll inside the tested Fargo's Souls package; source tag 3.1.1 matches build.txt."
+    },
+    {
+      "id": "FargowiltasSouls",
+      "name": "FargowiltasSouls",
+      "display_name": "Fargo's Souls Mod",
+      "version": "1.7.3.7",
+      "repo": "https://github.com/Fargowilta/FargowiltasSouls.git",
+      "commit": "226fadeadbe3422785a7708ba2cdf53bd8548c00",
+      "ref": "refs/heads/master",
+      "license": "MIT",
+      "spdx_license": "MIT",
+      "dependencies": ["Fargowiltas", "Luminance", "StructureHelper"],
+      "tested": true,
+      "build_requirements": [".NET 8 SDK", "tModLoader 1.4.4.x release with tMLMod.targets", "built Fargowiltas.dll", "built Luminance.dll", "built StructureHelper.dll"],
+      "notes": "Primary tested content mod. Known Switch performance: in-world roughly 15-20 fps."
+    }
+  ]
+}
