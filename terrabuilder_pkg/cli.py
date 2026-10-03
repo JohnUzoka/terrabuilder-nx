@@ -117,9 +117,9 @@ def load_toolchain(workdir: Path) -> tclib.Toolchain:
         return tclib.load(root)
     except tclib.ToolchainError as error:
         raise SystemExit(
-            f"{error}\nBuilds need a toolchain at {root}. Building one from source "
-            "(toolchain --from-source) and importing a release bundle (toolchain --bundle) "
-            "are not available yet; see docs/BUILDING.md."
+            f"{error}\nBuilds need a toolchain at {root}. Build one from source with "
+            "`toolchain --from-source --replace` (hours; see docs/BUILDING.md), or import a "
+            "release bundle (toolchain --bundle, not available yet)."
         ) from error
 
 
@@ -206,10 +206,26 @@ def file_manifest(paths: list[Path], base: Path) -> list[dict]:
 
 def toolchain_command(args: argparse.Namespace) -> int:
     if args.from_source:
-        raise SystemExit(
-            "toolchain --from-source is not available yet: the clean-checkout "
-            "runtime/BCL/LLVM/Mesa pipeline is incomplete. See docs/BUILDING.md."
-        )
+        workdir = args.workdir.expanduser().resolve()
+        script = ROOT / "scripts/toolchain/build_from_source.py"
+        cmd = [sys.executable, str(script), "--workdir", str(workdir)]
+        # build_from_source.py takes its own ~/.cache/terrabuilder/.heavy.lock per heavy step;
+        # don't also wrap the whole multi-hour call in run(..., heavy=True), which would
+        # deadlock (the outer flock would never release for the inner ones to acquire).
+        run(cmd)
+        final = workdir / "toolchain.fromsource"
+        live = workdir / "toolchain"
+        if args.replace:
+            backup = live.with_name(live.name + ".bak")
+            if backup.exists():
+                shutil.rmtree(backup)
+            if live.exists():
+                live.rename(backup)
+            final.rename(live)
+            print(f"replaced {live} (previous toolchain backed up at {backup})")
+        else:
+            print(f"built and verified at {final}; rerun with --replace to swap it into {live}")
+        return 0
     if args.bundle:
         raise SystemExit(
             "toolchain --bundle is not available yet: bundle import into a "
@@ -335,7 +351,7 @@ def parse_mod_flags(value: str | None, catalog: dict[str, dict]) -> list[str]:
     return dependency_closed_mods(selected, catalog)
 
 
-def tmod_variant_key(tmod_dir: Path, mods: list[str], catalog: dict[str, dict], profile: str) -> str:
+def tmod_variant_key(tmod_dir: Path, mods: list[str], catalog: dict[str, dict], profile: str, tc: tclib.Toolchain) -> str:
     h = hashlib.sha256()
     h.update(b"openal-free-quiet-launcher-v2-shared-audio-fna")
     h.update(sha256(tmod_dir / "tModLoader.dll").encode())
@@ -343,6 +359,11 @@ def tmod_variant_key(tmod_dir: Path, mods: list[str], catalog: dict[str, dict], 
     h.update(profile.encode())
     for mod in mods:
         h.update(mod.encode() + b"\0" + catalog[mod]["commit"].encode() + b"\0")
+    # Matches the toolchain components aot_stage/native_stage key on, so a toolchain
+    # rebuild (e.g. swapping in a from-source toolchain) invalidates cached variants
+    # instead of silently reusing a candidate AOT-compiled against the old one.
+    h.update(tc.digests("sdk", "runtime", "aot-compiler", "framework-aot", "cecil", "dotnet",
+                         "mono-nx-native", "mesa", "native-deps").encode())
     return "tmodcli-" + h.hexdigest()[:12]
 
 
@@ -644,7 +665,7 @@ def build_tmodloader(args: argparse.Namespace, tmod_dir: Path, mods: list[str], 
     out_root = Path(args.out).expanduser().resolve() if args.out else workdir / "out"
     tmeta = validate_tmodloader(tmod_dir)
     tc = load_toolchain(workdir)
-    variant = tmod_variant_key(tmod_dir, mods, catalog, args.profile)
+    variant = tmod_variant_key(tmod_dir, mods, catalog, args.profile, tc)
     stamps = workdir / "stamps" / variant
     launcher_dir = launcher_stage(LEGACY, LEGACY / "launcher-src" / args.profile, tc, args.profile, stamps / "launcher.json")
     packages = build_curated_mod_sources(tmod_dir, mods, workdir, catalog, tc) if mods else None
@@ -922,7 +943,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR)
     sub = p.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("doctor"); d.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR); d.set_defaults(func=doctor)
-    t = sub.add_parser("toolchain"); t.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR); t.add_argument("toolcmd", nargs="?", choices=["status", "verify"], default="status"); t.add_argument("--from-source", action="store_true", help="unavailable: clean-checkout pipeline is incomplete"); t.add_argument("--bundle", help="unavailable: clean-workdir bundle import is incomplete"); t.set_defaults(func=toolchain_command)
+    t = sub.add_parser("toolchain"); t.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR); t.add_argument("toolcmd", nargs="?", choices=["status", "verify"], default="status"); t.add_argument("--from-source", action="store_true", help="build the toolchain from the pinned public sources in toolchain.lock.json (hours; see docs/BUILDING.md)"); t.add_argument("--replace", action="store_true", help="with --from-source, swap the result into <workdir>/toolchain, backing up the previous one"); t.add_argument("--bundle", help="unavailable: clean-workdir bundle import is incomplete"); t.set_defaults(func=toolchain_command)
     b = sub.add_parser("build"); b.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR); b.add_argument("--target", choices=["vanilla","tmodloader"]); b.add_argument("--game-dir", help="Vanilla game folder for --target vanilla; tModLoader 1.4.4.x folder for --target tmodloader"); b.add_argument("--mods", help="Comma-separated curated tModLoader mods, or 'none'"); b.add_argument("--out"); b.add_argument("--profile", choices=["release","debug","profiler"], default="release"); b.add_argument("--debug-diagnostics", action="store_const", const="debug", dest="profile", help="alias for --profile debug"); b.add_argument("-y", "--yes", action="store_true"); b.set_defaults(func=build)
     c = sub.add_parser("compare"); c.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR); c.set_defaults(func=compare)
     args = p.parse_args(argv)

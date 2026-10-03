@@ -5,12 +5,12 @@ game (GOG Linux build 1.4.5.x). Nothing from the game is in this repository.
 
 > **Status, read first.** A vanilla build is reproducible from your game files plus
 > a **toolchain directory** whose files are all pinned by SHA-256 in its manifest.
-> The toolchain itself cannot yet be built from a clean checkout in one command: on
-> the configured build machine it was imported from the maintainer's engineering
-> cache, the artifacts that produced the hardware-verified builds. Parts 1–3 are the
-> engineering recipes for its components and mark where a component still depends on
-> a retained artifact rather than on a script in this repo. Turning them into a
-> single from-scratch toolchain build is open work.
+> `./terrabuilder toolchain --from-source --replace` builds that toolchain from the
+> pinned public sources in `toolchain.lock.json` (hours; see "Automated path" below).
+> One component, `facades`, is still a retained artifact rather than a from-source
+> build (hardware-proven as-is; see 3.2 for what rebuilding it from source would
+> take). Parts 1–3 double as the engineering recipes for every component, automated
+> or not.
 
 ## 0. What you need
 
@@ -27,6 +27,31 @@ The CLI's work directory is `~/.cache/terrabuilder` (override with `--workdir` o
 recipes in parts 1–3 work in the engineering cache `~/.cache/terraria-switch-build`
 (`$W`). Either directory is mounted as `/build` in container commands, and this
 repo is mounted read-only as `/work`.
+
+### Automated path: building the toolchain from source
+
+```sh
+./terrabuilder toolchain --from-source --replace --workdir ~/.cache/terrabuilder
+```
+
+This runs `scripts/toolchain/build_from_source.py`, which reads every pin from
+`toolchain.lock.json` and builds: the Mesa libraries, the mono-nx SDK baseline
+(downloaded and SHA-256-verified, not rebuilt), the mono-nx native sources, FNA3D/
+FAudio/MojoShader, the release CoreLib/framework and native Mono runtime, the LLVM
+AOT cross compiler, the framework AOT objects (CoreLib, System.Text.RegularExpressions,
+System.Collections.Concurrent), Cecil (from the `mono.cecil` NuGet package), and the
+dotnet SDK. It writes the result to `<workdir>/toolchain.fromsource`, carries
+`facades` over from the toolchain at `--reference-toolchain` (default
+`<workdir>/toolchain`) since that component has no from-source recipe yet, and runs
+`toolchain verify` before printing (or, with `--replace`, performing) the swap into
+`<workdir>/toolchain`. Each step is idempotent, so a failed or interrupted run can
+just be re-invoked. Expect several hours on an 8-core/10 GB machine: it serializes
+every heavy step through `~/.cache/terrabuilder/.heavy.lock`, the same lock the CLI's
+own heavy builds take, rather than risk running more than one at a time on limited RAM.
+
+Parts 1–3 below are the same pipeline spelled out by hand component by component,
+which is how `build_from_source.py` itself was derived and verified; read them for
+the reasoning behind each step or to rebuild one component in isolation.
 
 ### First-release CLI path
 
@@ -69,13 +94,11 @@ phase/GPU/audio diagnostics; `--profile profiler` adds the sampling profiler and
 writes `Terraria-profiler.nro`. The CLI prints every command it runs (lines
 starting with `+`), so a single stage can be rerun by hand.
 
-`toolchain --from-source` and `toolchain --bundle` fail explicitly: there is no
-clean-checkout toolchain build or bundle import yet, so the CLI works only where a
-toolchain directory already exists. The recipes below are engineering recipes for
-its components, not a reproducible end-to-end setup for a clean machine. On this
-WSL2 machine, run Runtime/BCL/Mesa/LLVM build steps under
-`flock ~/.cache/terrabuilder/.heavy.lock`, the lock the CLI takes for its heavy
-container steps.
+`toolchain --from-source` builds the toolchain as described above; `toolchain
+--bundle` still fails explicitly, since there is no bundle import yet. Manual
+Runtime/BCL/Mesa/LLVM build steps (parts 1–3) should still run under
+`flock ~/.cache/terrabuilder/.heavy.lock`, the lock the CLI and
+`build_from_source.py` both take for their heavy container steps.
 
 ### tModLoader CLI path (experimental)
 
@@ -162,9 +185,17 @@ list is available.
 | What | Where | Revision |
 | --- | --- | --- |
 | This repo | `github.com/JohnUzoka/terrabuilder-nx` | current branch |
-| .NET runtime (libnx port) | `github.com/JohnUzoka/dotnet_runtime`, a fork of `exelix11/dotnet_runtime` | branch `terrabuilder-nx` (`969ed2ab`) = upstream `libnx` `289cdaa5` + 4 fixes |
+| .NET runtime (libnx port) | `github.com/JohnUzoka/dotnet_runtime`, a fork of `exelix11/dotnet_runtime` | branch `terrabuilder-nx` (`7f043851`) = upstream `libnx` + 2 of 4 historical fixes (switch-table-data-memory, sockets-console-DEBUG-guard already upstream; `native/patches/mono-coop-managed-allocator.patch` and `native/patches/mono-aot-alc-resolve.patch` applied on top, pinned in `toolchain.lock.json`) |
 | mono-nx host | `github.com/JohnUzoka/mono-nx` | branch `fna-support` (`8be547c`) |
-| mono-nx prebuilt SDK | mono-nx release `rel-3`, `mono-nx-sdk-rel3-linux-x64.zip` | SHA-256 `3248d136…c098` |
+| mono-nx prebuilt SDK | published by upstream author `exelix11/mono-nx`, release `rel-3`, `mono-nx-sdk-linux-x64.zip` (built by mono-nx's own `gather_sdk.sh`: Debug-config ICU + mono-aot-cross + runtime bundle) | SHA-256 `3248d136…c098` |
+| Cecil | `mono.cecil` NuGet package (bundles Mono.Cecil, .Rocks, .Mdb, .Pdb) | `0.11.5` |
+| dotnet SDK | `dotnet-install.sh --channel 9.0` | `9.0.102` |
+| Mesa | `archive.mesa3d.org` tarball + devkitPro's `switch-mesa-20.1.0-5` patch set + 2 local glthread/gpu-wait patches | `20.1.0-rc3` |
+| Native deps | `FNA-XNA/FNA3D`, `FNA-XNA/FAudio` (MojoShader pinned transitively via FNA3D's submodule) | FNA3D `2c616bf8`, FAudio `41bfee95`, MojoShader `ad5dff84` |
+
+Every pin above (except the fork tip, which tracks this repo's own branch) is recorded in
+`toolchain.lock.json`, which `scripts/toolchain/build_from_source.py` reads instead of
+hardcoding versions.
 
 Why the exelix11 fork rather than `dotnet/runtime`: upstream has no Nintendo
 Switch target. The fork's `libnx` branch adds it: an `--os libnx` build target,
@@ -176,10 +207,13 @@ Sockets. That port is what mono-nx and this project run on.
 W=~/.cache/terraria-switch-build
 mkdir -p $W && cd $W
 git clone --filter=blob:none -b terrabuilder-nx https://github.com/JohnUzoka/dotnet_runtime.git runtime-source
+cd runtime-source && git apply /path/to/terrabuilder-nx/native/patches/mono-coop-managed-allocator.patch \
+  && git apply /path/to/terrabuilder-nx/native/patches/mono-aot-alc-resolve.patch && cd ..
 git clone --filter=blob:none -b fna-support https://github.com/JohnUzoka/mono-nx.git release58/mono-nx
 mkdir -p recovery46/downloads recovery46/sdk-pristine
-# download the mono-nx rel-3 SDK zip into recovery46/downloads, then:
-unzip -q recovery46/downloads/mono-nx-sdk-rel3-linux-x64.zip -d recovery46/sdk-pristine
+# download https://github.com/exelix11/mono-nx/releases/download/rel-3/mono-nx-sdk-linux-x64.zip
+# into recovery46/downloads (SHA-256 3248d136…c098), then:
+unzip -q recovery46/downloads/mono-nx-sdk-linux-x64.zip -d recovery46/sdk-pristine
 ```
 
 ## 2. Build images
@@ -219,15 +253,17 @@ FNA3D, FAudio and MojoShader as static libnx libraries, plus the dl-shim tables
 generated from their exported symbols:
 
 ```sh
-podman run --rm $MOUNTS localhost/monobuild:local -c '
+podman run --rm $MOUNTS --entrypoint /bin/bash localhost/monobuild:local -c '
   cd /work && scripts/build_native_deps.sh && scripts/gen_dl_shim.sh'
 ```
 
-Output goes to `native/install/`. `build_native_deps.sh` clones FNA3D/FAudio at their
-current HEAD. The toolchain's `native-deps` component holds the copies the shipped
-builds link (FNA3D `2c616bf8`, FAudio `41bfee95`, MojoShader `ad5dff84`), imported
-from `recovery46/native-deps/install`, whose loaded code is verified against build
-42. Pin the same commits if you rebuild them.
+(The image's own `ENTRYPOINT` sources `env.sh` and drops into an interactive shell,
+ignoring any args/CMD, so every scripted invocation needs `--entrypoint /bin/bash`
+like above.) Output goes to `native/install/`. `build_native_deps.sh` clones FNA3D/
+FAudio and pins them to `FNA3D_COMMIT`/`FAUDIO_COMMIT` (defaults: FNA3D `2c616bf8`,
+FAudio `41bfee95`; MojoShader `ad5dff84` comes along transitively via FNA3D's own
+submodule reference). The toolchain's `native-deps` component is these built outputs;
+override the commit env vars only if you intentionally want to track newer upstream.
 
 The CLI's launcher stage compiles the launcher objects from `native/` and the
 toolchain's mono-nx sources. To run it by hand (`--out` must be under `--workdir`):
@@ -283,9 +319,10 @@ cp $W/runtime-source/artifacts/obj/mono/libnx.arm64.Release/out/lib/libmonosgen-
    $W/runtime-release/libmonosgen-2.0-release.a
 ```
 
-(`build_runtime_release.sh` refuses to build without the allocator fix, which is
-committed on the fork branch.) The archive and the runtime component libraries
-became the toolchain's `runtime/lib`. To check that struct layouts match the
+(`build_runtime_release.sh` refuses to build without the allocator fix. It isn't
+committed on the fork branch itself; apply `native/patches/mono-coop-managed-allocator.patch`
+to `runtime-source` first, as in section 1.) The archive and the runtime component
+libraries became the toolchain's `runtime/lib`. To check that struct layouts match the
 runtime the AOT code was compiled against, run
 `scripts/release_bcl/dwarf_layouts.py` on both archives.
 
@@ -293,12 +330,16 @@ runtime the AOT code was compiled against, run
 
 ```sh
 git clone --filter=blob:none -b terrabuilder-nx https://github.com/JohnUzoka/dotnet_runtime.git $W/runtime-llvm
+cd $W/runtime-llvm && git apply /path/to/terrabuilder-nx/native/patches/mono-coop-managed-allocator.patch \
+  && git apply /path/to/terrabuilder-nx/native/patches/mono-aot-alc-resolve.patch && cd -
 cp scripts/release_bcl/build_llvm_cross.sh $W/runtime-llvm/
 podman run --rm -v $W:/build -v $W/recovery46/sdk-pristine:/mono-nx:ro \
   --entrypoint /bin/bash localhost/monobuild-llvm:local /build/runtime-llvm/build_llvm_cross.sh
 ```
 
-It builds a second checkout of the same fork branch at `$W/runtime-llvm`, producing
+It builds a second checkout of the same fork branch and the same two patches,
+separately from `$W/runtime-source` so the two configurations' build artifacts never
+mix, producing
 `artifacts/bin/mono/linux.x64.Debug/cross/linux-x64/libnx-arm64/{mono-aot-cross,opt,llc}`.
 Together with `libc++.so.1` and `libc++abi.so.1` they form the toolchain's
 `aot-compiler` component.
@@ -324,7 +365,10 @@ through LLVM, CoreLib with larger trampoline pools
 (`ntrampolines=65536,nimt-trampolines=8192,ngsharedvt-trampolines=4096,nunbox-arbitrary-trampolines=2048`).
 `framework-aot.json` records the original commands and the exact assemblies they
 were compiled from; `--framework-aot` rejects a build whose CoreLib or framework
-assemblies differ. No script in this repo rebuilds these objects yet.
+assemblies differ. `scripts/build_framework_aot.py` rebuilds this component from
+the from-source runtime build (3.3's CoreLib/framework output and 3.5's cross
+compiler); `scripts/toolchain/build_from_source.py` runs it automatically and
+re-runs it whenever CoreLib or either framework assembly changes.
 
 The `native` stage runs `scripts/native/link_nro.py` in the LLVM image. It checks
 every AOT and launcher object against the SHA-256 recorded in `build-manifest.json`

@@ -91,8 +91,6 @@ Vanilla:
 tModLoader (experimental):
 
 - In-world performance is very slow.
-- The D-pad moves through the main menu and the Start menu but not the
-  inventory.
 - The Plus+Minus FPS toggle has not been confirmed working.
 - Multiplayer and extended play are untested.
 - Only the curated open-source mods in `terrabuilder_pkg/curated_tmod_mods.json`
