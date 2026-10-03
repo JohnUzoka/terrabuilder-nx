@@ -82,6 +82,15 @@ Include:
 - what you did and what happened;
 - the logs above from that run.
 
+## Performance
+
+Vanilla, in world, at default (handheld, un-overclocked) clocks: roughly 48-53
+fps in the starting area with the default "Color" lighting. Setting Lighting
+to White (Settings > Lighting) skips colored-light propagation and reached
+about 60 fps in the same starting area and clock profile; worth trying if you
+want the smoothest experience and don't need colored lighting. Not yet
+measured in busier areas, docked, or with a CPU/GPU overclock.
+
 ## Known issues
 
 Vanilla:
