@@ -3,12 +3,14 @@
 This guide builds a Terraria NRO for Switch homebrew from **your own copy** of the
 game (GOG Linux build 1.4.5.x). Nothing from the game is in this repository.
 
-> **Status, read first.** The pipeline is reproducible **from verified baseline
-> artifacts**, not yet from a clean checkout in one command. Builds are derived from
-> previously accepted artifacts, and the verifiers pin their inputs by SHA-256.
-> Part 3 marks where a step depends on a retained artifact rather than on a script
-> in this repo. Turning the whole chain into a single from-scratch script is open
-> work.
+> **Status, read first.** A vanilla build is reproducible from your game files plus
+> a **toolchain directory** whose files are all pinned by SHA-256 in its manifest.
+> The toolchain itself cannot yet be built from a clean checkout in one command: on
+> the configured build machine it was imported from the maintainer's engineering
+> cache, the artifacts that produced the hardware-verified builds. Parts 1–3 are the
+> engineering recipes for its components and mark where a component still depends on
+> a retained artifact rather than on a script in this repo. Turning them into a
+> single from-scratch toolchain build is open work.
 
 ## 0. What you need
 
@@ -20,9 +22,11 @@ game (GOG Linux build 1.4.5.x). Nothing from the game is in this repository.
 - A legal copy of Terraria for Linux (GOG), e.g. `~/FNA-Game/Terraria/game`.
 - A Switch running Atmosphère and hbmenu, and an SD card.
 
-The work directory is `~/.cache/terraria-switch-build` (override with
-`TERRABUILDER_CACHE`). In every container command below it is mounted as
-`/build`, and this repo is mounted read-only as `/work`.
+The CLI's work directory is `~/.cache/terrabuilder` (override with `--workdir` or
+`TERRABUILDER_WORKDIR`), and its toolchain is `<workdir>/toolchain`. The component
+recipes in parts 1–3 work in the engineering cache `~/.cache/terraria-switch-build`
+(`$W`). Either directory is mounted as `/build` in container commands, and this
+repo is mounted read-only as `/work`.
 
 ### First-release CLI path
 
@@ -30,33 +34,48 @@ For day-to-day use, prefer the repository-root CLI:
 
 ```sh
 ./terrabuilder doctor
-./terrabuilder toolchain pack --workdir ~/.cache/terrabuilder
+./terrabuilder toolchain verify
 ./terrabuilder build --target vanilla \
   --game-dir "$HOME/GOG Games/Terraria1_4_5_8/game" \
   --profile release --workdir ~/.cache/terrabuilder -y
 ```
 
-The CLI stages a content-hashed build under `~/.cache/terrabuilder`, reuses the
-validated open-source toolchain artifacts from the legacy cache, patches only the
-user's local GOG assemblies, AOT-compiles the game-derived modules locally, relinks
-with source-built launcher objects, and writes
-`~/.cache/terrabuilder/out/Terraria.nro`, an `sdcard/` payload (`mono/config.ini`
-and the ICU data file `mono/etc/icudt77l.dat`, which the NRO reads from the SD card
-at startup), and a receipt JSON. Release builds omit
-timing/profiler diagnostics and drop the unused OpenAL shim/link. `--profile debug`
-or `--debug-diagnostics` restores phase/GPU/audio diagnostics; `--profile profiler`
-also emits `Terraria-profiler.nro`. `toolchain pack` records artifact SHA-256s,
-provenance, and bundled `THIRD_PARTY_NOTICES.md`/`CREDITS.md`/`licenses/**` files
-in `toolchain/manifest.json`.
+`doctor` checks Podman, the build images, the toolchain, free disk and memory.
+`toolchain` (or `toolchain status`) summarizes `<workdir>/toolchain`;
+`toolchain verify` rehashes every file against `toolchain/manifest.json`, which also
+records provenance. The toolchain's `notices/` holds `THIRD_PARTY_NOTICES.md`,
+`CREDITS.md`, and `licenses/` for the binaries it contains.
 
-The clean-checkout `toolchain --from-source` workflow is not release-ready. The
-flag now fails explicitly rather than reporting success after rebuilding only
-Mesa. `toolchain --bundle` is also unavailable: the current build still consumes
-fixed retained-cache paths rather than importing a portable bundle. The
-commands below are retained-cache engineering recipes, not a reproducible
-end-to-end setup for a clean machine. Runtime/BCL/Mesa/LLVM build steps must be
-run under `flock ~/.cache/terraria-switch-build/.heavy.lock` on this WSL2
-machine.
+A vanilla build runs five stages. Each records its inputs (game-file and repo-source
+SHA-256s, toolchain component digests, container image IDs) in
+`<workdir>/stamps/vanilla/<stage>.json` and reruns only when one of them changes.
+The build reads nothing besides the toolchain, the build images, this repo, your
+game folder, and its own work directory.
+
+| Stage | Script | Output under `<workdir>` |
+| --- | --- | --- |
+| patch | `scripts/patch_vanilla/run.py` (3.2) | `patch/<inputs hash>/` |
+| romfs | `scripts/pack_terraria_romfs.py` (3.2) | `vanilla/romfs/` |
+| aot | `scripts/compile_terraria_aot.py` (3.6) | `vanilla/aot/` |
+| launcher | `scripts/launcher/build_launcher.py` (3.1) | `vanilla/launcher-<profile>/` |
+| native | `scripts/native/link_nro.py` (3.6) | `vanilla/native-<profile>/` |
+
+The CLI copies the NRO to `<workdir>/out/Terraria.nro` and writes an `sdcard/`
+payload (`mono/config.ini` and the ICU data file `mono/etc/icudt77l.dat`, which the
+NRO reads from the SD card at startup) and a receipt JSON that includes the
+toolchain summary. Release builds omit timing/profiler diagnostics and drop the
+unused OpenAL shim/link. `--profile debug` or `--debug-diagnostics` restores
+phase/GPU/audio diagnostics; `--profile profiler` adds the sampling profiler and
+writes `Terraria-profiler.nro`. The CLI prints every command it runs (lines
+starting with `+`), so a single stage can be rerun by hand.
+
+`toolchain --from-source` and `toolchain --bundle` fail explicitly: there is no
+clean-checkout toolchain build or bundle import yet, so the CLI works only where a
+toolchain directory already exists. The recipes below are engineering recipes for
+its components, not a reproducible end-to-end setup for a clean machine. On this
+WSL2 machine, run Runtime/BCL/Mesa/LLVM build steps under
+`flock ~/.cache/terrabuilder/.heavy.lock`, the lock the CLI takes for its heavy
+container steps.
 
 ### tModLoader CLI path (experimental)
 
@@ -92,8 +111,11 @@ share the same file name and version string but have different code, so they
 abort at mod load with `Failed to load AOT module '<Mod>' ... doesn't match
 assembly`. The build-time verifier checks the staged inputs, not the SD card.
 
-Heavy AOT/link/container steps are wrapped with
-`flock ~/.cache/terraria-switch-build/.heavy.lock`.
+tModLoader builds use the same toolchain but still read validated inputs from the
+engineering cache `~/.cache/terraria-switch-build`: the patched `tModLoader.dll`,
+the base mod set, and the `main.o` build script `release58/compile_main.sh`. Their
+launcher objects are built into `launcher-src/<profile>` there. Heavy
+AOT/link/container steps take `~/.cache/terrabuilder/.heavy.lock`.
 
 tModLoader release builds use the same quiet launcher defaults and OpenAL-free
 link behavior as vanilla. Debug/profiler profiles opt back into the timing wraps
@@ -185,6 +207,10 @@ MOUNTS="-v $W:/build -v $PWD:/work:ro \
   -v $W/recovery46/native-deps/install:/fna-install:ro"
 ```
 
+The CLI mounts the toolchain instead: `<workdir>/toolchain` at `/toolchain`, and
+its `sdk`, `mono-nx-native` and `native-deps` components at `/mono-nx`,
+`/mono-nx/native` and `/fna-install`, so scripts see the same container paths.
+
 ## 3. Pipeline
 
 ### 3.1 Native dependencies and launcher (once)
@@ -198,43 +224,44 @@ podman run --rm $MOUNTS localhost/monobuild:local -c '
 ```
 
 Output goes to `native/install/`. `build_native_deps.sh` clones FNA3D/FAudio at their
-current HEAD. The shipped builds link the retained copies in
-`recovery46/native-deps/install` (FNA3D `2c616bf8`), whose loaded code is verified
-against build 42. Pin the same commits if you rebuild them.
+current HEAD. The toolchain's `native-deps` component holds the copies the shipped
+builds link (FNA3D `2c616bf8`, FAudio `41bfee95`, MojoShader `ad5dff84`), imported
+from `recovery46/native-deps/install`, whose loaded code is verified against build
+42. Pin the same commits if you rebuild them.
 
-The release launcher objects can now be rebuilt from source with the pinned
-mono-nx checkout and retained native-deps install:
+The CLI's launcher stage compiles the launcher objects from `native/` and the
+toolchain's mono-nx sources. To run it by hand (`--out` must be under `--workdir`):
 
 ```sh
-scripts/launcher/build_launcher.py --out $W/launcher-src/release
-scripts/launcher/build_launcher.py --profiler --out $W/launcher-src/profiler
+TB=~/.cache/terrabuilder
+scripts/launcher/build_launcher.py --workdir $TB --toolchain $TB/toolchain --out $TB/scratch/launcher-release
+scripts/launcher/build_launcher.py --workdir $TB --toolchain $TB/toolchain --profiler --out $TB/scratch/launcher-profiler
 ```
 
 The default profile keeps the input/audio/FPS and swapchain wrappers but omits
-`MONO_NX_PROFILER` and `nx_profiler.o`. `--profiler` builds the v88-style sampling
-profiler object as well. For provenance checks against v88, add `--v88-sources`
-to use the retained v81/v86 input/audio/swap sources; normal builds use the repo
-`native/shared` sources (including current `nx_input.c` defaults). Link these
-objects by passing `R58_OBJECT_OVERRIDES` for the 18 launcher objects and adding
-the extra wrapper objects in `R58_EXTRA_LDFLAGS`.
-
-`build_native.py` still replays build 42's recorded link line first
-(`recovery46/link-arguments.txt`) and verifies build 52 allocated sections before
-building a candidate.
+`MONO_NX_PROFILER` and `nx_profiler.o`. `--debug-diagnostics` enables the
+phase/GPU/audio diagnostics, and `--profiler` enables them and adds the sampling
+profiler object. `launcher-build.json` records each object's SHA-256 and the link
+order for `link_nro.py`.
 
 ### 3.2 Game payload (RomFS)
 
 `scripts/patch_vanilla/run.py` applies Mono.Cecil patches to a clean GOG 1.4.5.8
 install and emits the managed assemblies the Switch build uses: `Terraria.exe`,
-patched `ReLogic.dll` and `FNA.dll`, `NxCrypto.dll`, `NxInputDiag.dll`, and a
-receipt. Each patch checks the expected method shapes before rewriting; the patch
-list is in `scripts/patch_vanilla/README.md`. `scripts/pack_terraria_romfs.py`
-stages the game into a RomFS tree, excluding the Windows/Framework BCL DLLs and
-Linux `.so` files. The CLI runs both steps.
+patched `ReLogic.dll` and `FNA.dll`, `NxCrypto.dll`, `NxInputDiag.dll`, the other
+dependency DLLs embedded in `Terraria.exe`, and a receipt. Each patch checks the
+expected method shapes before rewriting; the patch list is in
+`scripts/patch_vanilla/README.md`. `scripts/pack_terraria_romfs.py` stages the
+game into a RomFS tree, excluding the Windows/Framework BCL DLLs and Linux `.so`
+files. The CLI runs both steps and adds the toolchain's framework assemblies and
+CoreLib. Where an embedded DLL shares a framework assembly's name (only
+`System.ValueTuple.dll`, a .NET Framework implementation), the RomFS keeps the
+net9 facade so its types do not duplicate CoreLib's.
 **Retained artifact:** the type-forwarding facades staged at the RomFS root
 (patched `mscorlib.dll`, `System.IO.Packaging.dll`,
-`System.Security.Permissions.dll`) are still copied from
-`hint52/aot-final/runtime-romfs`.
+`System.Security.Permissions.dll`) come from the toolchain's `facades` component,
+imported from build 52's RomFS (`hint52/aot-final/runtime-romfs`). No script in
+this repo produces them yet.
 
 ### 3.3 Release CoreLib/framework (build 58+)
 
@@ -244,7 +271,8 @@ podman run --rm -v $W:/build -v $W/recovery46/sdk-pristine:/mono-nx:ro \
 ```
 
 The scripts in `scripts/release_bcl/` expect to run from `$W/release58/`; copy them
-there (`cp scripts/release_bcl/* $W/release58/`).
+there (`cp scripts/release_bcl/* $W/release58/`). The output became the toolchain's
+`runtime/corelib` and `runtime/framework`.
 
 ### 3.4 Release native Mono runtime (build 65+)
 
@@ -256,7 +284,8 @@ cp $W/runtime-source/artifacts/obj/mono/libnx.arm64.Release/out/lib/libmonosgen-
 ```
 
 (`build_runtime_release.sh` refuses to build without the allocator fix, which is
-committed on the fork branch.) To check that struct layouts match the
+committed on the fork branch.) The archive and the runtime component libraries
+became the toolchain's `runtime/lib`. To check that struct layouts match the
 runtime the AOT code was compiled against, run
 `scripts/release_bcl/dwarf_layouts.py` on both archives.
 
@@ -271,47 +300,43 @@ podman run --rm -v $W:/build -v $W/recovery46/sdk-pristine:/mono-nx:ro \
 
 It builds a second checkout of the same fork branch at `$W/runtime-llvm`, producing
 `artifacts/bin/mono/linux.x64.Debug/cross/linux-x64/libnx-arm64/{mono-aot-cross,opt,llc}`.
+Together with `libc++.so.1` and `libc++abi.so.1` they form the toolchain's
+`aot-compiler` component.
 
 The .NET build scripts in 3.3–3.5 use `$W/nuget-packages` by default (override
 with `NUGET_PACKAGES`). Behind a TLS-intercepting proxy, set
 `TERRABUILDER_CA_BUNDLE=/build/path/to/ca-bundle.crt`; otherwise the container's
 system CA bundle is used.
 
-### 3.6 AOT compile, link, package: the current working build
+### 3.6 AOT compile and link
 
-Build 64 (LLVM Terraria + FNA + CoreLib) is produced in three stages: an LLVM
-Terraria build (60b), then FNA (62), then CoreLib (64) through LLVM:
+The CLI's `aot` stage runs `scripts/compile_terraria_aot.py` in the LLVM image. It
+AOT-compiles the game-derived assemblies in the RomFS (Terraria, FNA, ReLogic,
+Newtonsoft.Json, NxCrypto, NxInputDiag and the other game libraries), Terraria and
+FNA through LLVM (`--llvm-module`), checks that every object binds the MVID of the
+staged assembly, and writes `build-manifest.json` and the module registration
+header `mono_aot_modules.h`.
 
-```sh
-POOLS=nimt-trampolines=8192,ngsharedvt-trampolines=4096,nunbox-arbitrary-trampolines=2048
-# 60b: Release BCL, CoreLib inlining, larger trampoline pools, Terraria through LLVM
-podman run --rm --entrypoint /bin/bash $MOUNTS \
-  -e R58_VARIANT=v60b -e R58_CORELIB_INLINE=1 -e R58_LLVM_MODULES=Terraria \
-  -e R58_CORELIB_AOT_EXTRA=$POOLS -e "R58_TITLE=Terraria 60b LLVM Terraria" \
-  localhost/monobuild-llvm:local -c 'export PATH=/opt/devkitpro/devkitA64/bin:/opt/devkitpro/tools/bin:$PATH
-    python3 /build/release58/build_aot.py && python3 /build/release58/build_native.py'
-# 62: reuse 60b, recompile FNA through LLVM
-podman run --rm --entrypoint /usr/bin/python3 $MOUNTS \
-  -e FNA_LLVM_BASE=v60b -e FNA_LLVM_VARIANT=v62 -e FNA_LLVM_BASE_NRO_SHA=<60b NRO sha256> \
-  -e "FNA_LLVM_TITLE=Terraria 62 LLVM Terraria+FNA" \
-  localhost/monobuild-llvm:local /build/release58/build_fna_llvm.py
-# 64: reuse 62, recompile CoreLib through LLVM
-podman run --rm --entrypoint /usr/bin/python3 $MOUNTS \
-  -e FNA_LLVM_MODULE=System.Private.CoreLib -e FNA_LLVM_BASE=v62 -e FNA_LLVM_VARIANT=v64 \
-  -e FNA_LLVM_BASE_NRO_SHA=<62 NRO sha256> -e "FNA_LLVM_TITLE=Terraria 64 LLVM CoreLib" \
-  localhost/monobuild-llvm:local /build/release58/build_fna_llvm.py
-```
+CoreLib and the framework are not compiled per build. The toolchain's
+`framework-aot` component holds their objects: CoreLib,
+System.Text.RegularExpressions and System.Collections.Concurrent, compiled once
+through LLVM, CoreLib with larger trampoline pools
+(`ntrampolines=65536,nimt-trampolines=8192,ngsharedvt-trampolines=4096,nunbox-arbitrary-trampolines=2048`).
+`framework-aot.json` records the original commands and the exact assemblies they
+were compiled from; `--framework-aot` rejects a build whose CoreLib or framework
+assemblies differ. No script in this repo rebuilds these objects yet.
 
-Link variants of a finished AOT set without recompiling (e.g. build 65/66 = 64's
-objects + the Release runtime, + GC stats):
+The `native` stage runs `scripts/native/link_nro.py` in the LLVM image. It checks
+every AOT and launcher object against the SHA-256 recorded in `build-manifest.json`
+and `launcher-build.json`, compiles `native/interpreter/source/main.c` against
+`mono_aot_modules.h` (`scripts/native/compile_main.sh`), links with the link line
+recorded in `native/interpreter/link-arguments.json` (the toolchain's runtime, Mesa
+and native-deps libraries), and packages the ELF and RomFS with `elf2nro`.
+`native-build.json` and `link.map` are written next to `mono_nx_fna.nro`.
 
-```sh
-mkdir $W/release58/v66 && cp -al $W/release58/v64/aot-final $W/release58/v66/aot-final
-podman run --rm --entrypoint /bin/bash $MOUNTS \
-  -e R58_VARIANT=v66 -e R58_RUNTIME=release -e R58_MAIN_DEFINES=-DMONO_NX_GC_STATS=1 \
-  -e "R58_TITLE=Terraria 66 GC params" localhost/monobuild-llvm:local -c \
-  'export PATH=/opt/devkitpro/devkitA64/bin:/opt/devkitpro/tools/bin:$PATH; python3 /build/release58/build_native.py'
-```
+To link a variant without recompiling, rerun the `link_nro.py` command the CLI
+printed with a fresh `--out` and extra `--main-define` options; for example,
+`--main-define=MONO_NX_GC_STATS=1` builds a GC-stats variant.
 
 ### 3.7 Verify
 
@@ -323,6 +348,8 @@ cd $W && R58_VARIANT=v66 R58_TITLE="Terraria 66 GC params" \
 It checks every native method target and fallback, no RWX segments, read-only
 method tables, and that the RomFS differs from build 52 only by the expected
 framework swap. The NRO is `$W/release58/<variant>/native/candidate/mono_nx_fna.nro`.
+`verify_artifact.py` reads only that engineering-cache layout; it does not check
+CLI builds yet.
 
 ## 4. Install on the Switch
 
@@ -337,10 +364,8 @@ launches, so rename or delete it between measured runs.
 | Option | Where | Default | Effect |
 | --- | --- | --- | --- |
 | `MONO_NX_PHASE_TIMING` | Makefile | 0 | `NX_PHASE` frame timing and SDL/FNA3D call wrappers |
-| `MONO_NX_GC_STATS` | Makefile / `R58_MAIN_DEFINES` | 0 | `NX_GC` lines: GC counts/time, managed allocation, malloc use |
+| `MONO_NX_GC_STATS` | Makefile / `link_nro.py --main-define` | 0 | `NX_GC` lines: GC counts/time, managed allocation, malloc use |
 | `/mono/gc_params.txt` | SD card | absent | One line passed to SGen as `MONO_GC_PARAMS` |
 | `MONO_NX_EMBEDDED_BCL` | Makefile | 0 | Load CoreLib/framework from the NRO's RomFS |
 | `MONO_NX_FATAL_DIAG` | Makefile | 0 | Fatal Mono errors write a crash report |
-| `R58_LLVM_MODULES`, `R58_LLVM_AOT_EXTRA` | `build_aot.py` | none | Modules compiled through LLVM, extra LLVM options |
-| `R58_CORELIB_AOT_EXTRA` | `build_aot.py` | none | CoreLib AOT options (trampoline pool sizes) |
-| `R58_RUNTIME=release` | `build_native.py` | Debug-config runtime | Link the Release native runtime |
+| `--llvm-module`, `--llvm-aot-extra` | `compile_terraria_aot.py` | CLI: Terraria, FNA | Modules compiled through LLVM, extra LLVM options |

@@ -2,8 +2,8 @@
 # Rebuild devkitPro's switch-mesa 20.1.0-5 (libEGL.a + libglapi.a) with the glthread patch (builds 75–77).
 # Host: ./build_mesa.sh <workdir>   (needs podman; ~20 min, ~1.5 GB). STOCK=1 skips the glthread patch
 # (for comparing against the installed portlibs library); output then goes to <workdir>/stock-lib/.
-# Output: <workdir>/glthread-lib/{libEGL.a,libglapi.a}; link them ahead of portlibs with
-#   R58_EXTRA_LDFLAGS="-L/build/gfx/v76-lib ..." (build_native.py, candidate only).
+# Output: <workdir>/glthread-lib/{libEGL.a,libglapi.a}, the toolchain's `mesa` component
+#   (lib/), which native/interpreter/link-arguments.json links ahead of portlibs.
 set -euo pipefail
 W=$(realpath "$1"); HERE=$(dirname "$(realpath "$0")"); PATCHES=$HERE/../../native/patches
 PKG=https://raw.githubusercontent.com/devkitPro/pacman-packages/master/switch/mesa

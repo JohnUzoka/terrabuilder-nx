@@ -103,4 +103,4 @@ device.
   not navigate the inventory, the Plus/Minus FPS toggle has not been
   confirmed, and tModLoader multiplayer has not been verified.
 - A clean-checkout, end-to-end from-source toolchain build remains incomplete.
-  See [Building](BUILDING.md) for retained-cache recipes and limitations.
+  See [Building](BUILDING.md) for the component recipes and limitations.

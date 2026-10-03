@@ -10,7 +10,8 @@
 
 Every other object, LLVM sidecar and RomFS file is hard-linked from build70.
 Run in localhost/monobuild-llvm:local with the release58 container mounts; the native
-link/package step is release58/build_native.py with the R58_* environment.
+link/package step was release58/build_native.py with the R58_* environment (removed;
+the CLI now links with scripts/native/link_nro.py).
 """
 import json
 import os

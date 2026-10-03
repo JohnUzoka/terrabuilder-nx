@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Compile exact staged Terraria assemblies; run inside the mono-nx build container.
 
-The output directory is private/BYO build data, not runtime RomFS. Corelib must
-already be compiled with full,interp,static by the matching cross compiler.
+The output directory is private/BYO build data, not runtime RomFS. CoreLib and the
+other framework modules are not compiled here: they come prebuilt from the toolchain
+(--framework-aot) and are checked against the exact assemblies this build loads.
 """
 
 from __future__ import annotations
@@ -258,6 +259,43 @@ def method_counts(log: Path) -> dict:
     return {"compiled_methods": compiled, "total_methods": total}
 
 
+def load_framework_record(directory: Path) -> dict:
+    path = directory / "framework-aot.json"
+    record = json.loads(path.read_text())
+    if record.get("schema") != "terrabuilder-framework-aot/1" or record.get("aot_options") != ["full", "interp", "static"]:
+        raise RuntimeError(f"unsupported framework AOT record: {path}")
+    return record
+
+
+def framework_modules(directory: Path, record: dict, manifest: dict, staged: dict, nm: str, logs: Path) -> list[dict]:
+    """Prebuilt framework objects; each must match the assembly this build stages or loads."""
+    results = []
+    for entry in record["modules"]:
+        expected = entry["assembly"]
+        name = expected["name"]
+        assembly = manifest["corelib"] if name == manifest["corelib"]["name"] else staged.get(Path(expected["path"]).name)
+        if assembly is None:
+            raise RuntimeError(f"framework AOT module {name} has no staged RomFS assembly")
+        if (assembly["sha256"], assembly["mvid"].lower()) != (expected["sha256"], expected["mvid"].lower()):
+            raise RuntimeError(f"framework AOT object for {name} was compiled from MVID {expected['mvid']}, "
+                               f"but this build loads {assembly['mvid']} ({assembly['path']})")
+        obj, llvm = directory / entry["object"], directory / entry["llvm_object"]
+        for path, digest in ((obj, entry["object_sha256"]), (llvm, entry["llvm_object_sha256"])):
+            if sha256(path) != digest:
+                raise RuntimeError(f"framework AOT object changed: {path}")
+        result = {"assembly": assembly, "status": "toolchain", "command": entry["command"],
+                  "log": str(directory / entry["log"]), "optimizations": entry["optimizations"]}
+        result.update(method_counts(directory / entry["log"]))
+        result.update(inspect_object(obj, nm, logs / (obj.stem + ".nm.log"), llvm))
+        if result["symbol"] != entry["symbol"]:
+            raise RuntimeError(f"{obj} exports {result['symbol']}, expected {entry['symbol']}")
+        result.update(llvm_object=str(llvm), llvm_object_sha256=entry["llvm_object_sha256"], symbol_object=str(llvm))
+        results.append(result)
+    if [r["assembly"]["name"] for r in results].count(manifest["corelib"]["name"]) != 1:
+        raise RuntimeError("framework AOT record must contain exactly one CoreLib module")
+    return results
+
+
 def main() -> int:
     runtime_root = "/mono-nx/dotnet_runtime/artifacts/bin"
     parser = argparse.ArgumentParser(description=__doc__)
@@ -271,8 +309,8 @@ def main() -> int:
     parser.add_argument("--stdbuf", default="stdbuf", help="line-buffer compiler output, including crashes")
     parser.add_argument("--tool-prefix", default="aarch64-none-elf-")
     parser.add_argument("--reference-dir", type=Path, action="append", default=[])
-    parser.add_argument("--corelib-object", type=Path, help="existing object; never built by this script")
-    parser.add_argument("--corelib-log", type=Path, help="optional log from the external corelib compilation")
+    parser.add_argument("--framework-aot", type=Path, required=True,
+                        help="toolchain directory with framework-aot.json and the prebuilt CoreLib/framework objects")
     parser.add_argument("--no-inline-assembly", action="append", default=[], metavar="NAME",
                         help="disable method inlining only for named modules; works around the Terraria SetDisplayMode compiler crash")
     parser.add_argument("--extra-module", action="append", default=[], metavar="FILE",
@@ -291,6 +329,9 @@ def main() -> int:
     args = parser.parse_args()
     if args.jobs < 1:
         parser.error("--jobs must be positive")
+    framework_dir = args.framework_aot.resolve()
+    framework_record = load_framework_record(framework_dir)
+    framework_files = {Path(m["assembly"]["path"]).name for m in framework_record["modules"]}
     game, output = args.game_dir.resolve(), args.output_dir.resolve()
     if output == game or game in output.parents:
         parser.error("--output-dir must be outside staged RomFS")
@@ -327,7 +368,7 @@ def main() -> int:
     embedded = {a["name"]: a for a in manifest["embedded_assemblies"]}
     modules = [staged[name] for name in ("Terraria.exe", "FNA.dll", "NxCrypto.dll", "NxInputDiag.dll")]
     # A staged copy is what Mono loads at runtime (staged precedes embedded as a
-    # metadata provider), e.g. the patched ReLogic.dll at RomFS root since build50.
+    # metadata provider), e.g. the patched ReLogic.dll at the RomFS root.
     for name in ("ReLogic", "Newtonsoft.Json"):
         if name + ".dll" in staged:
             modules.append(staged[name + ".dll"])
@@ -336,6 +377,8 @@ def main() -> int:
     for filename in args.extra_module:
         if filename not in staged:
             parser.error(f"--extra-module {filename} is not a staged RomFS assembly")
+        if filename in framework_files:
+            parser.error(f"--extra-module {filename} is prebuilt in --framework-aot")
         modules.append(staged[filename])
     if args.runtime_metadata_only:
         previous = json.loads((output / "build-manifest.json").read_text())
@@ -343,6 +386,7 @@ def main() -> int:
             raise RuntimeError("runtime metadata verification requires a complete existing build manifest")
         existing = [previous["corelib"], *previous["modules"]]
         expected = {assembly["name"] for assembly in [manifest["corelib"], *modules]}
+        expected |= {m["assembly"]["name"] for m in framework_record["modules"]}
         if {module["assembly"]["name"] for module in existing} != expected:
             raise RuntimeError("existing AOT module set does not match requested assemblies")
         header_before = sha256(header)
@@ -387,7 +431,7 @@ def main() -> int:
             llvm_target = output / (source.name + "-llvm.o")
             # LLVM mode writes fixed names (temp.s/.bc/.opt.bc/.o) into temp-path, so each LLVM
             # module needs its own directory: parallel LLVM compiles sharing one clobbered each
-            # other's main object (build63 first attempt).
+            # other's main object.
             module_temp = temporary / ("llvm-" + source.name)
             module_temp.mkdir(exist_ok=True)
             aot_extra = f",llvm-path={llvm_dir}/,llvm-outfile={llvm_target}.pending,temp-path={module_temp}"
@@ -440,15 +484,15 @@ def main() -> int:
               "build_command": build_command, "prepare_command": prepare_command, "modules": results}
     report_path = output / "build-manifest.json"
     write_json(report_path, report)
-    core_object = (args.corelib_object or output / "System.Private.CoreLib.dll.o").resolve()
-    core_result = {"assembly": manifest["corelib"], "status": "externally_compiled"}
     try:
-        core_result.update(inspect_object(core_object, nm, logs / "System.Private.CoreLib.dll.nm.log"))
-        if args.corelib_log:
-            core_result.update(method_counts(args.corelib_log))
-            core_result["log"] = str(args.corelib_log.resolve())
-    except (OSError, RuntimeError) as error:
-        core_result.update(status="failed", error=str(error))
+        framework = framework_modules(framework_dir, framework_record, manifest, staged, nm, logs)
+    except (OSError, RuntimeError, KeyError, ValueError) as error:
+        report["framework_aot_error"] = str(error)
+        write_json(report_path, report)
+        raise RuntimeError(f"toolchain framework AOT objects are unusable: {error}") from error
+    core_result = next(r for r in framework if r["assembly"]["name"] == manifest["corelib"]["name"])
+    framework_extra = [r for r in framework if r is not core_result]
+    report["framework_aot"] = {"directory": str(framework_dir), "record_sha256": sha256(framework_dir / "framework-aot.json")}
     report["corelib"] = core_result
     report["inputs_verified_unchanged"] = True
     for assembly in [*manifest["staged_assemblies"], *manifest["embedded_assemblies"], manifest["corelib"]]:
@@ -456,10 +500,11 @@ def main() -> int:
             report["inputs_verified_unchanged"] = False
             report["input_error"] = "input changed after preparation: " + assembly["path"]
     write_json(report_path, report)
-    if (any(result["status"] != "compiled" for result in results) or
-            core_result["status"] == "failed" or not report["inputs_verified_unchanged"]):
+    if any(result["status"] != "compiled" for result in results) or not report["inputs_verified_unchanged"]:
         raise RuntimeError(f"AOT build incomplete; no registration header emitted. See {report_path} and per-module logs")
-    all_results = [core_result, *results]
+    # Registration order: CoreLib, game modules, then the other framework modules.
+    report["modules"] = [*results, *framework_extra]
+    all_results = [core_result, *results, *framework_extra]
     report["runtime_metadata_manifest"] = str(validate_runtime_metadata(manifest, all_results, output))
     symbols = [result["symbol"] for result in all_results]
     if len(set(symbols)) != len(symbols):

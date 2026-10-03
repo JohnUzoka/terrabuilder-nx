@@ -21,8 +21,8 @@ The native overlay (`native/interpreter`, `native/shared`) builds against mono-n
 
 ## Layout
 
-- `terrabuilder`, `terrabuilder_pkg/`: the CLI, the curated tModLoader mod catalog,
-  and recorded mod compatibility patches.
+- `terrabuilder`, `terrabuilder_pkg/`: the CLI, the toolchain manifest checks, the
+  curated tModLoader mod catalog, and recorded mod compatibility patches.
 - `native/` launcher overlay: `interpreter/` (main.c, Makefile, AOT method-table linker
   script), `shared/` (input latch, FNA3D/FAudio/SDL3 shims), `patches/` (runtime source
   patches, also committed on the dotnet_runtime fork), `tests/` (host regressions).
@@ -32,8 +32,10 @@ The native overlay (`native/interpreter`, `native/shared`) builds against mono-n
     IL patchers applied to the user's local game and FNA assemblies.
   - `compile_terraria_aot.py`, `prepare_aot/`: prepare, AOT-compile (optionally
     `--llvm-module`), verify MVID bindings and emit the module registration header.
+  - `native/`: `link_nro.py` compiles `main.o` against the AOT registration header,
+    links the launcher, AOT objects and toolchain libraries, and packages the NRO.
   - `release_bcl/`: Release CoreLib/framework, native runtime, and LLVM cross-compiler
-    builders plus AOT, link, package, and artifact-verification helpers.
+    builders plus artifact-verification helpers.
   - `launcher/`, `mesa/`: launcher objects and the Switch Mesa build.
   - `tmod/`: the tModLoader port (mod set preparation, offline hooks, IL lowering,
     AOT, and link).
@@ -56,9 +58,10 @@ build options are:
 ## Build environment
 
 Podman images `localhost/monobuild:local` (devkitA64, .NET SDK) and
-`localhost/monobuild-llvm:local` (adds clang-19 for the LLVM cross compiler). The
-retained toolchain cache is `~/.cache/terraria-switch-build` (override with
-`TERRABUILDER_CACHE`), mounted as `/build`; this repo is mounted read-only as `/work`.
+`localhost/monobuild-llvm:local` (adds clang-19 for the LLVM cross compiler). Builds
+run in a work directory (default `~/.cache/terrabuilder`; override with `--workdir`
+or `TERRABUILDER_WORKDIR`) mounted as `/build`. This repo is mounted read-only as
+`/work`, and the toolchain in `<workdir>/toolchain` read-only as `/toolchain`.
 Engineering recipes are in [docs/BUILDING.md](docs/BUILDING.md).
 
 ## CLI quickstart (configured build machine)
@@ -69,15 +72,19 @@ patched assemblies, RomFS trees, icons, and game AOT objects stay local.
 
 ```sh
 ./terrabuilder doctor
-./terrabuilder toolchain pack --workdir ~/.cache/terrabuilder
+./terrabuilder toolchain verify
 ./terrabuilder build --target vanilla \
   --game-dir "$HOME/GOG Games/Terraria1_4_5_8/game" \
   --profile release --workdir ~/.cache/terrabuilder -y
 ```
 
-These commands currently target the configured build machine and its retained
-cross-compilation cache. `toolchain pack` records a local artifact manifest; it
-does not yet create a bundle that a clean machine can install and use.
+Vanilla builds consume only the toolchain in `<workdir>/toolchain`: the Mono
+runtime, CoreLib/framework and their prebuilt AOT objects, the LLVM AOT compiler,
+Mesa, FNA3D/FAudio/MojoShader, the mono-nx SDK, Mono.Cecil, the .NET SDK, and
+their license notices. Its `manifest.json` records every file's SHA-256;
+`toolchain` prints a summary and `toolchain verify` rehashes every file. On the
+configured build machine the toolchain was imported from the maintainer's
+engineering cache, and there is no way yet to create one elsewhere:
 `toolchain --from-source` and `toolchain --bundle` fail explicitly because the
 clean-checkout build and bundle-import paths are incomplete. Do not present the
 current CLI as a self-service public release until those paths are completed.
@@ -89,9 +96,10 @@ Release builds omit timing/profiler diagnostics and do not link OpenAL. Use
 `--profile debug` (or `--debug-diagnostics`) for phase/GPU/audio diagnostics, and
 `--profile profiler` for diagnostics plus a profiler-enabled NRO at
 `Terraria-profiler.nro`.
-Heavy container steps are serialized with
-`~/.cache/terraria-switch-build/.heavy.lock`; the default workdir is
-`~/.cache/terrabuilder` and can be overridden with `--workdir`.
+Heavy container steps are serialized with `~/.cache/terrabuilder/.heavy.lock`,
+and concurrent vanilla builds in one workdir wait for each other. Each stage reruns
+only when its recorded inputs (game files, repo sources, toolchain component
+digests, container image IDs) change.
 
 `terrabuilder build` without flags first prompts for either
 `Vanilla Terraria (GOG 1.4.5.x)` or `tModLoader (1.4.4) (experimental)`, then
@@ -110,6 +118,10 @@ tModLoader builds are experimental:
   --game-dir ~/.cache/terraria-switch-build/tmod/release \
   --mods FargowiltasSouls --workdir ~/.cache/terrabuilder -y
 ```
+
+tModLoader builds take their toolchain from `<workdir>/toolchain` but still read
+validated inputs (the patched tModLoader, the base mod set, its link script) from
+the maintainer's engineering cache `~/.cache/terraria-switch-build`.
 
 Outputs are written under `~/.cache/terrabuilder/out/tmodloader-*/`: an NRO,
 `sdcard/` payload (the mods plus the same `mono/` runtime files as vanilla), and
@@ -154,7 +166,7 @@ curated mods) loads its mods, reaches a world, and plays audio on hardware, but
 it is very slow and has the input gaps listed above. tModLoader remains
 experimental.
 
-The retained-cache build path is available for the maintainer. A one-command,
-clean-checkout from-source pipeline and clean-machine bundle import are still
-being completed; `docs/BUILDING.md` describes the retained-cache engineering
-recipes.
+Vanilla builds need only the toolchain directory, which is currently imported from
+the maintainer's engineering cache. A one-command, clean-checkout from-source
+toolchain build and clean-machine bundle import are still being completed;
+`docs/BUILDING.md` describes the engineering recipes for the individual components.

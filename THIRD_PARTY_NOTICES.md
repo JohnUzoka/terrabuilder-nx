@@ -28,6 +28,6 @@ This project does not distribute Terraria, tModLoader, GOG game files, or game-d
 
 OpenAL Soft was present in the inherited link line only through the unused OpenAL dl-shim. The release-hygiene link drops `dl_shim_openal.o` and `-lopenal`; the final NRO map has no `libopenal.a` members.
 
-## Toolchain bundle inclusion note
+## Toolchain notices
 
-`terrabuilder toolchain pack` currently implements its manifest and artifact list in `terrabuilder_pkg/cli.py`, which this task was instructed not to edit. The packer should copy `THIRD_PARTY_NOTICES.md`, `CREDITS.md`, and `licenses/` into the bundle root and replace the manifest `licenses` TODO with a generated file list plus source/notice text. See `release-hygiene-report.md` for the exact patch suggestion.
+The toolchain directory (`<workdir>/toolchain`) carries copies of this file, `CREDITS.md`, and `licenses/` under `notices/`, and its `manifest.json` records their SHA-256s with the other components. A toolchain bundle must ship that directory unchanged.

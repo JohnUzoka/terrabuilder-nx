@@ -1,26 +1,28 @@
 #!/usr/bin/env python3
-import argparse, hashlib, json, os, shutil, subprocess, sys
+"""Patch clean GOG Terraria 1.4.5.8 managed assemblies for the Switch build.
+
+Builds NxCrypto, NxInputDiag and the Cecil patcher with the toolchain's .NET SDK
+(no network), then writes the patched assemblies to --out under --workdir.
+"""
+import argparse, hashlib, shutil, subprocess, sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-CACHE = Path(os.environ.get('TERRABUILDER_CACHE', Path.home()/'.cache/terraria-switch-build'))
-LEGACY = Path(os.environ.get('TERRABUILDER_LEGACY_CACHE', Path.home()/'.cache/terraria-switch-build'))
-WORK = CACHE/'patch-vanilla-work'
 IMAGE = 'localhost/monobuild:local'
-CECIL = '/build/runtime-source/artifacts/bin/Mono.Linker/Release/net9.0/Mono.Cecil.dll'
-DOTNET = '/build/runtime-source/.dotnet/dotnet'
+CECIL = '/toolchain/cecil/Mono.Cecil.dll'
+DOTNET = '/toolchain/dotnet/dotnet'
 
 def run(cmd, **kw):
     print('+', ' '.join(map(str, cmd)))
     subprocess.run(cmd, check=True, **kw)
 
-def pod(script, mounts, network=False):
+def pod(script, workdir, toolchain, mounts, network=False):
     cmd=['podman','run','--rm','--userns=keep-id','--entrypoint','sh',
          '-e','HOME=/build/patch-vanilla-work/home',
          '-e','DOTNET_CLI_HOME=/build/patch-vanilla-work/home',
          '-e','NUGET_PACKAGES=/build/nuget-packages',
          '-e','DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1',
-         '-v',f'{ROOT}:/work:ro','-v',f'{CACHE}:/build','-v',f'{LEGACY}:/legacy:ro','-v',f'{LEGACY}:{LEGACY}:ro', *mounts]
+         '-v',f'{ROOT}:/work:ro','-v',f'{workdir}:/build','-v',f'{toolchain}:/toolchain:ro', *mounts]
     if not network: cmd.insert(3,'--network=none')
     cmd += [IMAGE,'-lc',script]
     run(cmd)
@@ -32,14 +34,15 @@ def sha(p):
     return h.hexdigest()
 
 def main():
-    global CACHE, WORK
-    ap=argparse.ArgumentParser(description='Patch clean GOG Terraria 1.4.5.8 managed assemblies for the Switch build')
-    ap.add_argument('game_dir', nargs='?', default=str(Path.home()/'GOG Games/Terraria1_4_5_8/game'))
-    ap.add_argument('--out', default=str(WORK/'verified-output'))
-    ap.add_argument('--workdir', default=str(CACHE), help='container /build work directory')
+    ap=argparse.ArgumentParser(description=__doc__)
+    ap.add_argument('game_dir')
+    ap.add_argument('--out', required=True, help='output directory under --workdir')
+    ap.add_argument('--workdir', required=True, help='work directory, mounted as /build')
+    ap.add_argument('--toolchain', required=True, help='toolchain directory, mounted as /toolchain')
     args=ap.parse_args()
-    CACHE=Path(args.workdir).resolve(); WORK=CACHE/'patch-vanilla-work'
-    game=Path(args.game_dir).resolve(); out=Path(args.out).resolve(); build=WORK/'build'
+    workdir=Path(args.workdir).resolve(); toolchain=Path(args.toolchain).resolve()
+    game=Path(args.game_dir).resolve(); out=Path(args.out).resolve(); build=workdir/'patch-vanilla-work'/'build'
+    if not out.is_relative_to(workdir): sys.exit(f'--out must be under {workdir}')
     if not game.exists(): sys.exit(f'missing game dir: {game}')
     build.mkdir(parents=True, exist_ok=True); out.parent.mkdir(parents=True, exist_ok=True)
     # Keep final output but refresh build intermediates.
@@ -47,12 +50,14 @@ def main():
     build.mkdir(parents=True)
     mounts=['-v', f'{game}:/game:ro']
     fna_container = '/game/FNA.dll'
-    common='-p:Deterministic=true -p:ContinuousIntegrationBuild=true -p:PathMap=/work=/_/repo -p:UseSharedCompilation=false'
-    pod(f'{DOTNET} build /work/managed/nx_crypto/NxCrypto.csproj -c Release -o /build/patch-vanilla-work/build/nxcrypto -p:BaseIntermediateOutputPath=/build/patch-vanilla-work/obj/nxcrypto/ {common} >/dev/null && {DOTNET} build /work/managed/nx_input_diag/NxInputDiag.csproj -c Release -o /build/patch-vanilla-work/build/nxinput -p:BaseIntermediateOutputPath=/build/patch-vanilla-work/obj/nxinput/ -p:FNAPath="{fna_container}" {common} >/dev/null && {DOTNET} build /work/scripts/patch_vanilla/PatchVanilla.csproj -c Release -o /build/patch-vanilla-work/build/tool -p:BaseIntermediateOutputPath=/build/patch-vanilla-work/obj/tool/ -p:CecilPath={CECIL} {common} >/dev/null', mounts)
+    # No source-control queries: SourceLink would otherwise stamp the repository's
+    # HEAD commit into NxCrypto/NxInputDiag, so every commit would change the RomFS.
+    common='-p:Deterministic=true -p:ContinuousIntegrationBuild=true -p:PathMap=/work=/_/repo -p:UseSharedCompilation=false -p:EnableSourceControlManagerQueries=false'
+    pod(f'{DOTNET} build /work/managed/nx_crypto/NxCrypto.csproj -c Release -o /build/patch-vanilla-work/build/nxcrypto -p:BaseIntermediateOutputPath=/build/patch-vanilla-work/obj/nxcrypto/ {common} >/dev/null && {DOTNET} build /work/managed/nx_input_diag/NxInputDiag.csproj -c Release -o /build/patch-vanilla-work/build/nxinput -p:BaseIntermediateOutputPath=/build/patch-vanilla-work/obj/nxinput/ -p:FNAPath="{fna_container}" {common} >/dev/null && {DOTNET} build /work/scripts/patch_vanilla/PatchVanilla.csproj -c Release -o /build/patch-vanilla-work/build/tool -p:BaseIntermediateOutputPath=/build/patch-vanilla-work/obj/tool/ -p:CecilPath={CECIL} {common} >/dev/null', workdir, toolchain, mounts)
     if out.exists(): shutil.rmtree(out)
     out.mkdir(parents=True)
-    out_container = '/build/' + str(out.relative_to(CACHE))
-    pod(f'{DOTNET} /build/patch-vanilla-work/build/tool/PatchVanilla.dll "/game" "{out_container}" /build/patch-vanilla-work/build/nxcrypto/NxCrypto.dll /build/patch-vanilla-work/build/nxinput/NxInputDiag.dll', mounts)
+    out_container = '/build/' + str(out.relative_to(workdir))
+    pod(f'{DOTNET} /build/patch-vanilla-work/build/tool/PatchVanilla.dll "/game" "{out_container}" /build/patch-vanilla-work/build/nxcrypto/NxCrypto.dll /build/patch-vanilla-work/build/nxinput/NxInputDiag.dll', workdir, toolchain, mounts)
     print('Output: '+str(out))
     for name in ['Terraria.exe','ReLogic.dll','FNA.dll','NxCrypto.dll','NxInputDiag.dll']:
         print(name, sha(out/name))

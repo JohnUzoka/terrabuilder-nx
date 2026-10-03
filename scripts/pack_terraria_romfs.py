@@ -142,6 +142,48 @@ def copy_game_payload(
     return copied
 
 
+def game_payload_files(game_dir: Path) -> list[Path]:
+    """Every game-dir file copy_game_payload reads for the CLI RomFS."""
+    names = ("Terraria.exe", "FNA.dll", "FNA.dll.config", *LEGACY_COMPAT_DLLS)
+    files = [game_dir / name for name in names if (game_dir / name).is_file()]
+    return files + sorted(
+        path
+        for path in (game_dir / "Content").rglob("*")
+        if path.is_file() and not path.name.endswith(":Zone.Identifier")
+    )
+
+
+def assemble_cli_romfs(
+    game_dir: Path,
+    patched_dir: Path,
+    romfs_dir: Path,
+    framework_dir: Path,
+    facades: list[Path],
+    corelib: Path,
+    controller_db: Path,
+) -> list[str]:
+    """Assemble the terrabuilder CLI's vanilla RomFS from patched assemblies."""
+    if romfs_dir.exists():
+        shutil.rmtree(romfs_dir)
+    copied = copy_game_payload(game_dir, romfs_dir, (), runtime_facades_dir=framework_dir)
+    for source in sorted(patched_dir.glob("*.dll")):
+        # The patcher also extracts Terraria's embedded .NET Framework build of
+        # System.ValueTuple.dll. Its types would duplicate CoreLib's, so the net9
+        # facade copied above wins, as in the hardware-verified layout.
+        if (framework_dir / source.name).is_file():
+            copied.append(f"kept runtime facade over embedded {source.name}")
+            continue
+        copy_file(source, romfs_dir / source.name)
+    copy_file(patched_dir / "Terraria.exe", romfs_dir / "Terraria.exe")
+    # Toolchain compatibility facades must shadow the net9 closure copied above or
+    # metadata binding and runtime dependency resolution change.
+    for source in facades:
+        copy_file(source, romfs_dir / source.name)
+    copy_file(corelib, romfs_dir / "mono/lib_net9.0/System.Private.CoreLib.dll")
+    copy_file(controller_db, romfs_dir / "gamecontrollerdb.txt")
+    return copied
+
+
 def write_external_config(output_dir: Path) -> Path:
     mono_dir = output_dir / "mono"
     mono_dir.mkdir(parents=True, exist_ok=True)

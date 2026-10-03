@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """Compile the native launcher objects from source.
 
-The script runs the devkitA64 compiler inside ``localhost/monobuild:local`` and
-writes only to the requested output directory, which must live under the build
-cache mounted as ``/build`` in the container.
+The script runs the devkitA64 compiler inside ``localhost/monobuild:local`` with the
+toolchain mounted read-only, and writes only to the requested output directory, which
+must live under the work directory mounted as ``/build`` in the container. main.o is
+built by scripts/native/link_nro.py against each build's AOT registration header.
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
-import os
 import shlex
 import shutil
 import subprocess
@@ -19,7 +19,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CACHE = Path(os.environ.get("TERRABUILDER_CACHE", Path.home() / ".cache/terraria-switch-build")).resolve()
+sys.path.insert(0, str(ROOT))
+from terrabuilder_pkg import toolchain  # noqa: E402
+
 IMAGE = "localhost/monobuild:local"
 
 ARCH = ["-march=armv8-a+crc+crypto", "-mtune=cortex-a57", "-mtp=soft", "-fPIE"]
@@ -40,7 +42,6 @@ BASE_DEFINES = [
     "-DU_DISABLE_RENAMING=1",
 ]
 INCLUDES = [
-    "-I/build/aot42-windows",
     "-I/work/native/shared",
     "-I/mono-nx/native/shared",
     "-I/mono-nx/native/shared/third_party/ini",
@@ -53,7 +54,6 @@ INCLUDES = [
 ]
 
 LINK_ORDER = [
-    "main.o",
     "core.o",
     "dl_shim.o",
     "dl_shim_dotnet.o",
@@ -88,7 +88,6 @@ MONO_NX_SOURCES = {
 }
 
 REPO_SOURCES = {
-    "main.o": "/work/native/interpreter/source/main.c",
     "dl_shim_FAudio.o": "/work/native/shared/dl_shim_FAudio.c",
     "dl_shim_FNA3D.o": "/work/native/shared/dl_shim_FNA3D.c",
     "dl_shim_SDL3.o": "/work/native/shared/dl_shim_SDL3.c",
@@ -96,14 +95,6 @@ REPO_SOURCES = {
     "nx_audio.o": "/work/native/shared/nx_audio.c",
     "nx_gpu_timing.o": "/work/native/shared/nx_gpu_timing.c",
     "nx_profiler.o": "/work/native/shared/nx_profiler.c",
-}
-
-V88_SOURCES = {
-    "nx_input.o": "/build/release58/v81-input/nx_input.c",
-    "nx_audio.o": "/build/release58/v81-input/nx_audio.c",
-    "nx_gpu_timing.o": "/build/release58/v86-swap/nx_gpu_timing.c",
-    # The generated shims in the cache include "../shared_mono_nx/..." from the
-    # historical Makefile layout. Use the checked-in regenerated equivalents.
 }
 
 
@@ -115,44 +106,18 @@ def sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def under_cache(path: Path) -> str:
+def under_workdir(path: Path, workdir: Path) -> str:
     try:
-        return "/build/" + path.resolve().relative_to(CACHE).as_posix()
+        return "/build/" + path.resolve().relative_to(workdir).as_posix()
     except ValueError as exc:
-        raise SystemExit(f"output directory must be under {CACHE}") from exc
+        raise SystemExit(f"output directory must be under {workdir}") from exc
 
 
 def q(words: list[str] | tuple[str, ...]) -> str:
     return " ".join(shlex.quote(str(w)) for w in words)
 
 
-def compile_argv(obj: str, src: str, out: str, *, profiler: bool, diagnostics: bool, v88_sources: bool) -> list[str]:
-    if obj == "main.o":
-        defines = [
-            "-D__SWITCH__",
-            "-DMONO_NX_USE_AOT=1",
-            "-DMONO_NX_GL_COMPAT=1",
-            "-DMONO_NX_USE_ROMFS=1",
-            "-DMONO_NX_EMBEDDED_BCL=1",
-            "-DMONO_NX_FATAL_DIAG=1",
-        ]
-        if profiler:
-            defines.append("-DMONO_NX_PROFILER=1")
-        return [
-            GCC,
-            *ARCH,
-            "-g",
-            "-O2",
-            "-ffunction-sections",
-            *defines,
-            *INCLUDES,
-            "-I/build/release58/v88/aot-final",
-            "-c",
-            src,
-            "-o",
-            out,
-        ]
-
+def compile_argv(obj: str, src: str, out: str, *, diagnostics: bool) -> list[str]:
     flags = [GCC, *ARCH, "-g", "-O2", "-ffunction-sections", "-Wall", *BASE_DEFINES, *INCLUDES]
     if obj in {"nx_input.o", "nx_audio.o", "nx_gpu_timing.o"}:
         flags.insert(flags.index("-Wall") + 1, "-Wextra")
@@ -160,11 +125,8 @@ def compile_argv(obj: str, src: str, out: str, *, profiler: bool, diagnostics: b
             flags += ["-DMONO_NX_PHASE_TIMING=1", "-DMONO_NX_GPU_TIMING=1"]
         if obj == "nx_audio.o" and diagnostics:
             flags.append("-DMONO_NX_AUDIO_DIAG=1")
-        if v88_sources:
-            flags.insert(flags.index("-I/work/native/shared"), "-I/build/release58/v81-input")
-            flags.insert(flags.index("-I/work/native/shared"), "-I/build/release58/v81-input/inc")
     if obj == "nx_profiler.o":
-        # v82-prof's recovered flags did not include -Wall/-Wextra or the shim defines.
+        # nx_profiler.o keeps its original flags: no -Wall/-Wextra or shim defines.
         flags = [
             GCC,
             *ARCH,
@@ -181,17 +143,22 @@ def compile_argv(obj: str, src: str, out: str, *, profiler: bool, diagnostics: b
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", type=Path, default=None, help="output directory under TERRABUILDER_CACHE")
-    ap.add_argument("--profiler", action="store_true", help="build v88-style profiler main.o and nx_profiler.o")
-    ap.add_argument("--debug-diagnostics", action="store_true", help="restore release-debug NX_PHASE/NX_GPU/NX_AUDIO diagnostics")
-    ap.add_argument("--v88-sources", action="store_true", help="use retained v88 sources for nx_input/audio/gpu timing")
+    ap.add_argument("--workdir", type=Path, required=True, help="work directory, mounted as /build")
+    ap.add_argument("--toolchain", type=Path, required=True, help="toolchain directory (see terrabuilder toolchain)")
+    ap.add_argument("--out", type=Path, required=True, help="output directory under --workdir")
+    ap.add_argument("--profiler", action="store_true", help="also build nx_profiler.o")
+    ap.add_argument("--debug-diagnostics", action="store_true", help="enable NX_PHASE/NX_GPU/NX_AUDIO diagnostics")
     ap.add_argument("--force", action="store_true", help="remove and recreate the output directory")
     args = ap.parse_args()
 
     diagnostics = args.debug_diagnostics or args.profiler
     profile = "profiler" if args.profiler else "debug" if diagnostics else "release"
-    flavor = "v88-sources" if args.v88_sources else "repo-head"
-    out_dir = (args.out or CACHE / "launcher-src" / f"{profile}-{flavor}").resolve()
+    workdir = args.workdir.resolve()
+    try:
+        tc = toolchain.load(args.toolchain.resolve())
+    except toolchain.ToolchainError as error:
+        raise SystemExit(str(error)) from error
+    out_dir = args.out.resolve()
     if out_dir.exists():
         if not args.force:
             raise SystemExit(f"{out_dir} already exists (pass --force to replace)")
@@ -199,14 +166,12 @@ def main() -> int:
     objects_dir = out_dir / "objects"
     objects_dir.mkdir(parents=True)
 
-    out_container = under_cache(out_dir)
+    out_container = under_workdir(out_dir, workdir)
     obj_container = f"{out_container}/objects"
     objects: dict[str, dict[str, object]] = {}
     commands: list[list[str]] = []
 
     source_for = {**MONO_NX_SOURCES, **REPO_SOURCES}
-    if args.v88_sources:
-        source_for.update(V88_SOURCES)
     object_names = list(LINK_ORDER) + ["nx_audio.o", "nx_gpu_timing.o"]
     if args.profiler:
         object_names.append("nx_profiler.o")
@@ -214,7 +179,7 @@ def main() -> int:
     for obj in object_names:
         src = source_for[obj]
         dst = f"{obj_container}/{obj}"
-        argv = compile_argv(obj, src, dst, profiler=args.profiler, diagnostics=diagnostics, v88_sources=args.v88_sources)
+        argv = compile_argv(obj, src, dst, diagnostics=diagnostics)
         commands.append(argv)
         objects[obj] = {"source": src, "argv": argv, "path": dst}
 
@@ -226,18 +191,7 @@ def main() -> int:
     )
     script.chmod(0o755)
 
-    mounts = [
-        "-v",
-        f"{CACHE}:/build",
-        "-v",
-        f"{ROOT}:/work:ro",
-        "-v",
-        f"{CACHE / 'recovery46/sdk-pristine'}:/mono-nx:ro",
-        "-v",
-        f"{CACHE / 'release58/mono-nx/native'}:/mono-nx/native:ro",
-        "-v",
-        f"{CACHE / 'recovery46/native-deps/install'}:/fna-install:ro",
-    ]
+    mounts = ["-v", f"{workdir}:/build", "-v", f"{ROOT}:/work:ro", *tc.mounts()]
     cmd = ["podman", "run", "--rm", "--userns=keep-id", "--entrypoint", "sh", *mounts, IMAGE, f"{out_container}/compile-commands.sh"]
     subprocess.run(cmd, check=True)
 
@@ -249,7 +203,6 @@ def main() -> int:
     manifest = {
         "profile": profile,
         "diagnostics": diagnostics,
-        "sourceFlavor": flavor,
         "monoNxCommit": "8be547c (github.com/JohnUzoka/mono-nx fna-support)",
         "objects": objects,
         "linkOrder": LINK_ORDER,

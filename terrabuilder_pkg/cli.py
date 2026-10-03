@@ -11,18 +11,23 @@ import re
 import shutil
 import subprocess
 import sys
-import time
 from pathlib import Path
 
+from terrabuilder_pkg import toolchain as tclib
+
 ROOT = Path(__file__).resolve().parents[1]
+# Pre-toolchain build cache. Only the experimental tModLoader path still reads it.
 LEGACY = Path.home() / ".cache/terraria-switch-build"
 DEFAULT_WORKDIR = Path(os.environ.get("TERRABUILDER_WORKDIR", Path.home() / ".cache/terrabuilder"))
-HEAVY_LOCK = Path.home() / ".cache/terraria-switch-build/.heavy.lock"
+# Per user rather than per workdir: it keeps concurrent builds from exhausting memory.
+HEAVY_LOCK = Path.home() / ".cache/terrabuilder/.heavy.lock"
 MONO_IMAGE = "localhost/monobuild:local"
 LLVM_IMAGE = "localhost/monobuild-llvm:local"
-MESA_IMAGE = "localhost/mesabuild-r28:local"
-# Read from the SD card before RomFS is mounted, so every NRO needs it next to config.ini.
-SDK_ICU = LEGACY / "recovery46/sdk-pristine/icu/libnx/share/icu/77.1/icudt77l.dat"
+TMOD_LEGACY_INPUTS = (
+    "tmod/tmod27/input/modset.json",
+    "tmod/tmod27-nxfix-mp/tModLoader_patched_nxfix.dll",
+    "release58/compile_main.sh",
+)
 HOST_FNA3D = {
     "repo": "https://github.com/FNA-XNA/FNA3D.git",
     "tag": "26.07",
@@ -62,16 +67,28 @@ def write_json(path: Path, value: object) -> None:
     pending.replace(path)
 
 
+def publish_file(src: Path, dst: Path) -> None:
+    # Rename into place so a copy hardlinked to dst (e.g. staged with cp -l) keeps its contents.
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    pending = dst.with_name(dst.name + ".pending")
+    pending.unlink(missing_ok=True)
+    shutil.copy2(src, pending)
+    pending.replace(dst)
+
+
 @contextlib.contextmanager
-def tmod_variant_lock(variant: str):
-    lock_path = LEGACY / "tmod" / f".{variant}.lock"
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with lock_path.open("a") as lock_file:
+def file_lock(path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as lock_file:
         fcntl.flock(lock_file, fcntl.LOCK_EX)
         try:
             yield
         finally:
             fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+
+def tmod_variant_lock(variant: str):
+    return file_lock(LEGACY / "tmod" / f".{variant}.lock")
 
 
 def run(cmd: list[str], *, cwd: Path = ROOT, env: dict[str, str] | None = None, heavy: bool = False) -> None:
@@ -94,62 +111,63 @@ def engine() -> str | None:
     return None
 
 
-def rel_to_mount(path: Path, root: Path, mount: str) -> str:
-    return mount + "/" + path.absolute().relative_to(root.absolute()).as_posix()
+def load_toolchain(workdir: Path) -> tclib.Toolchain:
+    root = workdir / "toolchain"
+    try:
+        return tclib.load(root)
+    except tclib.ToolchainError as error:
+        raise SystemExit(
+            f"{error}\nBuilds need a toolchain at {root}. Building one from source "
+            "(toolchain --from-source) and importing a release bundle (toolchain --bundle) "
+            "are not available yet; see docs/BUILDING.md."
+        ) from error
 
 
-def ensure_compat_layout(workdir: Path) -> None:
-    workdir.mkdir(parents=True, exist_ok=True)
-    # Compatibility paths consumed by the historical release scripts. Symlinks point
-    # at the read-only legacy cache; new variants are created only under workdir.
-    links = {
-        "runtime-source": LEGACY / "runtime-source",
-        "runtime-llvm": LEGACY / "runtime-llvm",
-        "runtime-release": LEGACY / "runtime-release",
-        "recovery46": LEGACY / "recovery46",
-        "nochroma42": LEGACY / "nochroma42",
+def image_id(image: str) -> str:
+    eng = engine()
+    if not eng:
+        raise SystemExit("podman or docker is required")
+    try:
+        return capture([eng, "image", "inspect", "--format", "{{.Id}}", image])
+    except subprocess.CalledProcessError as error:
+        raise SystemExit(f"container image {image} is missing; see docs/BUILDING.md") from error
+
+
+def toolchain_summary(tc: tclib.Toolchain) -> dict:
+    return {
+        "root": str(tc.root),
+        "origin": tc.manifest.get("origin"),
+        "created_at": tc.manifest.get("created_at"),
+        "manifest_sha256": sha256(tc.root / tclib.MANIFEST),
+        "components": {name: entry["digest"] for name, entry in tc.manifest["components"].items()},
     }
-    for name, target in links.items():
-        link = workdir / name
-        if not link.exists():
-            link.symlink_to(target, target_is_directory=True)
-    (workdir / "gfx").mkdir(exist_ok=True)
-    gfx = workdir / "gfx" / "v88-lib"
-    if not gfx.exists():
-        gfx.symlink_to(LEGACY / "gfx" / "v88-lib", target_is_directory=True)
-    (workdir / "release58").mkdir(exist_ok=True)
-    mono = workdir / "release58" / "mono-nx"
-    if not mono.exists():
-        mono.symlink_to(LEGACY / "release58" / "mono-nx", target_is_directory=True)
-    for src in (ROOT / "scripts" / "release_bcl").glob("*"):
-        if src.is_file():
-            dst = workdir / "release58" / src.name
-            if dst.is_symlink() or not dst.exists() or sha256(dst) != sha256(src):
-                if dst.exists() or dst.is_symlink():
-                    dst.unlink()
-                shutil.copy2(src, dst)
+
+
+def source_shas(*paths: Path) -> dict[str, str]:
+    return {p.relative_to(ROOT).as_posix(): sha256(p) for p in paths}
 
 
 def doctor(args: argparse.Namespace) -> int:
+    workdir = args.workdir.expanduser().resolve()
     eng = engine()
-    ok = True
+    ok = bool(eng)
     print(f"container engine: {eng or 'missing'}")
-    ok &= bool(eng)
-    for image in (MONO_IMAGE, LLVM_IMAGE, MESA_IMAGE, "devkitpro/devkita64:20250728"):
-        present = False
-        if eng:
-            try:
-                capture([eng, "image", "exists", image])
-                present = True
-            except subprocess.CalledProcessError:
-                try:
-                    out = capture([eng, "images", "--format", "{{.Repository}}:{{.Tag}}"])
-                    present = image in out.splitlines()
-                except Exception:
-                    present = False
+    for image in (MONO_IMAGE, LLVM_IMAGE):
+        present = bool(eng) and subprocess.run(
+            [eng, "image", "inspect", image], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+        ).returncode == 0
         print(f"image {image}: {'ok' if present else 'missing'}")
         ok &= present
-    usage = shutil.disk_usage(args.workdir.expanduser().parent)
+    try:
+        tc = tclib.load(workdir / "toolchain")
+        print(f"toolchain {tc.root}: ok ({tc.manifest.get('origin')}, {tc.manifest.get('created_at')})")
+    except tclib.ToolchainError as error:
+        print(f"toolchain: {error}")
+        ok = False
+    probe = workdir
+    while not probe.exists():
+        probe = probe.parent
+    usage = shutil.disk_usage(probe)
     print(f"disk free: {usage.free // (1024**3)} GiB")
     ok &= usage.free > 15 * 1024**3
     mem_kb = 0
@@ -161,35 +179,20 @@ def doctor(args: argparse.Namespace) -> int:
     except OSError:
         pass
     print(f"RAM: {mem_kb // (1024**2)} GiB")
-    for path in required_legacy_paths():
-        exists = path.exists()
-        print(f"legacy {path.relative_to(LEGACY) if str(path).startswith(str(LEGACY)) else path}: {'ok' if exists else 'missing'}")
-        ok &= exists
+    missing = [rel for rel in TMOD_LEGACY_INPUTS if not (LEGACY / rel).exists()]
+    print(f"tModLoader (experimental) inputs in {LEGACY}: "
+          + ("ok" if not missing else "missing " + ", ".join(missing)))
     return 0 if ok else 1
 
 
-def required_legacy_paths() -> list[Path]:
-    return [
-        LEGACY / "runtime-release/libmonosgen-2.0-release.a",
-        LEGACY / "runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64",
-        LEGACY / "runtime-source/artifacts/bin/mono/libnx.arm64.Release/System.Private.CoreLib.dll",
-        LEGACY / "runtime-llvm/artifacts/bin/mono/linux.x64.Debug/cross/linux-x64/libnx-arm64/mono-aot-cross",
-        LEGACY / "gfx/v88-lib/libEGL.a",
-        LEGACY / "gfx/v88-lib/libglapi.a",
-        LEGACY / "recovery46/native-deps/install/lib/libFNA3D.a",
-        LEGACY / "release58/v88/aot-final/System.Private.CoreLib.dll.o",
-        LEGACY / "release58/v88/aot-final/System.Text.RegularExpressions.dll.o",
-        LEGACY / "release58/v88/aot-final/System.Collections.Concurrent.dll.o",
-        SDK_ICU,
-    ]
-
-
-def write_sd_runtime(sd_root: Path) -> list[dict]:
+def write_sd_runtime(sd_root: Path, tc: tclib.Toolchain) -> list[dict]:
     from scripts.pack_terraria_romfs import write_external_config
     config = write_external_config(sd_root)
-    icu = sd_root / "mono/etc" / SDK_ICU.name
+    # Read from the SD card before RomFS is mounted, so every NRO needs it next to config.ini.
+    icu_data = tc.path(tclib.ICU_DATA)
+    icu = sd_root / "mono/etc" / icu_data.name
     icu.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(SDK_ICU, icu)
+    shutil.copy2(icu_data, icu)
     return file_manifest([config, icu], sd_root)
 
 
@@ -201,81 +204,7 @@ def file_manifest(paths: list[Path], base: Path) -> list[dict]:
     return rows
 
 
-def toolchain_pack(workdir: Path) -> Path:
-    ensure_compat_layout(workdir)
-    tc = workdir / "toolchain"
-    tc.mkdir(parents=True, exist_ok=True)
-    artifacts = [
-        LEGACY / "runtime-release/libmonosgen-2.0-release.a",
-        *(LEGACY / "runtime-source/artifacts/bin/mono/libnx.arm64.Release/out/lib").glob("libmono-component-*-static.a"),
-        LEGACY / "runtime-llvm/artifacts/bin/mono/linux.x64.Debug/cross/linux-x64/libnx-arm64/mono-aot-cross",
-        LEGACY / "runtime-llvm/artifacts/bin/mono/linux.x64.Debug/cross/linux-x64/libnx-arm64/opt",
-        LEGACY / "runtime-llvm/artifacts/bin/mono/linux.x64.Debug/cross/linux-x64/libnx-arm64/llc",
-        LEGACY / "gfx/v88-lib/libEGL.a", LEGACY / "gfx/v88-lib/libglapi.a",
-        LEGACY / "recovery46/native-deps/install/lib/libFNA3D.a",
-        LEGACY / "recovery46/native-deps/install/lib/libFAudio.a",
-        LEGACY / "recovery46/native-deps/install/lib/libmojoshader.a",
-        LEGACY / "release58/v88/aot-final/System.Private.CoreLib.dll.o",
-        LEGACY / "release58/v88/aot-final/System.Private.CoreLib.dll-llvm.o",
-        LEGACY / "release58/v88/aot-final/System.Text.RegularExpressions.dll.o",
-        LEGACY / "release58/v88/aot-final/System.Text.RegularExpressions.dll-llvm.o",
-        LEGACY / "release58/v88/aot-final/System.Collections.Concurrent.dll.o",
-        LEGACY / "release58/v88/aot-final/System.Collections.Concurrent.dll-llvm.o",
-        SDK_ICU,
-    ]
-    for src in artifacts:
-        if src.exists():
-            dst = tc / "artifacts" / src.relative_to(LEGACY)
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            if not dst.exists():
-                try:
-                    os.link(src, dst)
-                except OSError:
-                    shutil.copy2(src, dst)
-    notice_files: list[Path] = []
-    for name in ("THIRD_PARTY_NOTICES.md", "CREDITS.md"):
-        src = ROOT / name
-        if src.exists():
-            shutil.copy2(src, tc / name)
-            notice_files.append(tc / name)
-    licenses_src = ROOT / "licenses"
-    licenses_dst = tc / "licenses"
-    if licenses_dst.exists():
-        shutil.rmtree(licenses_dst)
-    if licenses_src.exists():
-        shutil.copytree(licenses_src, licenses_dst)
-        notice_files.extend(sorted(p for p in licenses_dst.rglob("*") if p.is_file()))
-    manifest = {
-        "schema_version": 1,
-        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "legal_model": "Contains open-source/runtime/toolchain artifacts only. Game-derived assemblies, RomFS, icon, and game AOT objects are built locally from the user's install and are not part of this toolchain.",
-        "sources": [
-            {"name": "dotnet_runtime", "repo": "https://github.com/JohnUzoka/dotnet_runtime", "branch": "terrabuilder-nx", "commit_observed": git_head(LEGACY / "runtime-source")},
-            {"name": "dotnet_runtime_llvm", "repo": "https://github.com/JohnUzoka/dotnet_runtime", "branch": "terrabuilder-nx", "commit_observed": git_head(LEGACY / "runtime-llvm")},
-            {"name": "mono-nx", "repo": "https://github.com/JohnUzoka/mono-nx", "branch": "fna-support", "commit": "8be547c"},
-            {"name": "Mesa", "version": "20.1.0-rc3 + devkitPro switch patches + terrabuilder patches", "script": "scripts/mesa/build_mesa.sh"},
-            {"name": "FNA3D/FAudio/MojoShader", "script": "scripts/build_native_deps.sh", "license": "zlib/libpng-style upstream notices; include upstream license files before publishing a bundle asset"},
-        ],
-        "licenses": {
-            "note": "Bundle includes open-source/toolchain notices only; game-derived Terraria/tModLoader files are built locally and are not distributed.",
-            "files": file_manifest(notice_files, tc),
-        },
-        "artifacts": file_manifest(list((tc / "artifacts").rglob("*")), tc),
-        "build_scripts": ["scripts/release_bcl/build_release_managed.sh", "scripts/release_bcl/build_runtime_release.sh", "scripts/release_bcl/build_llvm_cross.sh", "scripts/mesa/build_mesa.sh", "scripts/build_native_deps.sh"],
-    }
-    write_json(tc / "manifest.json", manifest)
-    print(tc)
-    return tc
-
-
-def git_head(path: Path) -> str | None:
-    try:
-        return subprocess.check_output(["git", "-C", str(path), "rev-parse", "HEAD"], text=True, stderr=subprocess.DEVNULL).strip()
-    except Exception:
-        return None
-
-
-def toolchain(args: argparse.Namespace) -> int:
+def toolchain_command(args: argparse.Namespace) -> int:
     if args.from_source:
         raise SystemExit(
             "toolchain --from-source is not available yet: the clean-checkout "
@@ -286,9 +215,22 @@ def toolchain(args: argparse.Namespace) -> int:
             "toolchain --bundle is not available yet: bundle import into a "
             "clean workdir is incomplete. See docs/BUILDING.md."
         )
-    if args.toolcmd == "pack" or not args.toolcmd:
-        toolchain_pack(args.workdir.expanduser())
-        return 0
+    workdir = args.workdir.expanduser().resolve()
+    if args.toolcmd == "verify":
+        root = workdir / "toolchain"
+        try:
+            problems = tclib.verify(root)
+        except tclib.ToolchainError as error:
+            problems = error.problems
+        for problem in problems:
+            print(problem)
+        print(f"{root}: " + (f"{len(problems)} problem(s)" if problems else "ok"))
+        return 1 if problems else 0
+    tc = load_toolchain(workdir)
+    print(tc.root)
+    print(f"origin {tc.manifest.get('origin')}, created {tc.manifest.get('created_at')}")
+    for name, entry in tc.manifest["components"].items():
+        print(f"  {name:15} {entry['files']:6} files {entry['bytes'] / 2**20:9.1f} MiB  {entry['digest'][:16]}")
     return 0
 
 
@@ -500,7 +442,7 @@ def ensure_dotnet8(workdir: Path) -> Path:
     return dotnet
 
 
-def build_curated_mod_sources(tmod_dir: Path, mods: list[str], workdir: Path, catalog: dict[str, dict]) -> Path:
+def build_curated_mod_sources(tmod_dir: Path, mods: list[str], workdir: Path, catalog: dict[str, dict], tc: tclib.Toolchain) -> Path:
     cache_key = hashlib.sha256(
         (sha256(tmod_dir / "tModLoader.dll") + "\n" +
          "\n".join(
@@ -551,7 +493,7 @@ def build_curated_mod_sources(tmod_dir: Path, mods: list[str], workdir: Path, ca
                "-e", "SDL_AUDIODRIVER=dummy",
                "-v", f"{workdir}:/tb",
                "-v", f"{tmod_dir}:/tml:ro",
-               "-v", f"{LEGACY / 'recovery46/sdk-pristine'}:/mono-nx:ro",
+               "-v", f"{tc.path('sdk')}:/mono-nx:ro",
                "-w", f"/tb/tmod/sources/{name}",
                MONO_IMAGE,
                "build", f"{name}.csproj", "-c", "Debug", f"-p:tMLSteamPath=/tml/",
@@ -679,7 +621,7 @@ def seed_tmod_input(variant: str, mods: list[str], packages: Path | None, catalo
     return out
 
 
-def run_tmod_pipeline(variant: str, workdir: Path) -> None:
+def run_tmod_pipeline(variant: str, workdir: Path, tc: tclib.Toolchain) -> None:
     out = LEGACY / "tmod" / variant
     if (out / "native/candidate/tmodloader.nro").exists() and (out / "manifest.json").exists():
         print("tModLoader native build: cached")
@@ -689,9 +631,7 @@ def run_tmod_pipeline(variant: str, workdir: Path) -> None:
            "-e", f"TMOD_VARIANT={variant}", "-e", f"TMPDIR=/build/tmod/{variant}/container-tmp",
            "-v", f"{LEGACY}:/build",
            "-v", f"{ROOT}:/work:ro",
-           "-v", f"{LEGACY / 'recovery46/sdk-pristine'}:/mono-nx:ro",
-           "-v", f"{LEGACY / 'release58/mono-nx/native'}:/mono-nx/native:ro",
-           "-v", f"{LEGACY / 'recovery46/native-deps/install'}:/fna-install:ro",
+           *tc.mounts(),
            LLVM_IMAGE, "/work/scripts/tmod/build_tmod_modset_nro.py"]
     run(cmd, heavy=True)
     verify = [sys.executable, str(ROOT / "scripts/tmod/verify_aot_dependencies.py"),
@@ -703,29 +643,30 @@ def build_tmodloader(args: argparse.Namespace, tmod_dir: Path, mods: list[str], 
     workdir = args.workdir.expanduser().resolve()
     out_root = Path(args.out).expanduser().resolve() if args.out else workdir / "out"
     tmeta = validate_tmodloader(tmod_dir)
+    tc = load_toolchain(workdir)
     variant = tmod_variant_key(tmod_dir, mods, catalog, args.profile)
     stamps = workdir / "stamps" / variant
-    stamps.mkdir(parents=True, exist_ok=True)
-    launcher_dir = launcher_stage(LEGACY, args.profile, stamps)
-    packages = build_curated_mod_sources(tmod_dir, mods, workdir, catalog) if mods else None
+    launcher_dir = launcher_stage(LEGACY, LEGACY / "launcher-src" / args.profile, tc, args.profile, stamps / "launcher.json")
+    packages = build_curated_mod_sources(tmod_dir, mods, workdir, catalog, tc) if mods else None
     with tmod_variant_lock(variant):
         seed_tmod_input(variant, mods, packages, catalog, args.profile, launcher_dir)
-        run_tmod_pipeline(variant, workdir)
+        run_tmod_pipeline(variant, workdir, tc)
         src_root = LEGACY / "tmod" / variant
         out_dir = out_root / ("tmodloader-" + ("no-mods" if not mods else "-".join(mods).lower()))
         out_dir.mkdir(parents=True, exist_ok=True)
         nro = out_dir / "tmodloader.nro"
-        shutil.copy2(src_root / "native/candidate/tmodloader.nro", nro)
+        publish_file(src_root / "native/candidate/tmodloader.nro", nro)
         sd_out = out_dir / "sdcard"
         if sd_out.exists():
             shutil.rmtree(sd_out)
         shutil.copytree(src_root / "sdcard", sd_out)
-        sd_runtime = write_sd_runtime(sd_out)
+        sd_runtime = write_sd_runtime(sd_out, tc)
         manifest = json.loads((src_root / "manifest.json").read_text())
         mvid = json.loads((src_root / "aot-mvid-check.json").read_text())
         receipt = {"target": "tmodloader", "experimental": True, "variant": variant, "input": tmeta,
                    "mods": [catalog[m] for m in mods], "nro": {"path": str(nro), "sha256": sha256(nro), "bytes": nro.stat().st_size},
-                   "sd_payload": str(sd_out), "sd_runtime": sd_runtime, "aot_mvid_check": mvid, "manifest": manifest}
+                   "sd_payload": str(sd_out), "sd_runtime": sd_runtime, "aot_mvid_check": mvid, "manifest": manifest,
+                   "toolchain": toolchain_summary(tc)}
         write_json(out_dir / "receipt.json", receipt)
         print(f"Built {nro} {receipt['nro']['sha256']}")
         print(f"Copy {nro} to sd:/switch/tmodloader.nro")
@@ -761,294 +702,209 @@ def build(args: argparse.Namespace) -> int:
     profile = args.profile
     workdir = args.workdir.expanduser().resolve()
     out_root = Path(args.out).expanduser().resolve() if args.out else workdir / "out"
-    ensure_compat_layout(workdir)
-    tc = toolchain_pack(workdir)
+    tc = load_toolchain(workdir)
     meta = validate_game(game_dir)
-    variant = "cli-" + profile
-    vdir = workdir / "release58" / variant
-    aot = vdir / "aot-final"
     suffix = "" if profile == "release" else f"-{profile}"
     receipt = out_root / f"Terraria{suffix}.receipt.json"
     final_nro = out_root / f"Terraria{suffix}.nro"
-    stamps = workdir / "stamps" / variant
-    stamps.mkdir(parents=True, exist_ok=True)
-    stage_info: dict[str, object] = {"input": meta, "stages": {}}
-
-    patch_dir = run_patch_stage(game_dir, workdir, stamps, stage_info)
-    romfs_stage(game_dir, patch_dir, aot / "runtime-romfs", workdir, stamps, stage_info)
-    # AOT/RomFS are profile-independent; reuse the sibling profile's completed tree.
-    other = "cli-profiler" if profile == "release" else "cli-release"
-    other_aot = workdir / "release58" / other / "aot-final"
-    if other_aot.joinpath("build-manifest.json").exists() and (
-        not (aot / "build-manifest.json").exists()
-        or tree_hash(aot / "runtime-romfs") == tree_hash(other_aot / "runtime-romfs")
-    ):
-        if json.loads((other_aot / "build-manifest.json").read_text()).get("status") == "complete":
-            if aot.exists():
-                shutil.rmtree(aot)
-            shutil.copytree(other_aot, aot, copy_function=os.link, symlinks=True)
-
-    aot_stage(aot, workdir, stamps, stage_info)
-    augment_toolchain_aot(aot, stage_info)
-    compat_header = workdir / "release58/v88/aot-final/mono_aot_modules.h"
-    compat_header.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(aot / "mono_aot_modules.h", compat_header)
-    launcher_dir = launcher_stage(workdir, profile, stamps, stage_info)
-    native_stage(workdir, variant, aot, launcher_dir, profile, stamps, stage_info, final_nro)
-    out_root.mkdir(parents=True, exist_ok=True)
-    built = vdir / "native/candidate/mono_nx_fna.nro"
-    shutil.copy2(built, final_nro)
-    sd_out = out_root / "sdcard"
-    if sd_out.exists():
-        shutil.rmtree(sd_out)
-    stage_info["nro"] = {"path": str(final_nro), "sha256": sha256(final_nro), "bytes": final_nro.stat().st_size}
-    stage_info["sd_payload"] = str(sd_out)
-    stage_info["sd_runtime"] = write_sd_runtime(sd_out)
-    stage_info["toolchain_manifest_sha256"] = sha256(tc / "manifest.json")
-    write_json(receipt, stage_info)
-    print(f"Built {final_nro} {stage_info['nro']['sha256']}")
+    stamps = workdir / "stamps" / "vanilla"
+    info: dict[str, object] = {"input": meta, "stages": {}}
+    with file_lock(workdir / ".vanilla.lock"):
+        patched = patch_stage(game_dir, workdir, tc, stamps, info)
+        romfs_hash = romfs_stage(game_dir, patched, workdir, tc, stamps, info)
+        aot = aot_stage(romfs_hash, workdir, tc, stamps, info)
+        launcher = launcher_stage(workdir, workdir / "vanilla" / f"launcher-{profile}", tc, profile,
+                                  stamps / f"launcher-{profile}.json", info)
+        native = native_stage(workdir, romfs_hash, aot, launcher, tc, profile, stamps, info)
+        out_root.mkdir(parents=True, exist_ok=True)
+        publish_file(native / "mono_nx_fna.nro", final_nro)
+        sd_out = out_root / "sdcard"
+        if sd_out.exists():
+            shutil.rmtree(sd_out)
+        info["nro"] = {"path": str(final_nro), "sha256": sha256(final_nro), "bytes": final_nro.stat().st_size}
+        info["sd_payload"] = str(sd_out)
+        info["sd_runtime"] = write_sd_runtime(sd_out, tc)
+        info["toolchain"] = toolchain_summary(tc)
+        write_json(receipt, info)
+    print(f"Built {final_nro} {info['nro']['sha256']}")
     print(f"Copy {final_nro} to sd:/switch/")
     print(f"Copy contents of {sd_out}/ to the SD card root, overwriting existing files")
     return 0
 
 
-def stamp_ok(stamp: Path, key: str) -> bool:
-    return stamp.exists() and stamp.read_text().strip() == key
+def stage_cached(name: str, stamp: Path, key: dict, outputs: list[Path]) -> bool:
+    """True when the stamp records exactly this key and the outputs exist.
 
-
-def write_stamp(stamp: Path, key: str) -> None:
-    stamp.parent.mkdir(parents=True, exist_ok=True)
-    stamp.write_text(key + "\n")
-
-
-def run_patch_stage(game_dir: Path, workdir: Path, stamps: Path, info: dict) -> Path:
-    patch_sources = sorted((ROOT / "scripts/patch_vanilla").glob("*.cs")) + [
-        ROOT / "scripts/patch_vanilla/PatchVanilla.csproj",
-        ROOT / "managed/nx_crypto/NxCrypto.cs",
-        ROOT / "managed/nx_crypto/NxCrypto.csproj",
-        ROOT / "managed/nx_input_diag/NxInputDiag.cs",
-        ROOT / "managed/nx_input_diag/NxInputDiag.csproj",
-    ]
-    key = sha256(game_dir / "Terraria.exe") + sha256(game_dir / "FNA.dll") + "".join(sha256(p) for p in patch_sources if p.exists())
-    out = workdir / "patch" / key[:16]
-    stamp = stamps / "patch-managed.stamp"
-    if stamp_ok(stamp, key) and out.exists():
-        print("patch managed: cached")
+    Otherwise the stamp is removed before the stage rebuilds, so an interrupted
+    rebuild is never mistaken for a finished one.
+    """
+    try:
+        recorded = json.loads(stamp.read_text())
+    except (OSError, ValueError):
+        recorded = None
+    if recorded == key and all(p.exists() for p in outputs):
+        print(f"{name}: cached")
+        return True
+    if recorded == key:
+        reason = "outputs missing"
+    elif isinstance(recorded, dict):
+        reason = "changed: " + ", ".join(sorted(k for k in key.keys() | recorded.keys() if key.get(k) != recorded.get(k)))
     else:
-        if out.exists():
-            shutil.rmtree(out)
-        env = os.environ.copy(); env["TERRABUILDER_CACHE"] = str(workdir); env["TERRABUILDER_LEGACY_CACHE"] = str(LEGACY)
-        run([sys.executable, str(ROOT / "scripts/patch_vanilla/run.py"), str(game_dir), "--out", str(out), "--workdir", str(workdir)], env=env, heavy=True)
+        reason = "no previous build"
+    print(f"{name}: building ({reason})")
+    stamp.unlink(missing_ok=True)
+    return False
+
+
+def write_stamp(stamp: Path, key: dict) -> None:
+    write_json(stamp, key)
+
+
+def patch_stage(game_dir: Path, workdir: Path, tc: tclib.Toolchain, stamps: Path, info: dict) -> Path:
+    sources = [
+        *sorted((ROOT / "scripts/patch_vanilla").glob("*.cs")),
+        ROOT / "scripts/patch_vanilla/PatchVanilla.csproj",
+        ROOT / "scripts/patch_vanilla/run.py",
+        *sorted((ROOT / "managed/nx_crypto").glob("*.cs*")),
+        *sorted((ROOT / "managed/nx_input_diag").glob("*.cs*")),
+    ]
+    key = {
+        "Terraria.exe": sha256(game_dir / "Terraria.exe"),
+        "FNA.dll": sha256(game_dir / "FNA.dll"),
+        "sources": source_shas(*sources),
+        "toolchain": tc.digests("cecil", "dotnet"),
+        "image": image_id(MONO_IMAGE),
+    }
+    out = workdir / "patch" / hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
+    stamp = stamps / "patch.json"
+    if not stage_cached("patch managed", stamp, key, [out / "Terraria.exe"]):
+        run([sys.executable, str(ROOT / "scripts/patch_vanilla/run.py"), str(game_dir), "--out", str(out),
+             "--workdir", str(workdir), "--toolchain", str(tc.root)], heavy=True)
         write_stamp(stamp, key)
     info["stages"]["patch_managed"] = {p.name: sha256(p) for p in sorted(out.glob("*.dll"))}
     info["stages"]["patch_managed"]["Terraria.exe"] = sha256(out / "Terraria.exe")
     return out
 
 
-def romfs_stage(game_dir: Path, patched: Path, romfs: Path, workdir: Path, stamps: Path, info: dict) -> None:
-    legacy_facade_names = ("mscorlib.dll", "System.IO.Packaging.dll", "System.Security.Permissions.dll")
-    legacy_facades = {name: LEGACY / "hint52/aot-final/runtime-romfs" / name for name in legacy_facade_names}
-    key = tree_hash(patched) + sha256(game_dir / "Terraria.exe") + "".join(sha256(p) for p in legacy_facades.values())
-    stamp = stamps / "romfs.stamp"
-    if stamp_ok(stamp, key) and romfs.exists():
-        print("romfs: cached")
-    else:
-        if romfs.exists():
-            shutil.rmtree(romfs)
-        from scripts.pack_terraria_romfs import copy_game_payload
-        rel_fw = workdir / "runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64"
-        copy_game_payload(game_dir, romfs, tuple(), runtime_facades_dir=rel_fw)
-        for source in sorted(patched.glob("*.dll")):
-            shutil.copy2(source, romfs / source.name)
-        shutil.copy2(patched / "Terraria.exe", romfs / "Terraria.exe")
-        # These v88/v89s root facades are project/toolchain compatibility
-        # overrides, not game code. They must shadow the net9 facade closure copied
-        # above or metadata binding and runtime dependency resolution changes.
-        for name, source in legacy_facades.items():
-            shutil.copy2(source, romfs / name)
-        core_dir = workdir / "runtime-source/artifacts/bin/mono/libnx.arm64.Release"
-        (romfs / "mono/lib_net9.0").mkdir(parents=True, exist_ok=True)
-        shutil.copy2(core_dir / "System.Private.CoreLib.dll", romfs / "mono/lib_net9.0/System.Private.CoreLib.dll")
-        if (ROOT / "native/gamecontrollerdb.txt").exists():
-            shutil.copy2(ROOT / "native/gamecontrollerdb.txt", romfs / "gamecontrollerdb.txt")
+def romfs_stage(game_dir: Path, patched: Path, workdir: Path, tc: tclib.Toolchain, stamps: Path, info: dict) -> str:
+    """Assemble <workdir>/vanilla/romfs and return its tree hash."""
+    romfs = workdir / "vanilla" / "romfs"
+    controller_db = ROOT / "native/gamecontrollerdb.txt"
+    from scripts.pack_terraria_romfs import assemble_cli_romfs, game_payload_files
+    key = {
+        "patched": tree_hash(patched),
+        "game": tree_hash(game_dir, game_payload_files(game_dir)),
+        "sources": source_shas(ROOT / "scripts/pack_terraria_romfs.py", controller_db),
+        "toolchain": tc.digests("runtime", "facades"),
+    }
+    stamp = stamps / "romfs.json"
+    if not stage_cached("romfs", stamp, key, [romfs / "Terraria.exe"]):
+        assemble_cli_romfs(game_dir, patched, romfs, tc.path("runtime/framework"),
+                           [tc.path("facades") / name for name in tclib.COMPONENTS["facades"]],
+                           tc.path("runtime/corelib/System.Private.CoreLib.dll"), controller_db)
         write_stamp(stamp, key)
-    files = sorted(p for p in romfs.rglob("*") if p.is_file())
-    info["stages"]["romfs"] = {"file_count": len(files), "hash": tree_hash(romfs)}
+    romfs_hash = tree_hash(romfs)
+    info["stages"]["romfs"] = {"file_count": sum(1 for p in romfs.rglob("*") if p.is_file()), "hash": romfs_hash}
+    return romfs_hash
 
 
-def tree_hash(root: Path) -> str:
+def tree_hash(root: Path, files: list[Path] | None = None) -> str:
     h = hashlib.sha256()
-    for p in sorted(x for x in root.rglob("*") if x.is_file()):
+    for p in sorted(x for x in root.rglob("*") if x.is_file()) if files is None else files:
         h.update(p.relative_to(root).as_posix().encode()+b"\0")
         h.update(sha256(p).encode()+b"\0")
     return h.hexdigest()
 
 
-def container_mounts(workdir: Path) -> list[str]:
-    return ["-v", f"{workdir}:/build", "-v", f"{LEGACY}:/legacy:ro", "-v", f"{LEGACY}:{LEGACY}:ro", "-v", f"{ROOT}:/work:ro", "-v", f"{workdir / 'recovery46/sdk-pristine'}:/mono-nx:ro", "-v", f"{workdir / 'release58/mono-nx/native'}:/mono-nx/native:ro", "-v", f"{workdir / 'recovery46/native-deps/install'}:/fna-install:ro"]
+def container_mounts(workdir: Path, tc: tclib.Toolchain) -> list[str]:
+    return ["-v", f"{workdir}:/build", "-v", f"{ROOT}:/work:ro", *tc.mounts()]
 
 
-
-
-def host_build_path(path: str | Path, workdir: Path | None = None) -> Path:
-    p = Path(path)
-    if str(p).startswith('/build/'):
-        return (workdir or DEFAULT_WORKDIR).expanduser().resolve() / str(p)[7:]
-    return p
-
-def repair_incomplete_aot(aot: Path) -> bool:
-    manifest_path = aot / "build-manifest.json"
-    if not manifest_path.exists():
-        return False
-    manifest = json.loads(manifest_path.read_text())
-    if manifest.get("status") == "complete":
-        return False
-    if not manifest.get("modules") or any(m.get("status") != "compiled" for m in manifest["modules"]):
-        return False
-    v88 = json.loads((LEGACY / "release58/v88/aot-final/build-manifest.json").read_text())
-    core = dict(v88["corelib"])
-    obj_src = LEGACY / "release58/v88/aot-final/System.Private.CoreLib.dll.o"
-    llvm_src = LEGACY / "release58/v88/aot-final/System.Private.CoreLib.dll-llvm.o"
-    obj = aot / obj_src.name
-    llvm = aot / llvm_src.name
-    if not obj.exists():
-        os.link(obj_src, obj)
-    if not llvm.exists():
-        os.link(llvm_src, llvm)
-    core.update(object=str(obj), object_sha256=sha256(obj), llvm_object=str(llvm), llvm_object_sha256=sha256(llvm), symbol_object=str(llvm), status="reused_from_toolchain")
-    manifest["corelib"] = core
-    symbols = [m["symbol"] for m in [manifest["corelib"], *manifest["modules"]]]
-    (aot / "mono_aot_modules.h").write_text("/* Generated only after all AArch64 objects passed verification. */\n" + "".join(f"REGISTER_AOT_MODULE({sym});\n" for sym in symbols))
-    manifest["status"] = "complete"
-    manifest["runtime_metadata_manifest"] = manifest.get("runtime_metadata_manifest", "not regenerated; corelib reused from validated toolchain")
-    write_json(manifest_path, manifest)
-    return True
-
-def aot_stage(aot: Path, workdir: Path, stamps: Path, info: dict) -> None:
-    romfs = aot / "runtime-romfs"
-    key = tree_hash(romfs)
-    stamp = stamps / "aot.stamp"
-    if stamp_ok(stamp, key) and (aot / "build-manifest.json").exists():
-        print("aot: cached")
-    elif repair_incomplete_aot(aot):
-        print("aot: repaired cached objects")
-        write_stamp(stamp, key)
-    else:
-        for p in aot.glob("*.o"):
-            p.unlink()
-        for stale in ("runtime-metadata", "prepare-tool", "prepare-obj"):
-            path = aot / stale
-            if path.exists():
-                shutil.rmtree(path)
-        logs = aot / "logs"; logs.mkdir(exist_ok=True)
-        core_obj = workdir / "release58/v88/aot-final/System.Private.CoreLib.dll.o"
-        if not core_obj.exists():
-            core_obj.parent.mkdir(parents=True, exist_ok=True)
-            core_obj.symlink_to(LEGACY / "release58/v88/aot-final/System.Private.CoreLib.dll.o")
-        eng = engine() or "podman"
-        cmd = [eng, "run", "--rm", "--userns=keep-id", "--entrypoint", "/usr/bin/python3", "-e", "PATH=/opt/devkitpro/devkitA64/bin:/opt/devkitpro/tools/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", *container_mounts(workdir), LLVM_IMAGE,
-               "/work/scripts/compile_terraria_aot.py", "--game-dir", rel_to_mount(romfs, workdir, "/build"), "--output-dir", rel_to_mount(aot, workdir, "/build"),
-               "--corelib-dir", "/build/runtime-source/artifacts/bin/mono/libnx.arm64.Release", "--runtime-dir", "/build/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64",
+def aot_stage(romfs_hash: str, workdir: Path, tc: tclib.Toolchain, stamps: Path, info: dict) -> Path:
+    aot = workdir / "vanilla" / "aot"
+    key = {
+        "romfs": romfs_hash,
+        "sources": source_shas(ROOT / "scripts/compile_terraria_aot.py", ROOT / "scripts/prepare_aot/PrepareAot.cs",
+                               ROOT / "scripts/prepare_aot/PrepareAot.csproj"),
+        "toolchain": tc.digests("sdk", "runtime", "aot-compiler", "framework-aot", "cecil", "dotnet"),
+        "image": image_id(LLVM_IMAGE),
+        "llvm_modules": ["Terraria", "FNA"],
+    }
+    stamp = stamps / "aot.json"
+    if not stage_cached("aot", stamp, key, [aot / "build-manifest.json"]):
+        if aot.exists():
+            shutil.rmtree(aot)
+        aot.mkdir(parents=True)
+        cmd = [engine() or "podman", "run", "--rm", "--userns=keep-id", "--entrypoint", "/usr/bin/python3",
+               "-e", "PATH=/opt/devkitpro/devkitA64/bin:/opt/devkitpro/tools/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+               *container_mounts(workdir, tc), LLVM_IMAGE,
+               "/work/scripts/compile_terraria_aot.py", "--game-dir", "/build/vanilla/romfs", "--output-dir", "/build/vanilla/aot",
+               "--corelib-dir", "/toolchain/runtime/corelib", "--runtime-dir", "/toolchain/runtime/framework",
                "--cross-compiler", "/mono-nx/dotnet_runtime/artifacts/bin/mono/linux.x64.Debug/cross/linux-x64/libnx-arm64/mono-aot-cross",
-               "--llvm-compiler-dir", "/build/runtime-llvm/artifacts/bin/mono/linux.x64.Debug/cross/linux-x64/libnx-arm64",
-               "--cecil-path", "/build/runtime-source/artifacts/bin/Mono.Linker/Release/net9.0/Mono.Cecil.dll", "--dotnet", "/build/runtime-source/.dotnet/dotnet",
-               "--corelib-object", rel_to_mount(core_obj, workdir, "/build"), "--corelib-log", "/legacy/release58/v88/aot-final/logs/System.Private.CoreLib.dll.log",
-               "--llvm-module", "Terraria", "--llvm-module", "FNA", "--jobs", "3"]
+               "--llvm-compiler-dir", "/toolchain/aot-compiler",
+               "--cecil-path", "/toolchain/cecil/Mono.Cecil.dll", "--dotnet", "/toolchain/dotnet/dotnet",
+               "--framework-aot", "/toolchain/framework-aot",
+               *(arg for module in key["llvm_modules"] for arg in ("--llvm-module", module)), "--jobs", "3"]
         run(cmd, heavy=True)
         write_stamp(stamp, key)
     manifest = json.loads((aot / "build-manifest.json").read_text())
     info["stages"]["aot"] = {"modules": {m["assembly"]["name"]: [m.get("compiled_methods"), m.get("total_methods")] for m in [manifest["corelib"], *manifest["modules"]]}}
+    return aot
 
 
-def augment_toolchain_aot(aot: Path, info: dict) -> None:
-    manifest_path = aot / "build-manifest.json"
-    manifest = json.loads(manifest_path.read_text())
-    existing = {m["assembly"]["name"] for m in [manifest["corelib"], *manifest["modules"]]}
-    prep = json.loads(host_build_path(manifest["preparation_manifest"], aot.parents[2]).read_text())
-    staged = {a["name"]: a for a in prep["staged_assemblies"]}
-    added = []
-    for name, stem in [("System.Text.RegularExpressions", "System.Text.RegularExpressions.dll"), ("System.Collections.Concurrent", "System.Collections.Concurrent.dll")]:
-        if name in existing:
-            continue
-        src_obj = LEGACY / "release58/v88/aot-final" / f"{stem}.o"
-        src_llvm = LEGACY / "release58/v88/aot-final" / f"{stem}-llvm.o"
-        dst_obj = aot / src_obj.name; dst_llvm = aot / src_llvm.name
-        if not dst_obj.exists(): os.link(src_obj, dst_obj)
-        if not dst_llvm.exists(): os.link(src_llvm, dst_llvm)
-        # Copy method counts/symbol metadata from the validated v88 manifest, but point at this build's files.
-        v88 = json.loads((LEGACY / "release58/v88/aot-final/build-manifest.json").read_text())
-        base = next(m for m in [v88["corelib"], *v88["modules"]] if m["assembly"]["name"] == name)
-        module = dict(base)
-        module["assembly"] = staged.get(name, base["assembly"])
-        module.update(object=str(dst_obj), object_sha256=sha256(dst_obj), llvm_object=str(dst_llvm), llvm_object_sha256=sha256(dst_llvm), symbol_object=str(dst_llvm), status="reused_from_toolchain")
-        manifest["modules"].append(module)
-        added.append(name)
-    if added:
-        symbols = [m["symbol"] for m in [manifest["corelib"], *manifest["modules"]]]
-        (aot / "mono_aot_modules.h").write_text("/* Generated only after all AArch64 objects passed verification. */\n" + "".join(f"REGISTER_AOT_MODULE({s});\n" for s in symbols))
-        write_json(manifest_path, manifest)
-    info["stages"]["toolchain_aot_reuse"] = added
-
-
-def launcher_stage(cache_root: Path, profile: str, stamps: Path, info: dict | None = None) -> Path:
-    out = cache_root / "launcher-src" / profile
-    key = profile + sha256(ROOT / "scripts/launcher/build_launcher.py") + sha256(ROOT / "native/shared/nx_input.c")
-    stamp = stamps / "launcher.stamp"
-    if stamp_ok(stamp, key) and (out / "launcher-build.json").exists():
-        print("launcher: cached")
-    else:
-        if out.exists(): shutil.rmtree(out)
-        env = os.environ.copy(); env["TERRABUILDER_CACHE"] = str(cache_root)
-        cmd = [sys.executable, str(ROOT / "scripts/launcher/build_launcher.py"), "--out", str(out), "--force"]
+def launcher_stage(workdir: Path, out: Path, tc: tclib.Toolchain, profile: str, stamp: Path, info: dict | None = None) -> Path:
+    """Build the launcher objects into `out`, which must be under `workdir` (mounted as /build)."""
+    key = {
+        "profile": profile,
+        "sources": source_shas(ROOT / "scripts/launcher/build_launcher.py"),
+        "native": tree_hash(ROOT / "native"),
+        "toolchain": tc.digests("sdk", "mono-nx-native", "native-deps"),
+        "image": image_id(MONO_IMAGE),
+    }
+    if not stage_cached(f"launcher ({profile})", stamp, key, [out / "launcher-build.json"]):
+        cmd = [sys.executable, str(ROOT / "scripts/launcher/build_launcher.py"), "--workdir", str(workdir),
+               "--toolchain", str(tc.root), "--out", str(out), "--force"]
         if profile == "debug":
             cmd.append("--debug-diagnostics")
         elif profile == "profiler":
             cmd.append("--profiler")
-        run(cmd, env=env)
+        run(cmd)
         write_stamp(stamp, key)
     if info is not None:
         info["stages"]["launcher"] = json.loads((out / "launcher-build.json").read_text())
     return out
 
 
-def native_stage(workdir: Path, variant: str, aot: Path, launcher: Path, profile: str, stamps: Path, info: dict, final_nro: Path) -> None:
-    key = (
-        tree_hash(aot / "runtime-romfs")
-        + sha256(aot / "mono_aot_modules.h")
-        + sha256(ROOT / "scripts/release_bcl/build_native.py")
-        + sha256(launcher / "launcher-build.json")
-        + profile
-        + ",".join(profile_wraps(profile))
-        + "openal-free"
-    )
-    stamp = stamps / "native.stamp"
-    vdir = workdir / "release58" / variant
-    if stamp_ok(stamp, key) and (vdir / "native/candidate/mono_nx_fna.nro").exists():
-        print("native link: cached")
-    else:
-        native = vdir / "native"
-        if native.exists(): shutil.rmtree(native)
-        overrides = []
-        for name in ["core.o","dl_shim.o","dl_shim_dotnet.o","dl_shim_libnx.o","dl_shim_stubs.o","heap.o","io_shims.o","io_util.o","ini.o","dl_shim_FAudio.o","dl_shim_FNA3D.o","dl_shim_SDL3.o","nx_input.o","dl_shim_SDL2.o","dl_shim_SDL2_image.o","dl_shim_opengl.o"]:
-            p = launcher / "objects" / name
-            if p.exists(): overrides.append(f"{name}={rel_to_mount(p, workdir, '/build')}")
-        extra_objs = [launcher / "objects/nx_gpu_timing.o", launcher / "objects/nx_audio.o"]
-        if profile == "profiler": extra_objs.append(launcher / "objects/nx_profiler.o")
-        extra_flags = ["-L/build/gfx/v88-lib", *[rel_to_mount(p, workdir, "/build") for p in extra_objs], *["-Wl,--wrap=" + w for w in profile_wraps(profile)]]
-        env = os.environ.copy()
-        env.update({"R58_VARIANT": variant, "R58_RUNTIME": "release", "R58_SKIP_CONTROL": "1", "R58_OBJECT_OVERRIDES": " ".join(overrides), "R58_EXTRA_LDFLAGS": " ".join(extra_flags), "R58_TITLE": "Terraria", "R58_NACP_VERSION": "1.4.5.8"})
-        if profile == "profiler":
-            env["R58_MAIN_DEFINES"] = "-DMONO_NX_PROFILER=1"
-        eng = engine() or "podman"
-        # Build env is clearer as repeated -e before image.
-        cmd = [eng, "run", "--rm", "--userns=keep-id", "--entrypoint", "/usr/bin/python3"]
-        for k in ("R58_VARIANT","R58_RUNTIME","R58_SKIP_CONTROL","R58_OBJECT_OVERRIDES","R58_EXTRA_LDFLAGS","R58_TITLE","R58_NACP_VERSION","R58_MAIN_DEFINES"):
-            if k in env: cmd += ["-e", f"{k}={env[k]}"]
-        cmd += [*container_mounts(workdir), LLVM_IMAGE, "/build/release58/build_native.py"]
+def native_stage(workdir: Path, romfs_hash: str, aot: Path, launcher: Path, tc: tclib.Toolchain, profile: str, stamps: Path, info: dict) -> Path:
+    out = workdir / "vanilla" / f"native-{profile}"
+    wraps = profile_wraps(profile)
+    defines = ["MONO_NX_PROFILER=1"] if profile == "profiler" else []
+    key = {
+        "romfs": romfs_hash,
+        "aot": {name: sha256(aot / name) for name in ("build-manifest.json", "mono_aot_modules.h")},
+        "launcher": sha256(launcher / "launcher-build.json"),
+        "native": tree_hash(ROOT / "native"),
+        "sources": source_shas(ROOT / "scripts/native/link_nro.py", ROOT / "scripts/native/compile_main.sh"),
+        "profile": profile,
+        "wraps": wraps,
+        "defines": defines,
+        "toolchain": tc.digests("sdk", "mono-nx-native", "runtime", "mesa", "native-deps", "framework-aot"),
+        "image": image_id(LLVM_IMAGE),
+    }
+    stamp = stamps / f"native-{profile}.json"
+    if not stage_cached(f"native link ({profile})", stamp, key, [out / "mono_nx_fna.nro"]):
+        if out.exists():
+            shutil.rmtree(out)
+        cmd = [engine() or "podman", "run", "--rm", "--userns=keep-id", "--entrypoint", "/usr/bin/python3",
+               *container_mounts(workdir, tc), LLVM_IMAGE, "/work/scripts/native/link_nro.py",
+               "--aot-manifest", "/build/vanilla/aot/build-manifest.json", "--romfs", "/build/vanilla/romfs",
+               "--launcher", "/build/" + launcher.relative_to(workdir).as_posix(),
+               "--out", "/build/" + out.relative_to(workdir).as_posix(),
+               *(f"--wrap={w}" for w in wraps), *(f"--main-define={d}" for d in defines)]
         run(cmd, heavy=True)
         write_stamp(stamp, key)
-    nb = json.loads((vdir / "native/native-build.json").read_text())
-    info["stages"]["native"] = nb
+    info["stages"]["native"] = json.loads((out / "native-build.json").read_text())
+    return out
 
 
 def compare(args: argparse.Namespace) -> int:
@@ -1066,7 +922,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR)
     sub = p.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("doctor"); d.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR); d.set_defaults(func=doctor)
-    t = sub.add_parser("toolchain"); t.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR); t.add_argument("toolcmd", nargs="?", choices=["pack"]); t.add_argument("--from-source", action="store_true", help="unavailable: clean-checkout pipeline is incomplete"); t.add_argument("--bundle", help="unavailable: clean-workdir bundle import is incomplete"); t.set_defaults(func=toolchain)
+    t = sub.add_parser("toolchain"); t.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR); t.add_argument("toolcmd", nargs="?", choices=["status", "verify"], default="status"); t.add_argument("--from-source", action="store_true", help="unavailable: clean-checkout pipeline is incomplete"); t.add_argument("--bundle", help="unavailable: clean-workdir bundle import is incomplete"); t.set_defaults(func=toolchain_command)
     b = sub.add_parser("build"); b.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR); b.add_argument("--target", choices=["vanilla","tmodloader"]); b.add_argument("--game-dir", help="Vanilla game folder for --target vanilla; tModLoader 1.4.4.x folder for --target tmodloader"); b.add_argument("--mods", help="Comma-separated curated tModLoader mods, or 'none'"); b.add_argument("--out"); b.add_argument("--profile", choices=["release","debug","profiler"], default="release"); b.add_argument("--debug-diagnostics", action="store_const", const="debug", dest="profile", help="alias for --profile debug"); b.add_argument("-y", "--yes", action="store_true"); b.set_defaults(func=build)
     c = sub.add_parser("compare"); c.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR); c.set_defaults(func=compare)
     args = p.parse_args(argv)
