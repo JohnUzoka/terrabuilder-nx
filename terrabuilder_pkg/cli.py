@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
 import hashlib
 import json
 import os
@@ -55,6 +57,18 @@ def write_json(path: Path, value: object) -> None:
     pending = path.with_name(path.name + ".pending")
     pending.write_text(json.dumps(value, indent=2) + "\n")
     pending.replace(path)
+
+
+@contextlib.contextmanager
+def tmod_variant_lock(variant: str):
+    lock_path = LEGACY / "tmod" / f".{variant}.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a") as lock_file:
+        fcntl.flock(lock_file, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_file, fcntl.LOCK_UN)
 
 
 def run(cmd: list[str], *, cwd: Path = ROOT, env: dict[str, str] | None = None, heavy: bool = False) -> None:
@@ -604,7 +618,6 @@ def seed_tmod_input(variant: str, mods: list[str], packages: Path | None, catalo
         config["reuse_base"] = "tmod27"
         config["reuse_modules"] = ["ReLogic.dll", "System.Linq.dll"]
         config["aot_workers"] = 1
-        config["skip_aot_modules"] = ["tModLoader.dll"]
         config["launcher_objects"] = launcher_config(profile, launcher)
         config["extra_ldflags"] = ["-Wl," + ",".join("--wrap=" + w for w in profile_wraps(profile))]
         native = dict(config.get("native", {}))
@@ -681,28 +694,29 @@ def build_tmodloader(args: argparse.Namespace, tmod_dir: Path, mods: list[str], 
     stamps.mkdir(parents=True, exist_ok=True)
     launcher_dir = launcher_stage(LEGACY, args.profile, stamps)
     packages = build_curated_mod_sources(tmod_dir, mods, workdir, catalog) if mods else None
-    seed_tmod_input(variant, mods, packages, catalog, args.profile, launcher_dir)
-    run_tmod_pipeline(variant, workdir)
-    src_root = LEGACY / "tmod" / variant
-    out_dir = out_root / ("tmodloader-" + ("no-mods" if not mods else "-".join(mods).lower()))
-    out_dir.mkdir(parents=True, exist_ok=True)
-    nro = out_dir / "tmodloader.nro"
-    shutil.copy2(src_root / "native/candidate/tmodloader.nro", nro)
-    sd_out = out_dir / "sdcard"
-    if sd_out.exists():
-        shutil.rmtree(sd_out)
-    shutil.copytree(src_root / "sdcard", sd_out)
-    manifest = json.loads((src_root / "manifest.json").read_text())
-    mvid = json.loads((src_root / "aot-mvid-check.json").read_text())
-    receipt = {"target": "tmodloader", "experimental": True, "variant": variant, "input": tmeta,
-               "mods": [catalog[m] for m in mods], "nro": {"path": str(nro), "sha256": sha256(nro), "bytes": nro.stat().st_size},
-               "sd_payload": str(sd_out), "aot_mvid_check": mvid, "manifest": manifest}
-    write_json(out_dir / "receipt.json", receipt)
-    print(f"Built {nro} {receipt['nro']['sha256']}")
-    print(f"Copy {nro} to sd:/switch/tmodloader.nro")
-    print(f"Copy contents of {sd_out}/ to the SD card root")
-    print(TMOD_WARNING)
-    return 0
+    with tmod_variant_lock(variant):
+        seed_tmod_input(variant, mods, packages, catalog, args.profile, launcher_dir)
+        run_tmod_pipeline(variant, workdir)
+        src_root = LEGACY / "tmod" / variant
+        out_dir = out_root / ("tmodloader-" + ("no-mods" if not mods else "-".join(mods).lower()))
+        out_dir.mkdir(parents=True, exist_ok=True)
+        nro = out_dir / "tmodloader.nro"
+        shutil.copy2(src_root / "native/candidate/tmodloader.nro", nro)
+        sd_out = out_dir / "sdcard"
+        if sd_out.exists():
+            shutil.rmtree(sd_out)
+        shutil.copytree(src_root / "sdcard", sd_out)
+        manifest = json.loads((src_root / "manifest.json").read_text())
+        mvid = json.loads((src_root / "aot-mvid-check.json").read_text())
+        receipt = {"target": "tmodloader", "experimental": True, "variant": variant, "input": tmeta,
+                   "mods": [catalog[m] for m in mods], "nro": {"path": str(nro), "sha256": sha256(nro), "bytes": nro.stat().st_size},
+                   "sd_payload": str(sd_out), "aot_mvid_check": mvid, "manifest": manifest}
+        write_json(out_dir / "receipt.json", receipt)
+        print(f"Built {nro} {receipt['nro']['sha256']}")
+        print(f"Copy {nro} to sd:/switch/tmodloader.nro")
+        print(f"Copy contents of {sd_out}/ to the SD card root")
+        print(TMOD_WARNING)
+        return 0
 
 
 def build(args: argparse.Namespace) -> int:

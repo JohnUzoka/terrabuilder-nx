@@ -86,6 +86,7 @@ extra_aot = config.get('extra_aot', [])
 assert len(extra_aot) == len(set(extra_aot))
 skip_aot_modules = config.get('skip_aot_modules', [])
 assert len(skip_aot_modules) == len(set(skip_aot_modules))
+assert not skip_aot_modules, 'tModLoader.dll AOT is required for this launcher'
 
 corelib_name = config.get('corelib')
 llvm_modules = config.get('llvm_modules', [])
@@ -107,6 +108,9 @@ for filename, destinations in replacements.items():
         assert (BASE / 'romfs' / destination).is_file(), destination
 for directory in (AOT, NATIVE, ROMFS, OUT / 'sdcard', OUT / 'extracted'):
     assert not directory.exists(), f'Fresh output required: {directory}'
+container_tmp = OUT / 'container-tmp'
+container_tmp.mkdir(parents=True, exist_ok=True)
+env['TMPDIR'] = str(container_tmp)
 
 mod_bytes_by_name = {}
 mod_info_by_name = {}
@@ -159,9 +163,7 @@ if compile_fna:
 compiled.extend(aot_replacements)
 compiled.extend(extra_aot)
 compiled.extend(external_members.keys())
-compiled = [name for name in compiled if name not in skip_aot_modules]
 assert len(compiled) == len(set(compiled)), 'Duplicate compiled assembly'
-assert set(skip_aot_modules) <= {'tModLoader.dll'}, 'Only tModLoader.dll can use the interpreter fallback'
 input_hashes = {name: sha(INPUT / name) for name in set(compiled) | replacements.keys() | {'FNA.dll'}}
 baseline = json.loads((BASE / 'manifest.json').read_text())
 binding_base = baseline['provenance_and_binding']
@@ -215,18 +217,25 @@ def compile_one(name):
     options = f'full,interp,static,outfile={AOT}/{name}.o,tool-prefix=aarch64-none-elf-'
     if name not in llvm_modules:
         run([CROSS, *paths, '--aot=' + options, INPUT / name], 'aot-' + name, OUT)
-        return
-    temp = OUT / ('llvm-tmp-' + name)
-    temp.mkdir()
-    options += f',llvm-path={LLVM_DIR}/,llvm-outfile={AOT}/{name}-llvm.o,temp-path={temp}'
-    run_env = dict(env, LD_LIBRARY_PATH=str(LLVM_DIR))
-    process = subprocess.run(list(map(str, [LLVM_DIR / 'mono-aot-cross', '--llvm', *paths, '--aot=' + options, INPUT / name])),
-                             cwd=OUT, env=run_env, capture_output=True, text=True)
-    (OUT / ('aot-' + name + '.log')).write_text(process.stdout + process.stderr)
-    if process.returncode:
-        raise RuntimeError('aot-' + name + '\n' + process.stdout[-4000:] + process.stderr[-4000:])
-    shutil.rmtree(temp)
-    print('PASS aot-' + name + ' (LLVM)', flush=True)
+    else:
+        temp = OUT / ('llvm-tmp-' + name)
+        temp.mkdir()
+        options += f',llvm-path={LLVM_DIR}/,llvm-outfile={AOT}/{name}-llvm.o,temp-path={temp}'
+        run_env = dict(env, LD_LIBRARY_PATH=str(LLVM_DIR))
+        process = subprocess.run(list(map(str, [LLVM_DIR / 'mono-aot-cross', '--llvm', *paths, '--aot=' + options, INPUT / name])),
+                                 cwd=OUT, env=run_env, capture_output=True, text=True)
+        (OUT / ('aot-' + name + '.log')).write_text(process.stdout + process.stderr)
+        if process.returncode:
+            raise RuntimeError('aot-' + name + '\n' + process.stdout[-4000:] + process.stderr[-4000:])
+        shutil.rmtree(temp)
+        print('PASS aot-' + name + ' (LLVM)', flush=True)
+    native_object = AOT / (name + '.o')
+    if not native_object.is_file() or native_object.stat().st_size == 0:
+        raise RuntimeError(f'aot-{name} completed without producing {native_object.name}')
+    if name in llvm_modules:
+        llvm_object = AOT / (name + '-llvm.o')
+        if not llvm_object.is_file() or llvm_object.stat().st_size == 0:
+            raise RuntimeError(f'aot-{name} completed without producing {llvm_object.name}')
 
 
 to_compile = [name for name in compiled if name not in reuse_modules]
