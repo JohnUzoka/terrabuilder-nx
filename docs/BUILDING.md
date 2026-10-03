@@ -4,11 +4,11 @@ This guide builds a Terraria NRO for Switch homebrew from **your own copy** of t
 game (GOG Linux build 1.4.5.x). Nothing from the game is in this repository.
 
 > **Status, read first.** The pipeline is reproducible **from verified baseline
-> artifacts**, not yet from a clean checkout in one command. Every build since 52
-> is derived from the previous accepted build, and the verifiers pin their inputs
-> by SHA-256. Part 3 marks where a step depends on a retained artifact rather than
-> on a script in this repo. Turning the whole chain into a single from-scratch
-> script is open work.
+> artifacts**, not yet from a clean checkout in one command. Builds are derived from
+> previously accepted artifacts, and the verifiers pin their inputs by SHA-256.
+> Part 3 marks where a step depends on a retained artifact rather than on a script
+> in this repo. Turning the whole chain into a single from-scratch script is open
+> work.
 
 ## 0. What you need
 
@@ -40,7 +40,9 @@ The CLI stages a content-hashed build under `~/.cache/terrabuilder`, reuses the
 validated open-source toolchain artifacts from the legacy cache, patches only the
 user's local GOG assemblies, AOT-compiles the game-derived modules locally, relinks
 with source-built launcher objects, and writes
-`~/.cache/terrabuilder/out/Terraria.nro` plus a receipt JSON. Release builds omit
+`~/.cache/terrabuilder/out/Terraria.nro`, an `sdcard/` payload (`mono/config.ini`
+and the ICU data file `mono/etc/icudt77l.dat`, which the NRO reads from the SD card
+at startup), and a receipt JSON. Release builds omit
 timing/profiler diagnostics and drop the unused OpenAL shim/link. `--profile debug`
 or `--debug-diagnostics` restores phase/GPU/audio diagnostics; `--profile profiler`
 also emits `Terraria-profiler.nro`. `toolchain pack` records artifact SHA-256s,
@@ -79,7 +81,7 @@ Outputs are under `~/.cache/terrabuilder/out/tmodloader-<selection>/`:
 
 - `tmodloader.nro`
 - `sdcard/` payload containing `switch/tmodloader/Terraria/tModLoader/Mods/`
-  and `enabled.json`
+  with `enabled.json`, plus the same `mono/` runtime files as vanilla
 - `receipt.json` with the NRO SHA-256, curated mod metadata, build manifest, and
   AOT MVID verifier result
 
@@ -222,20 +224,17 @@ building a candidate.
 
 ### 3.2 Game payload (RomFS)
 
-`scripts/pack_terraria_romfs.py` stages your GOG install into a RomFS tree,
-excluding the Windows/Framework BCL DLLs and Linux `.so` files.
-
-The game assembly is then modified by Mono.Cecil patchers under `scripts/patch_*`.
-The shipped chain is: `patch_fna` (FNA input bridge + `NxInputDiag`),
-`patch_time_logger` (build 41: TimeLogger history cost), `patch_aot_inlining`
-(build 42: the "clean42" game), `patch_draw_gate` (build 50) and `patch_hint_prepass`
-(build 52). Each `run.py` takes the exact previous output (hash-checked) and
-writes a fresh directory.
-**Retained artifact:** the accepted payload is `hint52/aot-final/runtime-romfs`;
-build 58+ start from it. Tested but not adopted: `patch_tile_reuse` (46),
-`patch_light_lookup` (47), `patch_property_diagnostics` (48), `patch_light_value`
-(57), `patch_tile_stack_state` (54), `patch_tile_helpers`. Measurement-only, never
-in a normal build: the `*_profile` sets.
+`scripts/patch_vanilla/run.py` applies Mono.Cecil patches to a clean GOG 1.4.5.8
+install and emits the managed assemblies the Switch build uses: `Terraria.exe`,
+patched `ReLogic.dll` and `FNA.dll`, `NxCrypto.dll`, `NxInputDiag.dll`, and a
+receipt. Each patch checks the expected method shapes before rewriting; the patch
+list is in `scripts/patch_vanilla/README.md`. `scripts/pack_terraria_romfs.py`
+stages the game into a RomFS tree, excluding the Windows/Framework BCL DLLs and
+Linux `.so` files. The CLI runs both steps.
+**Retained artifact:** the type-forwarding facades staged at the RomFS root
+(patched `mscorlib.dll`, `System.IO.Packaging.dll`,
+`System.Security.Permissions.dll`) are still copied from
+`hint52/aot-final/runtime-romfs`.
 
 ### 3.3 Release CoreLib/framework (build 58+)
 
@@ -327,10 +326,10 @@ framework swap. The NRO is `$W/release58/<variant>/native/candidate/mono_nx_fna.
 
 ## 4. Install on the Switch
 
-Copy the NRO to `/switch/` and keep the SD runtime from the mono-nx release
-(`/mono/lib_net9.0`, `/mono/framework_net9.0`, `/mono/etc`) plus
-`terraria-mono/mono/config.ini` → `/mono/config.ini`. Saves go to
-`/switch/terraria/`. The log is `/mono/log.txt`, and it **appends** across
+Copy the NRO to `sd:/switch/` and the contents of the build's `sdcard/` folder to
+the SD card root, then start hbmenu in full application mode (hold R while
+launching a game). [Testing on a Switch](testing.md) covers the checks, save
+locations, and logs. The log is `sd:/mono/log.txt`, and it **appends** across
 launches, so rename or delete it between measured runs.
 
 ## 5. Build options
@@ -345,5 +344,3 @@ launches, so rename or delete it between measured runs.
 | `R58_LLVM_MODULES`, `R58_LLVM_AOT_EXTRA` | `build_aot.py` | none | Modules compiled through LLVM, extra LLVM options |
 | `R58_CORELIB_AOT_EXTRA` | `build_aot.py` | none | CoreLib AOT options (trampoline pool sizes) |
 | `R58_RUNTIME=release` | `build_native.py` | Debug-config runtime | Link the Release native runtime |
-
-Every build's exact recipe and result is recorded in `docs/findings.md`.

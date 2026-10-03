@@ -5,7 +5,7 @@ This does not distribute Terraria data. The caller supplies a local game
 installation; the output NRO contains that caller's files in its embedded
 RomFS. Runtime, config, logs, and ICU remain outside the NRO on the SD card.
 
-Run inside the mono-nx devkitA64 build container from the fna-nx-test tree.
+Run inside the mono-nx devkitA64 build container from this repository.
 """
 
 from __future__ import annotations
@@ -209,7 +209,7 @@ def main() -> int:
         "--project-dir",
         type=Path,
         default=project_default,
-        help="fna-nx-test project directory",
+        help="terrabuilder-nx repository directory",
     )
     parser.add_argument(
         "--output",

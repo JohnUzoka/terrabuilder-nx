@@ -1,9 +1,0 @@
-# Pinned to the same devkitA64/libnx generation used by the v88 Mesa build so the
-# launcher/libnx NWindow ABI stays aligned for the A/B NROs.
-FROM docker.io/devkitpro/devkita64:20250728
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3-pip python3-setuptools python3-wheel ninja-build pkg-config \
-    flex bison curl ca-certificates git python3-mako \
-    && rm -rf /var/lib/apt/lists/* \
-    && pip3 install --break-system-packages 'meson>=1.4,<1.8' PyYAML packaging
-ENV PATH="/opt/devkitpro/devkitA64/bin:/opt/devkitpro/tools/bin:${PATH}"

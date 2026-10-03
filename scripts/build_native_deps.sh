@@ -5,8 +5,8 @@ set -euo pipefail
 # Builds FNA3D, FAudio, and SDL2# as static libraries for libnx.
 # Run inside the mono-nx Docker container.
 #
-# These build into /mono-nx/fna-nx-test/native/build/ and install
-# headers/libs into /mono-nx/fna-nx-test/native/install/
+# These build into native/build/ and install headers/libs into
+# native/install/ under this repository.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"

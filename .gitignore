@@ -9,7 +9,6 @@
 *.o
 *.a
 icudt*.dat
-terraria-mono/switch/
 dist/
 
 # Hardware logs and crash captures (kept in the workshop, not here)

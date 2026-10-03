@@ -21,45 +21,45 @@ The native overlay (`native/interpreter`, `native/shared`) builds against mono-n
 
 ## Layout
 
+- `terrabuilder`, `terrabuilder_pkg/`: the CLI, the curated tModLoader mod catalog,
+  and recorded mod compatibility patches.
 - `native/` launcher overlay: `interpreter/` (main.c, Makefile, AOT method-table linker
   script), `shared/` (input latch, FNA3D/FAudio/SDL3 shims), `patches/` (runtime source
   patches, also committed on the dotnet_runtime fork), `tests/` (host regressions).
-- `managed/` small helper assemblies (`NxInputDiag`, FNA test app).
+- `managed/` small helper assemblies (`NxInputDiag`, `NxCrypto`).
 - `scripts/` build tooling:
-  - `compile_terraria_aot.py`: prepare, AOT-compile (optionally `--llvm-module`), verify
-    MVID bindings and emit the module registration header.
+  - `patch_vanilla/`, `patch_fna/`, `fna_suppress_gc/`, `fna_shared_audio/`: Mono.Cecil
+    IL patchers applied to the user's local game and FNA assemblies.
+  - `compile_terraria_aot.py`, `prepare_aot/`: prepare, AOT-compile (optionally
+    `--llvm-module`), verify MVID bindings and emit the module registration header.
   - `release_bcl/`: Release CoreLib/framework, native runtime, and LLVM cross-compiler
     builders plus AOT, link, package, and artifact-verification helpers.
-  - `patch_*`: Mono.Cecil IL patch sets applied to the user's game assembly. The
-    `*_profile` sets are measurement builds only (see below).
-  - `analyze_*`: parsers for the profiler log formats.
-- `docs/findings.md`: retained engineering log and technical decisions.
-- `docs/testing.md`: historical test record and hardware test procedures.
+  - `launcher/`, `mesa/`: launcher objects and the Switch Mesa build.
+  - `tmod/`: the tModLoader port (mod set preparation, offline hooks, IL lowering,
+    AOT, and link).
+- `docs/`: [architecture](docs/architecture.md), [build guide](docs/BUILDING.md),
+  [testing on a Switch](docs/testing.md), and a
+  [guide to porting other FNA games](docs/porting-fna-games.md).
 
 ## Profiling is opt-in
 
-Default builds carry no profiling:
+Release builds carry no profiling. `--profile debug` adds phase/GPU/audio diagnostics
+and `--profile profiler` also emits a sampling-profiler NRO. The underlying launcher
+build options are:
 
 - **Frame timing** (`NX_PHASE` log lines, SDL_PollEvent / FNA3D_SwapBuffers wrappers):
   `make MONO_NX_PHASE_TIMING=1`. Without it the managed hook entry points stay (patched
   Terraria calls them every frame) but only drive the input latch.
-- **Profiler IL patches** (`scripts/patch_*_profile`): separate measurement builds,
-  never applied by default. `patch_time_logger` is a runtime timing hook, not a
-  profiler.
 - **GC/memory stats** (`NX_GC` lines): `MONO_NX_GC_STATS=1`. The optional SD file
   `/mono/gc_params.txt` configures SGen through `MONO_GC_PARAMS`.
-
-Retained launcher objects used by the manual release pipeline include phase-timing
-instrumentation. CLI builds rebuild the launcher from source, so the timing setting
-in this checkout controls those outputs.
 
 ## Build environment
 
 Podman images `localhost/monobuild:local` (devkitA64, .NET SDK) and
-`localhost/monobuild-llvm:local` (adds clang-19 for the LLVM cross compiler). Host work
-directory defaults to `~/.cache/terraria-switch-build` (override with
+`localhost/monobuild-llvm:local` (adds clang-19 for the LLVM cross compiler). The
+retained toolchain cache is `~/.cache/terraria-switch-build` (override with
 `TERRABUILDER_CACHE`), mounted as `/build`; this repo is mounted read-only as `/work`.
-Engineering recipes and historical results are recorded in `docs/findings.md`.
+Engineering recipes are in [docs/BUILDING.md](docs/BUILDING.md).
 
 ## CLI quickstart (configured build machine)
 
@@ -82,7 +82,9 @@ does not yet create a bundle that a clean machine can install and use.
 clean-checkout build and bundle-import paths are incomplete. Do not present the
 current CLI as a self-service public release until those paths are completed.
 
-Outputs are `~/.cache/terrabuilder/out/Terraria.nro` and a JSON receipt.
+Outputs are `~/.cache/terrabuilder/out/Terraria.nro`, an `sdcard/` payload holding
+the runtime config and ICU data that the NRO reads from `sd:/mono/`, and a JSON
+receipt. [Testing on a Switch](docs/testing.md) covers installation, checks, and logs.
 Release builds omit timing/profiler diagnostics and do not link OpenAL. Use
 `--profile debug` (or `--debug-diagnostics`) for phase/GPU/audio diagnostics, and
 `--profile profiler` for diagnostics plus a profiler-enabled NRO at
@@ -110,8 +112,9 @@ tModLoader builds are experimental:
 ```
 
 Outputs are written under `~/.cache/terrabuilder/out/tmodloader-*/`: an NRO,
-`sdcard/` payload, and `receipt.json`. Copy the NRO to `sd:/switch/` and copy
-the contents of `sdcard/` to the SD root, overwriting existing files. The NRO and
+`sdcard/` payload (the mods plus the same `mono/` runtime files as vanilla), and
+`receipt.json`. Copy the NRO to `sd:/switch/` and copy the contents of `sdcard/`
+to the SD root, overwriting existing files. The NRO and
 its `.tmod` files are a matched pair: the mods are AOT-compiled into the NRO, so
 a Workshop download or a `.tmod` from an earlier build with the same name and
 version still aborts at mod load with `Failed to load AOT module '<Mod>' ...
@@ -140,7 +143,7 @@ the Plus+Minus FPS toggle did not work on an earlier build and has not been
 re-tested; multiplayer and extended play are untested. The mod list is
 intentionally limited to tested open-source mods. See the
 [architecture](docs/architecture.md), [porting guide](docs/porting-fna-games.md),
-and [build guide](docs/BUILDING.md).
+[build guide](docs/BUILDING.md), and [testing guide](docs/testing.md).
 
 ## Status
 

@@ -78,9 +78,15 @@ path. Vanilla controller navigation and the FPS toggle have been exercised on
 hardware. In tModLoader the D-pad moves through the main menu and the Start
 menu but not the inventory, and the FPS toggle has not been confirmed.
 
-Vanilla game files are staged locally in RomFS. tModLoader mods are built from
-curated, pinned open-source source repositories; the generated mod assemblies
-are supplied in the SD-card payload, not redistributed by this repository.
+Game files, managed assemblies, and the .NET class library are embedded in the
+NRO's RomFS. Two runtime files stay on the SD card because the launcher reads
+them before it mounts RomFS: `sd:/mono/config.ini` (logging, launch, and
+full-application-mode settings) and the ICU data file it names,
+`sd:/mono/etc/icudt77l.dat`. Every build writes both to its `sdcard/` payload.
+
+tModLoader mods are built from curated, pinned open-source repositories; the
+generated mod assemblies are supplied in the SD-card payload, not redistributed
+by this repository.
 Because those assemblies are also AOT-compiled into the NRO, the SD-card `.tmod`
 files must come from the same build: a Workshop copy with the same version
 aborts at mod load. User saves and game content remain local to the user's
@@ -89,7 +95,8 @@ device.
 ## Current limits
 
 - Vanilla has a hardware-tested release candidate, including audio, FPS toggle,
-  multiplayer join, and default-clock frame-rate checks.
+  multiplayer join, and default-clock frame-rate checks. Hosting a multiplayer
+  game from the Switch is not supported.
 - tModLoader remains experimental. The current Fargo's Souls build loads its
   mods, reaches a world, and plays audio on hardware, but in-world performance
   is very slow (an earlier build measured roughly 15-19 fps). The D-pad does
