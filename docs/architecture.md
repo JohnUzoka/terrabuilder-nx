@@ -75,8 +75,7 @@ in the current tModLoader build on hardware.
 
 The native input latch bridges Switch controller state into the SDL/FNA input
 path. Vanilla controller navigation and the FPS toggle have been exercised on
-hardware. In tModLoader the D-pad moves through the main menu and the Start
-menu but not the inventory, and the FPS toggle has not been confirmed.
+hardware. In tModLoader the FPS toggle has not been confirmed.
 
 Game files, managed assemblies, and the .NET class library are embedded in the
 NRO's RomFS. Two runtime files stay on the SD card because the launcher reads
@@ -99,8 +98,8 @@ device.
   game from the Switch is not supported.
 - tModLoader remains experimental. The current Fargo's Souls build loads its
   mods, reaches a world, and plays audio on hardware, but in-world performance
-  is very slow (an earlier build measured roughly 15-19 fps). The D-pad does
-  not navigate the inventory, the Plus/Minus FPS toggle has not been
-  confirmed, and tModLoader multiplayer has not been verified.
+  is very slow (an earlier build measured roughly 15-19 fps). The Plus/Minus
+  FPS toggle has not been confirmed, and tModLoader multiplayer has not been
+  verified.
 - A clean-checkout, end-to-end from-source toolchain build remains incomplete.
   See [Building](BUILDING.md) for the component recipes and limitations.

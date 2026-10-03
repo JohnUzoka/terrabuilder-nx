@@ -174,8 +174,7 @@ XACT audio engine attempted to open a second SDL device.
 
 Hardware status of the current Fargo's Souls build: the mods load, the main menu
 and a world are reachable, and audio works. Known issues: in-world performance
-is very slow (an earlier build measured roughly 15-19 fps); the D-pad moves
-through the main menu and the Start menu but not the inventory; the Plus+Minus
+is very slow (an earlier build measured roughly 15-19 fps); the Plus+Minus
 FPS toggle did not work on an earlier build and has not been re-tested;
 multiplayer and extended play are untested; only the curated open-source mod
 list is available.

@@ -102,5 +102,5 @@ The vanilla port has a hardware-tested candidate for audio, FPS toggle,
 multiplayer join, and frame-rate checks at default clocks. tModLoader is
 experimental: its source-mod build uses shared-audio FNA and native AOT for
 tModLoader. On hardware it loads its mods, reaches a world, and plays audio, but
-it is very slow, the D-pad does not navigate the inventory, and multiplayer is
-unverified. See [Architecture](architecture.md) and [Testing](testing.md).
+it is very slow, and multiplayer is unverified. See [Architecture](architecture.md)
+and [Testing](testing.md).

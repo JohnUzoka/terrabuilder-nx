@@ -150,7 +150,6 @@ before linking.
 The Fargo's Souls build has been tested on a Switch: the mods load, the main
 menu and a world are reachable, and audio works. Known tModLoader issues:
 in-world performance is very slow (an earlier build measured about 15-19 fps);
-the D-pad moves through the main menu and the Start menu but not the inventory;
 the Plus+Minus FPS toggle did not work on an earlier build and has not been
 re-tested; multiplayer and extended play are untested. The mod list is
 intentionally limited to tested open-source mods. See the
