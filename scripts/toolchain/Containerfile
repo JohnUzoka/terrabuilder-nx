@@ -1,0 +1,57 @@
+# Build image for the dotnet_runtime (libnx)/mono-nx toolchain components built in this
+# repo: release CoreLib+framework, the release native Mono runtime, and (clang-19/lld-19
+# below) the LLVM-enabled AOT cross compiler. One image serves all three so the from-source
+# pipeline only builds one image.
+#
+# Derived from mono-nx's own Dockerfile (github.com/JohnUzoka/mono-nx, branch fna-support,
+# commit 8be547c, path /Dockerfile): same devkitA64 base and dotnet/clang install. Changes
+# from that file: dotnet is pinned to 9.0.102 instead of a floating 9.0 channel, clang-19/
+# lld-19 are added (needed by mono's LLVM AOT cross compiler, see build_llvm_cross.sh), and
+# the manual cmake purge-and-reinstall is dropped -- devkitA64 20260219 already ships cmake
+# >= 3.20, which is all the dotnet build requires.
+FROM docker.io/devkitpro/devkita64:20260219
+
+RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
+    && apt-get -y install --no-install-recommends \
+        cpio \
+        build-essential \
+        python3 \
+        curl \
+        git \
+        lldb \
+        llvm \
+        liblldb-dev \
+        libunwind8 \
+        libunwind8-dev \
+        gettext \
+        libicu-dev \
+        liblttng-ust-dev \
+        libssl-dev \
+        libkrb5-dev \
+        ninja-build \
+        tzdata \
+        clang \
+        libclang-dev \
+        clang-19 \
+        lld-19 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Needed by the offset_tool script (mono's cross-AOT offsets step).
+RUN sudo ln -sf "$(find /usr/lib -name 'libclang.so' -print -quit)" /usr/local/lib/libclang.so
+
+# Pinned dotnet 9.0.102, matching docs/BUILDING.md's recorded sources pin.
+RUN wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh && \
+    chmod +x dotnet-install.sh && \
+    ./dotnet-install.sh --channel 9.0 --version 9.0.102 && \
+    rm dotnet-install.sh
+
+# Behind a TLS-intercepting proxy: copy your CA bundle into this directory as
+# ca-bundle.crt before building, uncomment the two lines below, then
+# `podman build -t localhost/terrabuilder-toolchain:local scripts/toolchain`.
+# COPY ca-bundle.crt /usr/local/share/ca-certificates/terrabuilder-ca.crt
+# RUN update-ca-certificates
+
+# This must be mounted from the host.
+WORKDIR /mono-nx
+
+ENTRYPOINT [ "/bin/bash", "-c", "source /mono-nx/env.sh 2>/dev/null; exec /bin/bash" ]

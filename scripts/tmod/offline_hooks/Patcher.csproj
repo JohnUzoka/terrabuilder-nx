@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <PropertyGroup>
+    <CacheRoot Condition="'$(CacheRoot)' == ''">$(HOME)/.cache/terraria-switch-build</CacheRoot>
+    <CecilPath Condition="'$(CecilPath)' == ''">$(CacheRoot)/release58/ildump/out/Mono.Cecil.dll</CecilPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Mono.Cecil">
+      <HintPath>$(CecilPath)</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>

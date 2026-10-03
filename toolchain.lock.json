@@ -1,0 +1,73 @@
+{
+  "schema": "terrabuilder-toolchain-lock/1",
+  "_comment": "Pins for `terrabuilder toolchain --from-source`. Every entry here is a public, hash- or commit-pinned input; scripts/toolchain/build_from_source.py reads this file instead of hardcoding versions. Update it (and the provenance notes in docs/BUILDING.md) when a pin changes.",
+
+  "images": {
+    "toolchain": {
+      "_comment": "Builds release CoreLib/framework, the release native Mono runtime, and the LLVM AOT cross compiler.",
+      "containerfile": "scripts/toolchain/Containerfile",
+      "tag": "localhost/terrabuilder-toolchain:local",
+      "base": "docker.io/devkitpro/devkita64:20260219"
+    },
+    "mesa": {
+      "_comment": "Separate, older devkitA64 pin: newer toolchains build a Mesa that runs ~2x slower on the GPU (see scripts/mesa/Containerfile).",
+      "containerfile": "scripts/mesa/Containerfile",
+      "tag": "localhost/mesabuild-r28:local",
+      "base": "docker.io/devkitpro/devkita64:20250728"
+    }
+  },
+
+  "runtime": {
+    "_comment": "dotnet/runtime libnx port. The public branch tip already includes the switch-table-data-memory and sockets-console-DEBUG-guard fixes; only the two patches below are still unapplied on it.",
+    "repo": "https://github.com/JohnUzoka/dotnet_runtime",
+    "branch": "terrabuilder-nx",
+    "commit": "7f043851e69466ca756ace3ab4299d372cda8063",
+    "apply_patches": [
+      "native/patches/mono-coop-managed-allocator.patch",
+      "native/patches/mono-aot-alc-resolve.patch"
+    ],
+    "upstreamed_patches_do_not_apply": [
+      "native/patches/mono-switch-table-data-memory.patch",
+      "native/patches/runtime-release-sockets-console.patch"
+    ]
+  },
+
+  "mono_nx": {
+    "repo": "https://github.com/JohnUzoka/mono-nx",
+    "branch": "fna-support",
+    "commit": "8be547c1038d9d8994d7f6092e241c2279d3b655"
+  },
+
+  "mono_nx_sdk": {
+    "_comment": "Prebuilt Debug-config mono-nx SDK baseline (ICU static libs + Debug mono-aot-cross + Debug runtime), produced by mono-nx's own gather_sdk.sh and published by the upstream author. Mounted read-only at /mono-nx for every build step. The toolchain's `sdk` component is this zip extracted as-is.",
+    "url": "https://github.com/exelix11/mono-nx/releases/download/rel-3/mono-nx-sdk-linux-x64.zip",
+    "sha256": "3248d136503e50af337b0ba373771d471fb48a85bf777b5010e570f47de2c098"
+  },
+
+  "native_deps": {
+    "fna3d": { "repo": "https://github.com/FNA-XNA/FNA3D.git", "commit": "2c616bf8efd8bfbce288cb1fc7ca3677064c51d9" },
+    "faudio": { "repo": "https://github.com/FNA-XNA/FAudio.git", "commit": "41bfee955aa98c03ddb6f26e62a99afdf3c04237" },
+    "mojoshader": { "_comment": "Pinned transitively: FNA3D's own submodule reference at the commit above.", "repo": "https://github.com/icculus/mojoshader", "commit": "ad5dff84830c2863c841f4b1f4e3df78c705b383" }
+  },
+
+  "mesa": {
+    "tarball_url": "https://archive.mesa3d.org/older-versions/20.x/mesa-20.1.0-rc3.tar.xz",
+    "tarball_sha256": "c90b75ea34302ebde9b81b87c5642fa864c40fe9c4ad34ce0793170c1413168d",
+    "devkitpro_patch_base_url": "https://raw.githubusercontent.com/devkitPro/pacman-packages/master/switch/mesa",
+    "devkitpro_patches": ["switch-mesa-20.1.0-5.patch", "gl_XML.py.patch", "glX_XML.py.patch"],
+    "local_patches": ["native/patches/mesa-20.1.0-switch-glthread.patch", "native/patches/mesa-20.1.0-switch-gpu-wait.patch"]
+  },
+
+  "dotnet_sdk": "9.0.102",
+
+  "cecil": {
+    "_comment": "Mono.Cecil, Mono.Cecil.Rocks, Mono.Cecil.Mdb, Mono.Cecil.Pdb all ship in the single mono.cecil NuGet package (lib/netstandard2.0/*.dll).",
+    "nupkg_url": "https://api.nuget.org/v3-flatcontainer/mono.cecil/0.11.5/mono.cecil.0.11.5.nupkg",
+    "nupkg_sha256": "9cf1706f35b4f209c28da7417608bed7a307621b0f0179c52258af78bc4668d0"
+  },
+
+  "not_yet_from_source": {
+    "_comment": "Component still imported from the maintainer's validated engineering-cache artifacts rather than rebuilt by this lock file's pins. Hardware-proven as-is; rebuilding it from scratch is tracked separately (docs/BUILDING.md 3.2). framework-aot moved out of this list: scripts/build_framework_aot.py now rebuilds it from the from-source runtime build (docs/BUILDING.md 3.6).",
+    "facades": "mscorlib.dll, System.IO.Packaging.dll, System.Security.Permissions.dll type-forwarding facades; imported from build 52's RomFS, not regenerated."
+  }
+}

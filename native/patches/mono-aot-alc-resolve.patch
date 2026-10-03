@@ -1,0 +1,29 @@
+diff --git a/src/mono/mono/mini/aot-runtime.c b/src/mono/mono/mini/aot-runtime.c
+index 11c8888d17b..9bdcadfe2cc 100644
+--- a/src/mono/mono/mini/aot-runtime.c
++++ b/src/mono/mono/mini/aot-runtime.c
+@@ -286,7 +286,15 @@ load_image (MonoAotModule *amodule, int index, MonoError *error)
+ {
+ 	MonoAssembly *assembly = NULL;
+ 	MonoImageOpenStatus status = MONO_IMAGE_OK;
+-	MonoAssemblyLoadContext *alc = mono_alc_get_ambient ();
++	/*
++	 * Resolve references in the ALC that loaded this module's assembly, as the metadata
++	 * loader does for the same assembly. A module in a custom ALC (e.g. a tModLoader mod)
++	 * can reference assemblies that only its ALC's Load () override provides; the default
++	 * ALC cannot find those, and aot-only mode then aborts.
++	 */
++	MonoAssemblyLoadContext *alc = mono_assembly_get_alc (amodule->assembly);
++	if (!alc)
++		alc = mono_alc_get_ambient ();
+ 
+ 	g_assert (GINT_TO_UINT32(index) < amodule->image_table_len);
+ 
+@@ -322,6 +330,7 @@ load_image (MonoAotModule *amodule, int index, MonoError *error)
+ 	} else {
+ 		MonoAssemblyByNameRequest req;
+ 		mono_assembly_request_prepare_byname (&req, alc);
++		req.requesting_assembly = amodule->assembly;
+ 		req.basedir = amodule->assembly->basedir;
+ 		assembly = mono_assembly_request_byname (&amodule->image_names [index], &req, &status);
+ 	}

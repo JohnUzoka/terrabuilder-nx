@@ -1,0 +1,10 @@
+*** Begin Patch
+*** Update File: Core/Balancing/InternalBalancingManager.cs
+@@
+-            SetFactory factory = new(ContentSamples.NpcsByNetId.Count);
+-            npcHitRulesTable = factory.CreateCustomSet<List<INPCHitBalancingRule>>(null);
++            npcHitRulesTable = new List<INPCHitBalancingRule>[ContentSamples.NpcsByNetId.Count];
+@@
+-            npcHPBalancingChanges= totalNPCHPBalancingChanges;
++            npcHPBalancingChanges = totalNPCHPBalancingChanges;
+*** End Patch

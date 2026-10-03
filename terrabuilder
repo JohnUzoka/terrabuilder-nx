@@ -1,0 +1,3 @@
+#!/bin/sh
+root=$(dirname "$(readlink -f "$0")")
+PYTHONPATH="$root${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m terrabuilder_pkg "$@"

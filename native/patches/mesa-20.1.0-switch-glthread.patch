@@ -1,0 +1,201 @@
+diff -ruN '--exclude=__pycache__' mesa-stock-src/src/egl/drivers/switch/egl_switch.c mesa-20.1.0-rc3/src/egl/drivers/switch/egl_switch.c
+--- a/src/egl/drivers/switch/egl_switch.c	2026-10-01 02:55:09.889547478 -0600
++++ b/src/egl/drivers/switch/egl_switch.c	2026-10-01 10:58:52.446620756 -0600
+@@ -54,6 +54,7 @@
+ #include "util/format/u_format.h"
+ #include "util/u_inlines.h"
+ #include "util/u_memory.h"
++#include "util/debug.h"
+ 
+ #include "state_tracker/st_api.h"
+ #include "state_tracker/st_gl_api.h"
+@@ -61,7 +62,10 @@
+ 
+ #include "mapi/glapi/glapi.h"
+ 
+-#define NUM_BUFFERS 3
++// Swapchain size: MESA_SWITCH_BUFFERS (2..MAX_BUFFERS, default 4). The display releases a
++// buffer about a refresh after replacing it, so below 60 fps three buffers often leave none
++// free and nwindowDequeueBuffer blocks on the release fence at the start of the next frame.
++#define MAX_BUFFERS 4
+ 
+ #ifdef DEBUG
+ #	define TRACE(x...) _eglLog(_EGL_DEBUG, "egl_switch: " x)
+@@ -100,8 +104,9 @@
+ 
+     NWindow* nw;
+     s32 cur_slot;
+-    struct pipe_resource *buffers[NUM_BUFFERS];
+-    NvFence fences[NUM_BUFFERS];
++    struct pipe_resource *buffers[MAX_BUFFERS];
++    NvFence fences[MAX_BUFFERS];
++    u32 num_buffers;
+ };
+ 
+ struct switch_framebuffer
+@@ -224,7 +229,7 @@
+         nwindowReleaseBuffers(surface->nw);
+     }
+ 
+-    for (i = 0; i < NUM_BUFFERS; i ++)
++    for (i = 0; i < surface->num_buffers; i ++)
+         pipe_resource_reference(&surface->buffers[i], NULL);
+ 
+     if (surface->stfbi)
+@@ -282,7 +287,9 @@
+     fb->template.array_size = 1;
+     fb->template.usage = PIPE_USAGE_DEFAULT;
+     fb->template.bind = PIPE_BIND_RENDER_TARGET;
+-    for (i = 0; i < NUM_BUFFERS; i ++)
++    int num_buffers = (int)debug_get_num_option("MESA_SWITCH_BUFFERS", MAX_BUFFERS);
++    surface->num_buffers = num_buffers < 2 ? 2 : num_buffers > MAX_BUFFERS ? MAX_BUFFERS : num_buffers;
++    for (i = 0; i < surface->num_buffers; i ++)
+     {
+         // Allocate a framebuffer
+         surface->fences[i].id = UINT32_MAX;
+@@ -455,6 +462,26 @@
+     return 0;
+ }
+ 
++// glthread calls this on its worker thread at startup (st_set_background_context
++// dereferences it unconditionally). No window-system state to set up; just keep the
++// worker off the application's main core (0) and at the main thread's priority.
++// The launcher's sampling profiler (measurement builds only) can also sample this thread.
++extern void nx_profiler_add_thread(uint32_t thread_handle) __attribute__((weak));
++
++static void
++switch_st_set_background_context(struct st_context_iface *stctx, struct util_queue_monitoring *queue_info)
++{
++    // MESA_GLTHREAD_CORE picks the worker's core (default 1); it must be in the process core mask.
++    int core = (int)debug_get_num_option("MESA_GLTHREAD_CORE", 1);
++    u64 core_mask = 0;
++    if (core >= 0 && core < 64 && R_SUCCEEDED(svcGetInfo(&core_mask, InfoType_CoreMask, CUR_PROCESS_HANDLE, 0))
++        && (core_mask & (1ull << core)))
++        svcSetThreadCoreMask(CUR_THREAD_HANDLE, core, core_mask);
++    svcSetThreadPriority(CUR_THREAD_HANDLE, 0x2C);
++    if (nx_profiler_add_thread)
++        nx_profiler_add_thread(threadGetCurHandle());
++}
++
+ static EGLBoolean
+ switch_initialize(_EGLDriver *drv, _EGLDisplay *dpy)
+ {
+@@ -490,6 +517,7 @@
+     }
+ 
+     stmgr->get_param = switch_st_get_param;
++    stmgr->set_background_context = switch_st_set_background_context;
+ 
+     // Create nouveau screen
+     TRACE("Creating nouveau screen\n");
+@@ -607,6 +635,11 @@
+         goto cleanup;
+     }
+ 
++    // MESA_GLTHREAD=1: marshal GL calls to a worker thread (as DRI's mesa_glthread does,
++    // started before the context is first made current).
++    if (context->stctx->start_thread && env_var_as_boolean("MESA_GLTHREAD", false))
++        context->stctx->start_thread(context->stctx);
++
+     return &context->base;
+ 
+ cleanup:
+@@ -682,6 +715,11 @@
+     struct switch_egl_surface* surface = switch_egl_surface(surf);
+     struct switch_egl_context* context = switch_egl_context(surface->base.CurrentContext);
+ 
++    // The glthread worker dequeues (framebuffer validate) and flushes; let it drain
++    // before this thread reads the surface or touches the pipe context.
++    if (context && context->stctx->thread_finish)
++        context->stctx->thread_finish(context->stctx);
++
+     if (surface->cur_slot < 0) {
+         TRACE("Nothing to do\n");
+         return EGL_TRUE;
+diff -ruN '--exclude=__pycache__' mesa-stock-src/src/mesa/main/glthread.h mesa-20.1.0-rc3/src/mesa/main/glthread.h
+--- a/src/mesa/main/glthread.h	2020-05-13 11:41:15.015004600 -0600
++++ b/src/mesa/main/glthread.h	2026-10-01 03:08:55.759444188 -0600
+@@ -33,7 +33,7 @@
+  *   chance of experiencing CPU cache thrashing
+  * but it should be high enough so that u_queue overhead remains negligible.
+  */
+-#define MARSHAL_MAX_CMD_SIZE (8 * 1024)
++#define MARSHAL_MAX_CMD_SIZE (32 * 1024)
+ 
+ /* The number of batch slots in memory.
+  *
+diff -ruN '--exclude=__pycache__' mesa-stock-src/src/mesa/main/glthread_bufferobj.c mesa-20.1.0-rc3/src/mesa/main/glthread_bufferobj.c
+--- a/src/mesa/main/glthread_bufferobj.c	2020-05-13 11:41:15.015004600 -0600
++++ b/src/mesa/main/glthread_bufferobj.c	2026-10-01 03:08:55.759444188 -0600
+@@ -269,6 +269,22 @@
+    GET_CURRENT_CONTEXT(ctx);
+    size_t cmd_size = sizeof(struct marshal_cmd_BufferSubData) + size;
+ 
++   /* Uploads larger than one command go to the worker as several disjoint
++    * sub-range updates instead of synchronizing (FNA's SpriteBatch uploads
++    * up to ~196 KB per flush).
++    */
++   const GLsizeiptr chunk = (MARSHAL_MAX_CMD_SIZE -
++                             sizeof(struct marshal_cmd_BufferSubData)) & ~(GLsizeiptr)63;
++   if (size > chunk && size <= INT_MAX && data && !(named && target_or_name == 0)) {
++      for (GLsizeiptr done = 0; done < size; done += chunk) {
++         GLsizeiptr n = MIN2(chunk, size - done);
++         _mesa_marshal_BufferSubData_merged(target_or_name, offset + done, n,
++                                            (const GLubyte *) data + done,
++                                            named, ext_dsa, func);
++      }
++      return;
++   }
++
+    if (unlikely(size < 0 || size > INT_MAX || cmd_size < 0 ||
+                 cmd_size > MARSHAL_MAX_CMD_SIZE || !data ||
+                 (named && target_or_name == 0))) {
+diff -ruN '--exclude=__pycache__' mesa-stock-src/src/mesa/state_tracker/st_context.c mesa-20.1.0-rc3/src/mesa/state_tracker/st_context.c
+--- a/src/mesa/state_tracker/st_context.c	2026-10-01 02:55:09.901547476 -0600
++++ b/src/mesa/state_tracker/st_context.c	2026-10-01 03:22:04.769232646 -0600
+@@ -1076,10 +1076,8 @@
+     */
+    _mesa_make_current(ctx, NULL, NULL);
+ 
+-#ifndef __SWITCH__
+    /* This must be called first so that glthread has a chance to finish */
+    _mesa_glthread_destroy(ctx);
+-#endif
+ 
+    _mesa_HashWalk(ctx->Shared->TexObjects, destroy_tex_sampler_cb, st);
+ 
+diff -ruN '--exclude=__pycache__' mesa-stock-src/src/mesa/state_tracker/st_manager.c mesa-20.1.0-rc3/src/mesa/state_tracker/st_manager.c
+--- a/src/mesa/state_tracker/st_manager.c	2026-10-01 02:55:09.905547476 -0600
++++ b/src/mesa/state_tracker/st_manager.c	2026-10-01 03:21:38.009616289 -0600
+@@ -994,10 +994,10 @@
+    st->iface.teximage = st_context_teximage;
+    st->iface.copy = st_context_copy;
+    st->iface.share = st_context_share;
+-#ifndef __SWITCH__
++   /* The switch patch compiled these out; the switch EGL driver now starts glthread
++    * only when MESA_GLTHREAD is set and finishes it before each swap. */
+    st->iface.start_thread = st_start_thread;
+    st->iface.thread_finish = st_thread_finish;
+-#endif
+    st->iface.st_context_private = (void *) smapi;
+    st->iface.cso_context = st->cso_context;
+    st->iface.pipe = st->pipe;
+diff -ruN '--exclude=__pycache__' mesa-stock-src/src/util/u_thread.h mesa-20.1.0-rc3/src/util/u_thread.h
+--- a/src/util/u_thread.h	2020-05-13 11:41:15.308005800 -0600
++++ b/src/util/u_thread.h	2026-10-01 05:11:15.240308958 -0600
+@@ -60,6 +60,15 @@
+    pthread_sigmask(SIG_BLOCK, &new_set, &saved_set);
+    ret = thrd_create( &thread, routine, param );
+    pthread_sigmask(SIG_SETMASK, &saved_set, NULL);
++#elif defined(__SWITCH__)
++   /* libnx's default thread stack is 128 KB; the glthread worker runs GLSL
++    * linking and nv50_ir codegen, so give it the main thread's 1 MB. */
++   pthread_attr_t attr;
++   int ret;
++   pthread_attr_init(&attr);
++   pthread_attr_setstacksize(&attr, 1024 * 1024);
++   ret = pthread_create(&thread, &attr, (void *(*)(void *)) routine, param);
++   pthread_attr_destroy(&attr);
+ #else
+    int ret;
+    ret = thrd_create( &thread, routine, param );

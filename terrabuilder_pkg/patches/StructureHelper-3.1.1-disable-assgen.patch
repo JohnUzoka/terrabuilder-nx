@@ -1,0 +1,5 @@
+*** Begin Patch
+*** Update File: StructureHelper.csproj
+@@
+-	<PackageReference Include="AssGen" OutputItemType="Analyzer" ReferenceOutputAssembly="false" Version="3.0.0" />
+*** End Patch

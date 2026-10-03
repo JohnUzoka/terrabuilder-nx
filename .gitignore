@@ -1,0 +1,29 @@
+# Never commit game files or anything built from them.
+*.nro
+*.nso
+*.nacp
+*.elf
+*.dll
+*.exe
+*.xnb
+*.o
+*.a
+icudt*.dat
+dist/
+
+# Hardware logs and crash captures (kept in the workshop, not here)
+log*.txt
+crash_reports/
+fatal_reports/
+
+# Build outputs
+bin/
+obj/
+native/build/
+native/install/
+native/interpreter/build/
+__pycache__/
+*.py[cod]
+
+# Windows download metadata
+*:Zone.Identifier
