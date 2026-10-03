@@ -3,6 +3,51 @@
 FNA-on-mono-nx integration test and Terraria Switch-port development workspace.
 The original graphics demo remains below; current Terraria work is experimental.
 
+## Current tModLoader candidate
+
+The source-mod build passed a hardware test once it was installed with the
+matching SD payload from the same output folder,
+`~/.cache/terrabuilder/out/tmodloader-fargowiltas-luminance-structurehelper-fargowiltassouls/`:
+
+| File | Destination | SHA-256 |
+| --- | --- | --- |
+| `tmodloader.nro` | `sd:/switch/` | `f8005e37c6bcc091c91d37da2c800f5c76777538ed4ed24d2ab8041bd870bdd5` |
+| `sdcard/.../Mods/Fargowiltas.tmod` | `sd:/switch/tmodloader/Terraria/tModLoader/Mods/` | `439bfc23abd3fbe7fcd42173a8a34d32edfafd83288628f8c55973303158ed44` |
+| `sdcard/.../Mods/FargowiltasSouls.tmod` | same | `f3c37c1b7f1a40d29ee34969e348ce889b0cbbad0f00ac36f6bc8ce8b2e9b2d5` |
+| `sdcard/.../Mods/Luminance.tmod` | same | `643c82fe671c5b059028f74a5a18dcf1e9c17f336a4163398b0bdfc54a9af414` |
+| `sdcard/.../Mods/enabled.json` | same | `90aed81d47d9282ad0b57af1ad8beb6912e3694cdb6467e41998e8daf9a28260` |
+
+- Staged shared-audio FNA SHA-256: `a24a7545293b5b2d351544ab4a7fa3f5f739e00df02714b3c5a3c352b0767678`
+- AOT dependency/MVID verification: 11 modules, 0 errors
+
+Hardware results (2026-10-02):
+
+1. First run (`logt31.txt`, `tModLoader-Logs31/`, `crash_reportst31/`): the
+   audio fix held (one `NX_AUDIO open`, no second device). tML reached mod
+   loading, then aborted at `Sandboxing: Fargowiltas` with `Failed to load AOT
+   module 'Fargowiltas' while running in aot-only mode: doesn't match assembly`.
+   The SD card still held the packaged Workshop `Fargowiltas.tmod` from earlier
+   packaged-mod builds. It has the same version, 3.3.6.7, but MVID
+   `1374da0e-aeb7-4c7a-80c9-ffe1a8ca4750`; this build's AOT object and exported
+   `.tmod` both carry `92de93aa-e245-48cc-a523-ace8c151dd68`. The Atmosphère
+   report (`2347-0093`) is the launcher's deliberate abort after the fatal Mono
+   message, not a second fault.
+2. Retest of the same NRO after replacing all three `.tmod` files and
+   `enabled.json` (user-reported, no logs captured): the mods load to the main
+   menu, a world can be entered, and audio works. In-world performance is very
+   slow, with no new regression reported. The D-pad moves through the main menu
+   and the Start menu but not the inventory.
+
+Not re-tested on this build: extended play, multiplayer, and the Plus+Minus FPS
+toggle, which did not work on the earlier packaged-mod build.
+
+Earlier failures that this build no longer shows: stock FNA opened a second SDL
+audio device for XACT after SoundEffect had already opened one, and an earlier
+mod AOT run aborted because the `FargowiltasSouls` module had an
+unresolved/out-of-date `Luminance` dependency. A separate client crash log
+records a `NullReferenceException` in `TcpSocket.IsConnected` during the
+multiplayer update path; it has not been investigated.
+
 ## Current Terraria iteration (2026-09-20)
 
 The port now reaches Terraria menus/worlds on earlier hardware builds. The

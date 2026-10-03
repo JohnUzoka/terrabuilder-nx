@@ -47,9 +47,14 @@ also emits `Terraria-profiler.nro`. `toolchain pack` records artifact SHA-256s,
 provenance, and bundled `THIRD_PARTY_NOTICES.md`/`CREDITS.md`/`licenses/**` files
 in `toolchain/manifest.json`.
 
-The `--from-source` toolchain path intentionally delegates to the existing scripts
-below and is long-running. Runtime/BCL/Mesa/LLVM build steps must be run under
-`flock ~/.cache/terraria-switch-build/.heavy.lock` on this WSL2 machine.
+The clean-checkout `toolchain --from-source` workflow is not release-ready. The
+flag now fails explicitly rather than reporting success after rebuilding only
+Mesa. `toolchain --bundle` is also unavailable: the current build still consumes
+fixed retained-cache paths rather than importing a portable bundle. The
+commands below are retained-cache engineering recipes, not a reproducible
+end-to-end setup for a clean machine. Runtime/BCL/Mesa/LLVM build steps must be
+run under `flock ~/.cache/terraria-switch-build/.heavy.lock` on this WSL2
+machine.
 
 ### tModLoader CLI path (experimental)
 
@@ -77,6 +82,13 @@ Outputs are under `~/.cache/terrabuilder/out/tmodloader-<selection>/`:
   and `enabled.json`
 - `receipt.json` with the NRO SHA-256, curated mod metadata, build manifest, and
   AOT MVID verifier result
+
+Install the NRO and the whole `sdcard/` payload together, overwriting existing
+`.tmod` files. Mono runs AOT-only and checks each mod assembly's MVID against the
+AOT module linked into the NRO. Workshop packages and earlier source builds can
+share the same file name and version string but have different code, so they
+abort at mod load with `Failed to load AOT module '<Mod>' ... doesn't match
+assembly`. The build-time verifier checks the staged inputs, not the SD card.
 
 Heavy AOT/link/container steps are wrapped with
 `flock ~/.cache/terraria-switch-build/.heavy.lock`.
@@ -107,16 +119,19 @@ Two recorded source patches are currently required for reproducible Linux builds
 Luminance 1.0.3 gets the upstream `SetFactory` compatibility fix, and
 StructureHelper 3.1.1 replaces AssGen 3.0.0's Windows-path-only generated assets
 with the equivalent checked source wrapper. Fargo's Souls builds from source with
-all source-built mod assemblies AOT/LLVM-compiled. The prepared `tModLoader.dll`
-uses the interpreter fallback in this source-mod variant because non-LLVM AOT
-fails inside Mono with `Unable to open file '(null)': Bad file descriptor`, while
-LLVM optimization of that prepared assembly is pathologically slow on this WSL2
-machine.
+all source-built mod assemblies AOT/LLVM-compiled. The current source-mod
+build also native-AOT compiles `tModLoader.dll` (without LLVM optimization).
+Its AOT object is verified against the staged assembly MVID. FNA's shared-audio
+patch is required: an earlier candidate used stock FNA and crashed when the
+XACT audio engine attempted to open a second SDL device.
 
-Known issues printed after every tModLoader build: Fargo's Souls in-world
-performance is roughly 15-20 fps; Plus+Minus FPS toggle and D-pad menu navigation
-do not work yet; multiplayer is untested; only the curated open-source mod list is
-available.
+Hardware status of the current Fargo's Souls build: the mods load, the main menu
+and a world are reachable, and audio works. Known issues: in-world performance
+is very slow (an earlier build measured roughly 15-19 fps); the D-pad moves
+through the main menu and the Start menu but not the inventory; the Plus+Minus
+FPS toggle did not work on an earlier build and has not been re-tested;
+multiplayer and extended play are untested; only the curated open-source mod
+list is available.
 
 ## 1. Sources
 

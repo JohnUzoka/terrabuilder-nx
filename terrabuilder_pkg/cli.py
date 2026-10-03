@@ -27,6 +27,7 @@ HOST_FNA3D = {
     "commit": "1ac4231ed9f0cfa1211e46b27dc8fb4ef3830eb8",
     "mojoshader_commit": "abdc80360c1d4560ab8f356035dcd53ae6e9b87f",
 }
+TMOD_SHARED_AUDIO_FNA_SHA256 = "a24a7545293b5b2d351544ab4a7fa3f5f739e00df02714b3c5a3c352b0767678"
 
 DIAGNOSTIC_WRAPS = ["SDL_PollEvent", "FNA3D_SwapBuffers"]
 BEHAVIOR_WRAPS = [
@@ -38,8 +39,8 @@ BEHAVIOR_WRAPS = [
 GAME_DLLS = ["Terraria.exe", "FNA.dll", "ReLogic.dll", "Newtonsoft.Json.dll", "NxCrypto.dll", "NxInputDiag.dll"]
 TMOD_WARNING = """\
 tModLoader (experimental) build notes:
-- In-world Fargo's Souls performance is currently about 15-20 fps.
-- Plus+Minus FPS toggle and D-pad menu navigation do not work yet.
+- In-world Fargo's Souls performance is very slow (about 15-20 fps measured on an earlier build).
+- The D-pad does not navigate the inventory; the Plus+Minus FPS toggle is unconfirmed.
 - Multiplayer is untested on tModLoader.
 - The mod list is limited to tested open-source mods built from pinned source."""
 
@@ -262,23 +263,18 @@ def git_head(path: Path) -> str | None:
 
 
 def toolchain(args: argparse.Namespace) -> int:
+    if args.from_source:
+        raise SystemExit(
+            "toolchain --from-source is not available yet: the clean-checkout "
+            "runtime/BCL/LLVM/Mesa pipeline is incomplete. See docs/BUILDING.md."
+        )
+    if args.bundle:
+        raise SystemExit(
+            "toolchain --bundle is not available yet: bundle import into a "
+            "clean workdir is incomplete. See docs/BUILDING.md."
+        )
     if args.toolcmd == "pack" or not args.toolcmd:
         toolchain_pack(args.workdir.expanduser())
-        return 0
-    if args.from_source:
-        ensure_compat_layout(args.workdir.expanduser())
-        # Long path: delegate to existing scripts under a heavy-build lock.
-        run(["bash", "-lc", f"cd {ROOT} && scripts/mesa/build_mesa.sh {args.workdir.expanduser()/'gfx'}"], heavy=True)
-        print("from-source runtime/BCL/LLVM builds are documented in docs/BUILDING.md and use scripts/release_bcl/*")
-        return 0
-    if args.bundle:
-        src = Path(args.bundle).expanduser().resolve()
-        dst = args.workdir.expanduser() / "toolchain"
-        if dst.exists():
-            shutil.rmtree(dst)
-        shutil.copytree(src, dst, symlinks=True)
-        ensure_compat_layout(args.workdir.expanduser())
-        print(dst)
         return 0
     return 0
 
@@ -386,8 +382,9 @@ def parse_mod_flags(value: str | None, catalog: dict[str, dict]) -> list[str]:
 
 def tmod_variant_key(tmod_dir: Path, mods: list[str], catalog: dict[str, dict], profile: str) -> str:
     h = hashlib.sha256()
-    h.update(b"openal-free-quiet-launcher-v1")
+    h.update(b"openal-free-quiet-launcher-v2-shared-audio-fna")
     h.update(sha256(tmod_dir / "tModLoader.dll").encode())
+    h.update(TMOD_SHARED_AUDIO_FNA_SHA256.encode())
     h.update(profile.encode())
     for mod in mods:
         h.update(mod.encode() + b"\0" + catalog[mod]["commit"].encode() + b"\0")
@@ -627,6 +624,10 @@ def seed_tmod_input(variant: str, mods: list[str], packages: Path | None, catalo
         native["profiler"] = profile == "profiler"
         config["native"] = native
         write_json(config_path, config)
+        patched_fna = LEGACY / "tmod/tmod27/input/FNA.dll"
+        if not patched_fna.is_file() or sha256(patched_fna) != TMOD_SHARED_AUDIO_FNA_SHA256:
+            raise SystemExit("validated tModLoader shared-audio FNA is missing or has an unexpected hash")
+        shutil.copy2(patched_fna, out / "input/FNA.dll")
         nxcrypto = LEGACY / "hint52/aot-final/runtime-romfs/NxCrypto.dll"
         if nxcrypto.exists():
             shutil.copy2(nxcrypto, out / "input/NxCrypto.dll")
@@ -714,7 +715,11 @@ def build_tmodloader(args: argparse.Namespace, tmod_dir: Path, mods: list[str], 
         write_json(out_dir / "receipt.json", receipt)
         print(f"Built {nro} {receipt['nro']['sha256']}")
         print(f"Copy {nro} to sd:/switch/tmodloader.nro")
-        print(f"Copy contents of {sd_out}/ to the SD card root")
+        print(f"Copy contents of {sd_out}/ to the SD card root, overwriting existing files")
+        if mods:
+            print("This NRO only runs with these exact .tmod files. Workshop downloads and earlier builds can "
+                  "share mod names and versions but not code; mismatches abort at mod load with "
+                  "\"Failed to load AOT module ... doesn't match assembly\".")
         print(TMOD_WARNING)
         return 0
 
@@ -1040,7 +1045,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR)
     sub = p.add_subparsers(dest="cmd", required=True)
     d = sub.add_parser("doctor"); d.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR); d.set_defaults(func=doctor)
-    t = sub.add_parser("toolchain"); t.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR); t.add_argument("toolcmd", nargs="?", choices=["pack"]); t.add_argument("--from-source", action="store_true"); t.add_argument("--bundle"); t.set_defaults(func=toolchain)
+    t = sub.add_parser("toolchain"); t.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR); t.add_argument("toolcmd", nargs="?", choices=["pack"]); t.add_argument("--from-source", action="store_true", help="unavailable: clean-checkout pipeline is incomplete"); t.add_argument("--bundle", help="unavailable: clean-workdir bundle import is incomplete"); t.set_defaults(func=toolchain)
     b = sub.add_parser("build"); b.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR); b.add_argument("--target", choices=["vanilla","tmodloader"]); b.add_argument("--game-dir", help="Vanilla game folder for --target vanilla; tModLoader 1.4.4.x folder for --target tmodloader"); b.add_argument("--mods", help="Comma-separated curated tModLoader mods, or 'none'"); b.add_argument("--out"); b.add_argument("--profile", choices=["release","debug","profiler"], default="release"); b.add_argument("--debug-diagnostics", action="store_const", const="debug", dest="profile", help="alias for --profile debug"); b.add_argument("-y", "--yes", action="store_true"); b.set_defaults(func=build)
     c = sub.add_parser("compare"); c.add_argument("--workdir", type=Path, default=DEFAULT_WORKDIR); c.set_defaults(func=compare)
     args = p.parse_args(argv)
