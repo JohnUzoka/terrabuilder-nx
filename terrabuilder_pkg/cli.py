@@ -21,6 +21,8 @@ HEAVY_LOCK = Path.home() / ".cache/terraria-switch-build/.heavy.lock"
 MONO_IMAGE = "localhost/monobuild:local"
 LLVM_IMAGE = "localhost/monobuild-llvm:local"
 MESA_IMAGE = "localhost/mesabuild-r28:local"
+# Read from the SD card before RomFS is mounted, so every NRO needs it next to config.ini.
+SDK_ICU = LEGACY / "recovery46/sdk-pristine/icu/libnx/share/icu/77.1/icudt77l.dat"
 HOST_FNA3D = {
     "repo": "https://github.com/FNA-XNA/FNA3D.git",
     "tag": "26.07",
@@ -178,7 +180,17 @@ def required_legacy_paths() -> list[Path]:
         LEGACY / "release58/v88/aot-final/System.Private.CoreLib.dll.o",
         LEGACY / "release58/v88/aot-final/System.Text.RegularExpressions.dll.o",
         LEGACY / "release58/v88/aot-final/System.Collections.Concurrent.dll.o",
+        SDK_ICU,
     ]
+
+
+def write_sd_runtime(sd_root: Path) -> list[dict]:
+    from scripts.pack_terraria_romfs import write_external_config
+    config = write_external_config(sd_root)
+    icu = sd_root / "mono/etc" / SDK_ICU.name
+    icu.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(SDK_ICU, icu)
+    return file_manifest([config, icu], sd_root)
 
 
 def file_manifest(paths: list[Path], base: Path) -> list[dict]:
@@ -209,6 +221,7 @@ def toolchain_pack(workdir: Path) -> Path:
         LEGACY / "release58/v88/aot-final/System.Text.RegularExpressions.dll-llvm.o",
         LEGACY / "release58/v88/aot-final/System.Collections.Concurrent.dll.o",
         LEGACY / "release58/v88/aot-final/System.Collections.Concurrent.dll-llvm.o",
+        SDK_ICU,
     ]
     for src in artifacts:
         if src.exists():
@@ -707,11 +720,12 @@ def build_tmodloader(args: argparse.Namespace, tmod_dir: Path, mods: list[str], 
         if sd_out.exists():
             shutil.rmtree(sd_out)
         shutil.copytree(src_root / "sdcard", sd_out)
+        sd_runtime = write_sd_runtime(sd_out)
         manifest = json.loads((src_root / "manifest.json").read_text())
         mvid = json.loads((src_root / "aot-mvid-check.json").read_text())
         receipt = {"target": "tmodloader", "experimental": True, "variant": variant, "input": tmeta,
                    "mods": [catalog[m] for m in mods], "nro": {"path": str(nro), "sha256": sha256(nro), "bytes": nro.stat().st_size},
-                   "sd_payload": str(sd_out), "aot_mvid_check": mvid, "manifest": manifest}
+                   "sd_payload": str(sd_out), "sd_runtime": sd_runtime, "aot_mvid_check": mvid, "manifest": manifest}
         write_json(out_dir / "receipt.json", receipt)
         print(f"Built {nro} {receipt['nro']['sha256']}")
         print(f"Copy {nro} to sd:/switch/tmodloader.nro")
@@ -784,10 +798,17 @@ def build(args: argparse.Namespace) -> int:
     out_root.mkdir(parents=True, exist_ok=True)
     built = vdir / "native/candidate/mono_nx_fna.nro"
     shutil.copy2(built, final_nro)
+    sd_out = out_root / "sdcard"
+    if sd_out.exists():
+        shutil.rmtree(sd_out)
     stage_info["nro"] = {"path": str(final_nro), "sha256": sha256(final_nro), "bytes": final_nro.stat().st_size}
+    stage_info["sd_payload"] = str(sd_out)
+    stage_info["sd_runtime"] = write_sd_runtime(sd_out)
     stage_info["toolchain_manifest_sha256"] = sha256(tc / "manifest.json")
     write_json(receipt, stage_info)
     print(f"Built {final_nro} {stage_info['nro']['sha256']}")
+    print(f"Copy {final_nro} to sd:/switch/")
+    print(f"Copy contents of {sd_out}/ to the SD card root, overwriting existing files")
     return 0
 
 
