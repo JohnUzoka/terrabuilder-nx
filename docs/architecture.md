@@ -29,11 +29,12 @@ Native launcher + mono-nx + libnx + linked AOT objects
 ```
 
 The Python CLI uses the standard library on the host. Podman or Docker runs the
-cross-compilation steps. The current build consumes validated runtime, SDK,
-native dependency, and Mesa artifacts from a retained local cache. The local
-manifest command does not yet create a bundle that can be installed and used on
-a clean machine, and the runtime/SDK/graphics stack is not rebuilt end-to-end
-from a clean checkout.
+cross-compilation steps. The regular build consumes the verified toolchain in
+the work directory. `toolchain --from-source` assembles it from lock-pinned
+sources plus the three exact build-52 facade assemblies checked into this
+repository; it no longer needs the maintainer's local cache. The separate
+`toolchain --bundle` import path remains incomplete, and a full clean-machine
+build-to-NRO has not yet been verified end to end.
 
 ## Managed code and AOT
 

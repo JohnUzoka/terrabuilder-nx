@@ -82,12 +82,12 @@ Vanilla builds consume only the toolchain in `<workdir>/toolchain`: the Mono
 runtime, CoreLib/framework and their prebuilt AOT objects, the LLVM AOT compiler,
 Mesa, FNA3D/FAudio/MojoShader, the mono-nx SDK, Mono.Cecil, the .NET SDK, and
 their license notices. Its `manifest.json` records every file's SHA-256;
-`toolchain` prints a summary and `toolchain verify` rehashes every file. On the
-configured build machine the toolchain was imported from the maintainer's
-engineering cache, and there is no way yet to create one elsewhere:
-`toolchain --from-source` and `toolchain --bundle` fail explicitly because the
-clean-checkout build and bundle-import paths are incomplete. Do not present the
-current CLI as a self-service public release until those paths are completed.
+`toolchain` prints a summary and `toolchain verify` rehashes every file. The
+`toolchain --from-source` path needs no maintainer cache: it uses the public
+pins plus the exact build-52 type-forwarding facades checked into
+`toolchain-artifacts/facades` and locked by SHA-256. `toolchain --bundle` remains
+unavailable because clean-workdir bundle import is incomplete; the full
+clean-machine build has not yet been run end to end.
 
 Outputs are `~/.cache/terrabuilder/out/Terraria.nro`, an `sdcard/` payload holding
 the runtime config and ICU data that the NRO reads from `sd:/mono/`, and a JSON
