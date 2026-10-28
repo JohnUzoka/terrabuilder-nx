@@ -269,6 +269,19 @@ if native_config.get('real_audio'):
         raise RuntimeError('failed to remove tModLoader dummy audio driver default')
     patched_main.write_text(main_text)
     main_source = patched_main
+if native_config.get('profiler'):
+    # tModLoader runs its game loop on the thread that calls mono_jit_exec on non-Windows
+    # platforms: libnx's main thread, which is the thread nx_profiler samples.
+    lines = main_source.read_text().splitlines(keepends=True)
+    calls = [i for i, line in enumerate(lines) if line.lstrip().startswith('mono_jit_exec(')]
+    if len(calls) != 1:
+        raise RuntimeError(f'expected one mono_jit_exec call in {main_source}, found {len(calls)}')
+    call = lines[calls[0]]
+    indent = call[:len(call) - len(call.lstrip())]
+    lines[calls[0]:calls[0] + 1] = [indent + 'nx_profiler_start();\n', call, indent + 'nx_profiler_stop();\n']
+    patched_main = NATIVE / 'main_tmod_profiler.c'
+    patched_main.write_text('void nx_profiler_start(void);\nvoid nx_profiler_stop(void);\n' + ''.join(lines))
+    main_source = patched_main
 run([ROOT / 'release58/compile_main.sh', main_source, NATIVE / 'main_tmod.o',
      *main_defines, '-I' + str(NATIVE)], 'compile-main', NATIVE)
 object_overrides = {'main.o': NATIVE / 'main_tmod.o'}
@@ -303,7 +316,9 @@ if native_config.get('frame_stats'):
     run([ROOT / 'release58/compile_main.sh', Path(__file__).resolve().parent / 'launcher/frame_stats.c',
          NATIVE / 'frame_stats.o', *frame_defines], 'compile-frame-stats', NATIVE)
     added_objects['frame_stats.o'] = NATIVE / 'frame_stats.o'
-    extra_ldflags.append('-Wl,--wrap=SDL_GL_SwapWindow' + ('' if mesa_guard else ',--wrap=nouveau_bo_new'))
+    extra_ldflags.append('-Wl,--wrap=SDL_GL_SwapWindow' + ('' if mesa_guard else ',--wrap=nouveau_bo_new')
+                         + ',--wrap=FNA3D_DrawIndexedPrimitives,--wrap=FNA3D_DrawInstancedPrimitives'
+                         + ',--wrap=FNA3D_DrawPrimitives')
 if native_config.get('repo_nx_input'):
     mono_inc = '/mono-nx/dotnet_runtime/artifacts/bin/mono/libnx.arm64.Debug/include/mono-2.0'
     nx_input_flags = [
@@ -312,7 +327,7 @@ if native_config.get('repo_nx_input'):
         '-D__SWITCH__', '-DMONO_NX_USE_AOT=1', '-DMONO_NX_GL_COMPAT=1', '-DMONO_NX_USE_ROMFS=1',
         '-DDLSHIM_SDL2=1', '-DDLSHIM_SDL2_IMAGE=1', '-DDLSHIM_OPENGL=1',
         '-DDLSHIM_FNA3D=1', '-DDLSHIM_FNA=1', '-DDLSHIM_STUBS=1', '-DDLSHIM_SDL3=1',
-        '-DU_DISABLE_RENAMING=1',
+        '-DU_DISABLE_RENAMING=1', '-DMONO_NX_SDL_BUTTON_WRAP=1',
         '-I/build/aot42-windows', '-I/work/native/shared', '-I/mono-nx/native/shared',
         '-I/mono-nx/native/shared/third_party/ini', '-I' + mono_inc, '-I/mono-nx/icu/libnx/include',
         '-I/opt/devkitpro/libnx/include', '-I/opt/devkitpro/portlibs/switch/include',
@@ -323,6 +338,8 @@ if native_config.get('repo_nx_input'):
         nx_input_flags.extend(['-DMONO_NX_PHASE_TIMING=1', '-DMONO_NX_GPU_TIMING=1'])
     run(nx_input_flags, 'compile-nx-input', NATIVE)
     object_overrides['nx_input.o'] = NATIVE / 'nx_input.o'
+    # tModLoader's FNA reads buttons straight from SDL; nx_input.c handles Plus+Minus there.
+    extra_ldflags.append('-Wl,--wrap=SDL_GameControllerGetButton')
 launcher_config = config.get('launcher_objects')
 launcher_manifest = None
 if launcher_config:

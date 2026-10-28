@@ -1,8 +1,8 @@
 // Sampling profiler for the game's main thread (measurement builds, MONO_NX_PROFILER=1).
-// One extra thread (Mesa's glthread worker) can be registered with nx_profiler_add_thread;
-// it is sampled the same way right after the main thread and its samples carry flag 8.
+// Extra threads (Mesa's glthread worker and pthread-created Mono threads) can be registered
+// with nx_profiler_add_thread; they are sampled after the main thread and carry flag 8.
 //
-// A native thread on core 2 wakes every 2.5 ms (400 Hz), pauses the main thread with
+// A native thread on core 2 wakes every 2.5 ms (400 Hz), pauses each target with
 // svcSetThreadActivity, reads its registers with svcGetThreadContext3, copies up to 96 KB of its
 // stack, and resumes it. Nothing that can take a lock (malloc, stdio, Mono) runs while the main
 // thread is paused. After resuming, the copy is scanned for return addresses: a frame-pointer
@@ -16,7 +16,7 @@
 //   pc/lr/frames are offsets from code_start (= ELF addresses); 0xffffffff = outside the code.
 //   frames: the innermost INNER_FRAMES and outermost OUTER_FRAMES return addresses found.
 //   flags: 1 = stack deeper than the copy, 2 = pc outside the code, 4 = middle frames elided,
-//          8 = the registered extra thread (not the main thread).
+//          8 = a registered extra thread (not the main thread).
 // Every 10 s the log gets an NX_PROF line (samples, failures, pause cost, stack depth).
 
 #include "nx_profiler.h"
@@ -50,7 +50,10 @@ size_t nx_profiler_scan(const uint64_t *words, size_t count, uint64_t code_start
 
 #ifndef NX_PROFILER_HOST
 #include <stdbool.h>
+#include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
 #include <switch.h>
 #include <io_util.h>
 
@@ -76,13 +79,15 @@ static volatile bool prof_stop;
 static bool prof_running;
 static FILE *prof_file;
 static Handle main_thread;
-static volatile Handle extra_thread;
+#define MAX_EXTRA_THREADS 8
+static volatile Handle extra_threads[MAX_EXTRA_THREADS];
+static void profiler_unregister_thread(Handle thread);
 static uint64_t code_start, code_end;
 static uint64_t stack_copy[STACK_COPY_BYTES / 8];
 static uint32_t scanned[SCAN_FRAMES];
 static uint8_t buffer[BUFFER_BYTES];
 static size_t buffer_used;
-static uint64_t samples, pause_failures, context_failures, truncated, bytes_written;
+static uint64_t samples, main_failures, pause_failures, context_failures, truncated, bytes_written;
 static uint64_t pause_ticks_sum, pause_ticks_max, depth_max;
 static uint64_t window_samples, window_pause_sum, window_pause_max;
 
@@ -108,8 +113,13 @@ static void sample_once(Handle thread, uint16_t thread_flag)
     uint64_t depth = 0;
     Result rc = svcSetThreadActivity(thread, ThreadActivity_Paused);
     if (R_FAILED(rc)) {
+        if (!thread_flag)
+            ++main_failures;
         if (pause_failures++ == 0)
-            io_debugf("NX_PROF pause failed rc=0x%x", rc);
+            io_debugf("NX_PROF pause failed rc=0x%x on thread 0x%x", rc, thread);
+        // If an extra thread terminated or handle became invalid, unregister it so it stops failing
+        if (thread_flag)
+            profiler_unregister_thread(thread);
         return;
     }
     uint64_t paused = armGetSystemTick();
@@ -189,10 +199,13 @@ static void profiler_worker(void *arg)
     uint64_t next_report = start + 10 * armGetSystemTickFreq();
     while (!prof_stop) {
         sample_once(main_thread, 0);
-        if (extra_thread)
-            sample_once(extra_thread, 8);
-        if (context_failures > 100 || pause_failures > 100) {
-            io_debugf("NX_PROF stopping: the kernel refuses thread pause/context reads");
+        for (size_t i = 0; i < MAX_EXTRA_THREADS; ++i) {
+            Handle thread = extra_threads[i];
+            if (thread)
+                sample_once(thread, 8);
+        }
+        if (main_failures > 100) {
+            io_debugf("NX_PROF stopping: the kernel refuses main thread pause/context reads");
             break;
         }
         uint64_t now = armGetSystemTick();
@@ -206,6 +219,70 @@ static void profiler_worker(void *arg)
     report(start, true);
 }
 
+static void profiler_register_thread(Handle thread)
+{
+    if (!prof_running || !thread)
+        return;
+    for (size_t i = 0; i < MAX_EXTRA_THREADS; ++i) {
+        if (extra_threads[i] == thread)
+            return;
+    }
+    for (size_t i = 0; i < MAX_EXTRA_THREADS; ++i) {
+        Handle empty = 0;
+        if (__atomic_compare_exchange_n(&extra_threads[i], &empty, thread, false,
+                                        __ATOMIC_RELEASE, __ATOMIC_RELAXED)) {
+            io_debugf("NX_PROF also sampling thread handle 0x%x (flag 8, slot %u)",
+                thread, (unsigned)i);
+            return;
+        }
+    }
+}
+
+static void profiler_unregister_thread(Handle thread)
+{
+    if (!thread)
+        return;
+    for (size_t i = 0; i < MAX_EXTRA_THREADS; ++i) {
+        Handle expected = thread;
+        __atomic_compare_exchange_n(&extra_threads[i], &expected, 0, false,
+                                    __ATOMIC_RELEASE, __ATOMIC_RELAXED);
+    }
+}
+
+typedef struct {
+    void *(*start)(void *);
+    void *arg;
+} ProfilerPthreadStart;
+
+static void *profiler_pthread_start(void *opaque)
+{
+    ProfilerPthreadStart *start = opaque;
+    void *(*routine)(void *) = start->start;
+    void *arg = start->arg;
+    free(start);
+    profiler_register_thread(threadGetCurHandle());
+    void *result = routine(arg);
+    profiler_unregister_thread(threadGetCurHandle());
+    return result;
+}
+
+int __real_pthread_create(pthread_t *, const pthread_attr_t *,
+    void *(*)(void *), void *);
+
+int __wrap_pthread_create(pthread_t *thread, const pthread_attr_t *attr,
+    void *(*start)(void *), void *arg)
+{
+    ProfilerPthreadStart *wrapped = malloc(sizeof(*wrapped));
+    if (!wrapped)
+        return ENOMEM;
+    wrapped->start = start;
+    wrapped->arg = arg;
+    int rc = __real_pthread_create(thread, attr, profiler_pthread_start, wrapped);
+    if (rc)
+        free(wrapped);
+    return rc;
+}
+
 void nx_profiler_start(void)
 {
     MemoryInfo info;
@@ -217,6 +294,7 @@ void nx_profiler_start(void)
     code_start = info.addr;
     code_end = info.addr + info.size;
     main_thread = envGetMainThreadHandle();
+    memset((void *)extra_threads, 0, sizeof extra_threads);
     prof_file = fopen(PROF_PATH, "wb");
     if (!prof_file) {
         io_debugf("NX_PROF disabled: cannot open %s", PROF_PATH);
@@ -252,10 +330,7 @@ void nx_profiler_start(void)
 
 void nx_profiler_add_thread(Handle thread)
 {
-    if (!prof_running || extra_thread)
-        return;
-    extra_thread = thread;
-    io_debugf("NX_PROF also sampling thread handle 0x%x (flag 8)", thread);
+    profiler_register_thread(thread);
 }
 
 void nx_profiler_stop(void)

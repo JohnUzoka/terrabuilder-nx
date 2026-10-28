@@ -20,7 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from terrabuilder_pkg import toolchain  # noqa: E402
+from terrabuilder_pkg import containers, toolchain  # noqa: E402
 
 IMAGE = "localhost/monobuild:local"
 
@@ -192,7 +192,9 @@ def main() -> int:
     script.chmod(0o755)
 
     mounts = ["-v", f"{workdir}:/build", "-v", f"{ROOT}:/work:ro", *tc.mounts()]
-    cmd = ["podman", "run", "--rm", "--userns=keep-id", "--entrypoint", "sh", *mounts, IMAGE, f"{out_container}/compile-commands.sh"]
+    eng = containers.engine() or "podman"
+    cmd = [eng, "run", "--rm", *containers.user_args(eng), "--entrypoint", "sh", *mounts, IMAGE,
+           f"{out_container}/compile-commands.sh"]
     subprocess.run(cmd, check=True)
 
     for obj in object_names:
