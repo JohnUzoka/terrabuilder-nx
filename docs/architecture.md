@@ -28,7 +28,7 @@ Native launcher + mono-nx + libnx + linked AOT objects
         Terraria.nro
 ```
 
-The Python CLI uses the standard library on the host. Podman runs the
+The Python CLI uses the standard library on the host. Podman or Docker runs the
 cross-compilation steps. The regular build consumes the verified toolchain in
 the work directory. `toolchain --from-source` assembles it from lock-pinned
 sources plus the three exact build-52 facade assemblies checked into this
