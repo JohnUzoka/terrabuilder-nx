@@ -7,4 +7,21 @@
 @@
 -            npcHPBalancingChanges= totalNPCHPBalancingChanges;
 +            npcHPBalancingChanges = totalNPCHPBalancingChanges;
+*** Update File: Core/Graphics/Automators/RenderTargetManager.cs
+@@
+-            bool incorrectSize = (width != target.Width || height != target.Height) && target.ShouldResetUponScreenResize;
++            bool incorrectSize = (!target.IsUninitialized && (width != target.Target.Width || height != target.Target.Height)) && target.ShouldResetUponScreenResize;
+*** Update File: Core/Graphics/Primitives/PrimitivePixelationSystem.cs
+@@
+-        private static RenderTarget2D CreatePixelTarget(int width, int height) => new(Main.instance.GraphicsDevice, width / 2, height / 2);
++        private static RenderTarget2D CreatePixelTarget(int width, int height) => new(Main.instance.GraphicsDevice, Math.Max(1, width / 2), Math.Max(1, height / 2));
+@@
+-            PixelationTarget_BeforeNPCs = new(true, CreatePixelTarget);
+-            PixelationTarget_AfterNPCs = new(true, CreatePixelTarget);
+-            PixelationTarget_BeforeProjectiles = new(true, CreatePixelTarget);
+-            PixelationTarget_AfterProjectiles = new(true, CreatePixelTarget);
++            PixelationTarget_BeforeNPCs = new(false, CreatePixelTarget);
++            PixelationTarget_AfterNPCs = new(false, CreatePixelTarget);
++            PixelationTarget_BeforeProjectiles = new(false, CreatePixelTarget);
++            PixelationTarget_AfterProjectiles = new(false, CreatePixelTarget);
 *** End Patch

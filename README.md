@@ -57,7 +57,7 @@ build options are:
 
 ## Build environment
 
-Podman images `localhost/monobuild:local` (devkitA64, .NET SDK) and
+Podman or Docker images `localhost/monobuild:local` (devkitA64, .NET SDK) and
 `localhost/monobuild-llvm:local` (adds clang-19 for the LLVM cross compiler). Builds
 run in a work directory (default `~/.cache/terrabuilder`; override with `--workdir`
 or `TERRABUILDER_WORKDIR`) mounted as `/build`. This repo is mounted read-only as
@@ -140,18 +140,19 @@ redistributed by the CLI. The CLI builds host-only Linux FNA3D 26.07, reuses the
 tML Linux SDL2/FAudio libraries for desktop `ModCompile`, and caches .NET 8 under
 `~/.cache/terrabuilder`; those host libraries are not copied into the Switch
 payload. Luminance and StructureHelper use recorded compatibility patches for
-tML 1.4.4.9/Linux source builds. Fargo's Souls source builds AOT/LLVM the
-source-built mod assemblies; `tModLoader.dll` is native-AOT compiled but not
-LLVM-optimized in the current CLI path. FNA must be the shared-audio build:
+tML 1.4.4.9/Linux source builds. Fargo's Souls source builds LLVM-AOT compile
+`tModLoader.dll`, FNA, and the source-built mod assemblies; the `tModLoader.dll`
+LLVM step takes about 26 minutes and needs the build machine's memory to itself.
+FNA must be the shared-audio build:
 stock FNA crashes during XACT audio initialization because it opens a second
 audio device. The build requires native AOT and checks staged module identities
 before linking.
 
 The Fargo's Souls build has been tested on a Switch: the mods load, the main
-menu and a world are reachable, and audio works. Known tModLoader issues:
-in-world performance is very slow (an earlier build measured about 15-19 fps);
-the Plus+Minus FPS toggle did not work on an earlier build and has not been
-re-tested; multiplayer and extended play are untested. The mod list is
+menu and a world are reachable, audio works, and Plus+Minus toggles the FPS
+counter. Known tModLoader issues: in-world the LLVM build ran at a median of
+about 43 fps (run 39) but drops frames on lighting cycles and stalled for 1-2 s
+on some saves and menus; multiplayer and extended play are untested. The mod list is
 intentionally limited to tested open-source mods. See the
 [architecture](docs/architecture.md), [porting guide](docs/porting-fna-games.md),
 [build guide](docs/BUILDING.md), and [testing guide](docs/testing.md).
@@ -160,10 +161,10 @@ intentionally limited to tested open-source mods. See the
 
 The vanilla release candidate has passed hardware checks for audio, FPS toggle,
 multiplayer join, and frame rate at default clocks. The Fargo's Souls
-tModLoader build (native AOT for `tModLoader.dll`, LLVM AOT for FNA and the
-curated mods) loads its mods, reaches a world, and plays audio on hardware, but
-it is very slow and has the input gaps listed above. tModLoader remains
-experimental.
+tModLoader build loads its mods, reaches a world, and plays audio on hardware;
+with LLVM-compiled `tModLoader.dll`, FNA and mods it runs at a median of about
+43 fps in-world, with the frame drops and input gaps listed above. tModLoader
+remains experimental.
 
 Vanilla builds need only the toolchain directory, which is currently imported from
 the maintainer's engineering cache. A one-command, clean-checkout from-source

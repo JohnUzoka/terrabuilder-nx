@@ -6,7 +6,8 @@
 // See nx_profiler.c for the method and /mono/prof.bin's format.
 void nx_profiler_start(void);
 void nx_profiler_stop(void);
-// Also sample one other thread (e.g. Mesa's glthread worker, from its own thread); flag 8.
+// Also sample registered worker/managed threads (flag 8). Mesa registers its GL worker from
+// that thread; profiler builds also register pthread-created Mono threads.
 // Mesa declares it weak, so builds without the profiler still link.
 void nx_profiler_add_thread(uint32_t thread_handle);
 

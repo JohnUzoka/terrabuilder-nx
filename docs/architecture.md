@@ -28,7 +28,7 @@ Native launcher + mono-nx + libnx + linked AOT objects
         Terraria.nro
 ```
 
-The Python CLI uses the standard library on the host. Podman runs the
+The Python CLI uses the standard library on the host. Podman or Docker runs the
 cross-compilation steps. The current build consumes validated runtime, SDK,
 native dependency, and Mesa artifacts from a retained local cache. The local
 manifest command does not yet create a bundle that can be installed and used on
@@ -43,9 +43,8 @@ assembly against its AOT module identity (MVID), preventing a stale native
 object from being paired with a different managed assembly.
 
 Vanilla builds AOT the managed game/runtime modules and can LLVM-optimize
-selected modules. The experimental source-mod tModLoader path currently uses
-native Mono AOT without LLVM optimization for `tModLoader.dll`; FNA and the
-curated source-built mods are LLVM-AOT compiled. AOT and LLVM policies are
+selected modules. The experimental source-mod tModLoader path LLVM-AOT compiles
+`tModLoader.dll`, FNA, and the curated source-built mods. AOT and LLVM policies are
 module-specific because large-module optimization can be very expensive.
 
 Supported IL changes are applied offline to the user's local assemblies.
@@ -75,7 +74,9 @@ in the current tModLoader build on hardware.
 
 The native input latch bridges Switch controller state into the SDL/FNA input
 path. Vanilla controller navigation and the FPS toggle have been exercised on
-hardware. In tModLoader the FPS toggle has not been confirmed.
+hardware. tModLoader's FNA reads buttons straight from SDL and never calls the
+latch hooks, so tModLoader builds wrap `SDL_GameControllerGetButton` to run the
+Plus+Minus toggle; it toggled on hardware in run 39.
 
 Game files, managed assemblies, and the .NET class library are embedded in the
 NRO's RomFS. Two runtime files stay on the SD card because the launcher reads
@@ -97,9 +98,8 @@ device.
   multiplayer join, and default-clock frame-rate checks. Hosting a multiplayer
   game from the Switch is not supported.
 - tModLoader remains experimental. The current Fargo's Souls build loads its
-  mods, reaches a world, and plays audio on hardware, but in-world performance
-  is very slow (an earlier build measured roughly 15-19 fps). The Plus/Minus
-  FPS toggle has not been confirmed, and tModLoader multiplayer has not been
-  verified.
+  mods, reaches a world, and plays audio on hardware; in-world the LLVM build
+  ran at a median of about 43 fps, with frame drops on lighting cycles.
+  tModLoader multiplayer has not been verified.
 - A clean-checkout, end-to-end from-source toolchain build remains incomplete.
   See [Building](BUILDING.md) for the component recipes and limitations.

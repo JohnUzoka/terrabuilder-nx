@@ -305,7 +305,6 @@ static void ensure_worker(void)
     if (worker_attempted || stopping || !SDL_WasInit(SDL_INIT_JOYSTICK))
         return;
     worker_attempted = true;
-    io_debugf("%s", nx_env_summary);
     padInitializeDefault(&slots[0].pad);
     for (unsigned i = 1; i < NX_INPUT_CONTROLLERS; ++i)
         padInitialize(&slots[i].pad, (HidNpadIdType)(HidNpadIdType_No1 + i));
@@ -625,12 +624,50 @@ static uint8_t get_button(SDL_GameController *controller, int button)
     return SDL_GameControllerGetButton(controller, (SDL_GameControllerButton)button);
 }
 
+#if defined(MONO_NX_SDL_BUTTON_WRAP)
+/* tModLoader's FNA reads buttons with SDL_GameControllerGetButton and never calls the
+ * InputDiagnostics hooks, so begin_update and its Plus+Minus combo never run there.
+ * Linked with -Wl,--wrap=SDL_GameControllerGetButton, this runs the same combo on SDL's
+ * state: once Plus and Minus are both held the game sees neither until both are released,
+ * and each combo toggles the FPS display once. FNA polls on the game thread, which
+ * toggle_fps_display needs. If the hooks run (vanilla), begin_update owns the combo.
+ */
+extern __typeof__(SDL_GameControllerGetButton) __real_SDL_GameControllerGetButton;
+
+Uint8 SDLCALL __wrap_SDL_GameControllerGetButton(SDL_GameController *controller,
+    SDL_GameControllerButton button)
+{
+    Uint8 pressed = __real_SDL_GameControllerGetButton(controller, button);
+    if (worker_running ||
+        (button != SDL_CONTROLLER_BUTTON_START && button != SDL_CONTROLLER_BUTTON_BACK))
+        return pressed;
+    SDL_Joystick *joystick = SDL_GameControllerGetJoystick(controller);
+    SDL_JoystickID instance = joystick ? SDL_JoystickInstanceID(joystick) : -1;
+    if (instance < 0 || instance >= NX_INPUT_CONTROLLERS)
+        return pressed;
+    NxPadSlot *slot = &slots[instance];
+    bool plus = __real_SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_START) != 0;
+    bool minus = __real_SDL_GameControllerGetButton(controller, SDL_CONTROLLER_BUTTON_BACK) != 0;
+    if (plus && minus) {
+        if (!slot->fps_combo) {
+            slot->fps_combo = true;
+            toggle_fps_display();
+        }
+    } else if (!plus && !minus) {
+        slot->fps_combo = false;
+    }
+    return slot->fps_combo ? 0 : pressed;
+}
+#endif
+
 void nx_input_register(void)
 {
     if (registered)
         return;
     registered = true;
     mutexInit(&input_lock);
+    /* tModLoader builds never reach ensure_worker, so the driver settings are logged here. */
+    io_debugf("%s", nx_env_summary);
 #if defined(MONO_NX_PHASE_TIMING)
     start_tick = report_tick = armGetSystemTick();
     tick_frequency = armGetSystemTickFreq();

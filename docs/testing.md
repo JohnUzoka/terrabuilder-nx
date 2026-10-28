@@ -57,6 +57,9 @@ tModLoader:
 2. The Mods menu lists the built mods as enabled.
 3. A world can be created and entered, with audio.
 4. Save and Exit, then reload.
+5. Plus opens and closes the full-screen map.
+6. Holding Plus and Minus together toggles the on-screen FPS counter without
+   opening the map.
 
 ## Logs
 
@@ -99,8 +102,13 @@ Vanilla:
 
 tModLoader (experimental):
 
-- In-world performance is very slow.
-- The Plus+Minus FPS toggle has not been confirmed working.
+- In-world the LLVM build ran at a median of about 43 fps (run 39), with frame
+  drops on lighting cycles and 1-2 s stalls on some saves and menus.
+- Host & Play from the multiplayer menu can't work: tModLoader starts the
+  server as a separate process (`Main.OnSubmitServerPassword` creates a
+  `System.Diagnostics.Process`), which a homebrew app can't do. Submitting the
+  password throws `PlatformNotSupportedException` and leaves the menu stuck on
+  that screen. Steam is not involved.
 - Multiplayer and extended play are untested.
 - Only the curated open-source mods in `terrabuilder_pkg/curated_tmod_mods.json`
   can be built.

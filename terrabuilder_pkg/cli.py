@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 from terrabuilder_pkg import toolchain as tclib
+from terrabuilder_pkg.containers import engine, root_is_invoking_user, user_args
 
 ROOT = Path(__file__).resolve().parents[1]
 # Pre-toolchain build cache. Only the experimental tModLoader path still reads it.
@@ -23,6 +24,7 @@ DEFAULT_WORKDIR = Path(os.environ.get("TERRABUILDER_WORKDIR", Path.home() / ".ca
 HEAVY_LOCK = Path.home() / ".cache/terrabuilder/.heavy.lock"
 MONO_IMAGE = "localhost/monobuild:local"
 LLVM_IMAGE = "localhost/monobuild-llvm:local"
+TMOD_MESA_LIB = f"{tclib.MOUNT}/mesa/lib"
 TMOD_LEGACY_INPUTS = (
     "tmod/tmod27/input/modset.json",
     "tmod/tmod27-nxfix-mp/tModLoader_patched_nxfix.dll",
@@ -46,8 +48,8 @@ BEHAVIOR_WRAPS = [
 GAME_DLLS = ["Terraria.exe", "FNA.dll", "ReLogic.dll", "Newtonsoft.Json.dll", "NxCrypto.dll", "NxInputDiag.dll"]
 TMOD_WARNING = """\
 tModLoader (experimental) build notes:
-- In-world Fargo's Souls performance is very slow (about 15-20 fps measured on an earlier build).
-- The D-pad does not navigate the inventory; the Plus+Minus FPS toggle is unconfirmed.
+- In-world Fargo's Souls ran at a median of about 43 fps on hardware (LLVM build, run 39), with frame drops.
+- The D-pad does not navigate the inventory.
 - Multiplayer is untested on tModLoader.
 - The mod list is limited to tested open-source mods built from pinned source."""
 
@@ -102,13 +104,6 @@ def run(cmd: list[str], *, cwd: Path = ROOT, env: dict[str, str] | None = None, 
 
 def capture(cmd: list[str]) -> str:
     return subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT).strip()
-
-
-def engine() -> str | None:
-    for name in ("podman", "docker"):
-        if shutil.which(name):
-            return name
-    return None
 
 
 def load_toolchain(workdir: Path) -> tclib.Toolchain:
@@ -353,9 +348,16 @@ def parse_mod_flags(value: str | None, catalog: dict[str, dict]) -> list[str]:
 
 def tmod_variant_key(tmod_dir: Path, mods: list[str], catalog: dict[str, dict], profile: str, tc: tclib.Toolchain) -> str:
     h = hashlib.sha256()
-    h.update(b"openal-free-quiet-launcher-v2-shared-audio-fna")
+    h.update(b"openal-free-quiet-launcher-v15-no-ram-log-tile-inline")
     h.update(sha256(tmod_dir / "tModLoader.dll").encode())
     h.update(TMOD_SHARED_AUDIO_FNA_SHA256.encode())
+    for source in (
+        ROOT / "native/shared/nx_profiler.c",
+        ROOT / "scripts/tmod/launcher/frame_stats.c",
+        ROOT / "scripts/tmod/build_tmod_modset_nro.py",
+        ROOT / "terrabuilder_pkg/patches/Luminance-1.0.3-tml-2026.7.patch",
+    ):
+        h.update(sha256(source).encode())
     h.update(profile.encode())
     for mod in mods:
         h.update(mod.encode() + b"\0" + catalog[mod]["commit"].encode() + b"\0")
@@ -370,37 +372,55 @@ def tmod_variant_key(tmod_dir: Path, mods: list[str], catalog: dict[str, dict], 
 def apply_recorded_patch(checkout: Path, patch: Path) -> None:
     marker = ".terrabuilder-" + patch.name + ".applied"
     target = None
-    add_file = False
-    old: list[str] = []
-    new: list[str] = []
+    files_to_patch: list[tuple[Path, bool, list[str], list[str]]] = []
+    curr_target = None
+    curr_add = False
+    curr_old: list[str] = []
+    curr_new: list[str] = []
+
+    def flush_curr():
+        nonlocal curr_target, curr_add, curr_old, curr_new
+        if curr_target is not None:
+            files_to_patch.append((curr_target, curr_add, curr_old, curr_new))
+            curr_target = None
+            curr_add = False
+            curr_old = []
+            curr_new = []
+
     for line in patch.read_text().splitlines():
         if line.startswith("*** Update File: "):
-            target = checkout / line.split(": ", 1)[1]
-            add_file = False
+            flush_curr()
+            curr_target = checkout / line.split(": ", 1)[1]
+            curr_add = False
         elif line.startswith("*** Add File: "):
-            target = checkout / line.split(": ", 1)[1]
-            add_file = True
+            flush_curr()
+            curr_target = checkout / line.split(": ", 1)[1]
+            curr_add = True
         elif line.startswith("-") and not line.startswith("---"):
-            old.append(line[1:])
+            curr_old.append(line[1:])
         elif line.startswith("+") and not line.startswith("+++"):
-            new.append(line[1:])
-    if target is None:
+            curr_new.append(line[1:])
+    flush_curr()
+
+    if not files_to_patch:
         raise SystemExit(f"patch missing target: {patch}")
-    if add_file:
-        data = "\n".join(new) + "\n"
-        if target.exists() and target.read_text() != data:
-            raise SystemExit(f"failed to apply recorded patch {patch}: {target.name} already exists")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(data)
-    else:
-        data = target.read_text()
-        for idx, before in enumerate(old):
-            after = new[idx] if idx < len(new) else ""
-            if before in data:
-                data = data.replace(before, after, 1)
-            elif after not in data:
-                raise SystemExit(f"failed to apply recorded patch {patch}: context not found")
-        target.write_text(data)
+
+    for target, add_file, old, new in files_to_patch:
+        if add_file:
+            data = "\n".join(new) + "\n"
+            if target.exists() and target.read_text() != data:
+                raise SystemExit(f"failed to apply recorded patch {patch}: {target.name} already exists")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(data)
+        else:
+            data = target.read_text()
+            for idx, before in enumerate(old):
+                after = new[idx] if idx < len(new) else ""
+                if before in data:
+                    data = data.replace(before, after, 1)
+                elif after not in data:
+                    raise SystemExit(f"failed to apply recorded patch {patch}: context not found in {target.name}: {before!r}")
+            target.write_text(data)
     (checkout / marker).write_text(sha256(patch) + "\n")
 
 
@@ -419,14 +439,17 @@ def ensure_host_fna3d(workdir: Path, tmod_dir: Path) -> Path:
     run(["git", "-C", str(src), "checkout", "--detach", HOST_FNA3D["commit"]])
     run(["git", "-C", str(src), "submodule", "update", "--init", "--recursive"])
     if not (build / "libFNA3D.so.0").exists():
+        script = ("apt-get update -qq && "
+                  "apt-get install -y --no-install-recommends libsdl2-dev >/tmp/apt-terrabuilder-fna3d.log && "
+                  f"cmake -S /tb/native-host/fna3d-{HOST_FNA3D['tag']}-src "
+                  f"-B /tb/native-host/fna3d-{HOST_FNA3D['tag']}-build "
+                  "-DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_SDL3=OFF && "
+                  f"cmake --build /tb/native-host/fna3d-{HOST_FNA3D['tag']}-build --parallel 4")
+        if not root_is_invoking_user(eng):
+            # apt-get needs container root, which is real root under rootful Docker.
+            script = f"trap 'chown -R {os.getuid()}:{os.getgid()} /tb/native-host' EXIT; " + script
         cmd = [eng, "run", "--rm", "--entrypoint", "/bin/bash",
-               "-v", f"{workdir}:/tb", MONO_IMAGE, "-lc",
-               "apt-get update -qq && "
-               "apt-get install -y --no-install-recommends libsdl2-dev >/tmp/apt-terrabuilder-fna3d.log && "
-               f"cmake -S /tb/native-host/fna3d-{HOST_FNA3D['tag']}-src "
-               f"-B /tb/native-host/fna3d-{HOST_FNA3D['tag']}-build "
-               "-DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON -DBUILD_SDL3=OFF && "
-               f"cmake --build /tb/native-host/fna3d-{HOST_FNA3D['tag']}-build --parallel 4"]
+               "-v", f"{workdir}:/tb", MONO_IMAGE, "-lc", script]
         run(cmd)
     out.mkdir(parents=True, exist_ok=True)
     for path in build.glob("libFNA3D.so*"):
@@ -502,7 +525,7 @@ def build_curated_mod_sources(tmod_dir: Path, mods: list[str], workdir: Path, ca
             if dep_name in meta.get("dependencies", []):
                 shutil.copy2(dep_dll, checkout / (dep_name + ".dll"))
         before = {p.resolve() for p in checkout.rglob("*.tmod")}
-        cmd = [eng, "run", "--rm", "--entrypoint", "/tb/dotnet8/dotnet",
+        cmd = [eng, "run", "--rm", *user_args(eng, keep_id=False), "--entrypoint", "/tb/dotnet8/dotnet",
                "-e", "DOTNET_CLI_HOME=/tb/dotnet-home",
                "-e", "DOTNET_ROOT=/tb/dotnet8",
                "-e", "DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1",
@@ -547,7 +570,13 @@ def build_curated_mod_sources(tmod_dir: Path, mods: list[str], workdir: Path, ca
 
 
 def profile_wraps(profile: str) -> list[str]:
-    return [*(DIAGNOSTIC_WRAPS if profile in ("debug", "profiler") else []), *BEHAVIOR_WRAPS]
+    wraps = [*(DIAGNOSTIC_WRAPS if profile in ("debug", "profiler") else []), *BEHAVIOR_WRAPS]
+    if profile == "profiler":
+        # Mono creates tModLoader's large-stack game thread through pthread_create. The
+        # profiler must register that thread; envGetMainThreadHandle() is only the launcher
+        # thread, which waits on it.
+        wraps.append("pthread_create")
+    return wraps
 
 
 def launcher_config(profile: str, launcher: Path) -> dict:
@@ -581,15 +610,23 @@ def seed_tmod_input(variant: str, mods: list[str], packages: Path | None, catalo
         config = json.loads(config_path.read_text())
         baseline_config = json.loads((LEGACY / "tmod/tmod27/input/modset.json").read_text())
         llvm_modules = set(baseline_config.get("llvm_modules", []))
-        llvm_modules.discard("tModLoader.dll")
         for mod_name in selected_packages:
             llvm_modules.add(mod_name + ".dll")
         if "FargowiltasSouls" in mods and "StructureHelper" in mods:
             llvm_modules.add("StructureHelper.dll")
-        config["llvm_modules"] = sorted(llvm_modules)
         config["extra_aot"] = baseline_config.get("extra_aot", [])
-        config["reuse_base"] = "tmod27"
-        config["reuse_modules"] = ["ReLogic.dll", "System.Linq.dll"]
+        nxcrypto = LEGACY / "hint52/aot-final/runtime-romfs/NxCrypto.dll"
+        if nxcrypto.exists():
+            # Player and achievement saves encrypt through NxCrypto; interpreted, each save stalls 1-2 s.
+            shutil.copy2(nxcrypto, out / "input/NxCrypto.dll")
+            config["extra_aot"].append("NxCrypto.dll")
+            llvm_modules.add("NxCrypto.dll")
+        config["llvm_modules"] = sorted(llvm_modules)
+        config["reuse_base"] = "tmodcli-ddcb095edfa5"
+        config["reuse_modules"] = [
+            "ReLogic.dll", "System.Linq.dll",
+            "System.Text.RegularExpressions.dll", "System.Collections.Concurrent.dll",
+        ]
         config["aot_workers"] = 1
         config["launcher_objects"] = launcher_config(profile, launcher)
         config["extra_ldflags"] = ["-Wl," + ",".join("--wrap=" + w for w in profile_wraps(profile))]
@@ -599,14 +636,12 @@ def seed_tmod_input(variant: str, mods: list[str], packages: Path | None, catalo
         native["debug_diagnostics"] = profile in ("debug", "profiler")
         native["profiler"] = profile == "profiler"
         config["native"] = native
+        config["native_library_paths"] = [TMOD_MESA_LIB]
         write_json(config_path, config)
         patched_fna = LEGACY / "tmod/tmod27/input/FNA.dll"
         if not patched_fna.is_file() or sha256(patched_fna) != TMOD_SHARED_AUDIO_FNA_SHA256:
             raise SystemExit("validated tModLoader shared-audio FNA is missing or has an unexpected hash")
         shutil.copy2(patched_fna, out / "input/FNA.dll")
-        nxcrypto = LEGACY / "hint52/aot-final/runtime-romfs/NxCrypto.dll"
-        if nxcrypto.exists():
-            shutil.copy2(nxcrypto, out / "input/NxCrypto.dll")
         write_json(out / "source-mods.json", {"mods": mods, "catalog": [catalog[m] for m in mods]})
         return out
     src = LEGACY / "tmod/tmod27/input"
@@ -637,6 +672,7 @@ def seed_tmod_input(variant: str, mods: list[str], packages: Path | None, catalo
     native["debug_diagnostics"] = profile in ("debug", "profiler")
     native["profiler"] = profile == "profiler"
     config["native"] = native
+    config["native_library_paths"] = [TMOD_MESA_LIB]
     write_json(inputs / "modset.json", config)
     write_json(out / "source-mods.json", {"mods": mods, "catalog": [catalog[m] for m in mods]})
     return out
@@ -648,7 +684,7 @@ def run_tmod_pipeline(variant: str, workdir: Path, tc: tclib.Toolchain) -> None:
         print("tModLoader native build: cached")
         return
     eng = engine() or "podman"
-    cmd = [eng, "run", "--rm", "--userns=keep-id", "--entrypoint", "python3",
+    cmd = [eng, "run", "--rm", *user_args(eng), "--entrypoint", "python3",
            "-e", f"TMOD_VARIANT={variant}", "-e", f"TMPDIR=/build/tmod/{variant}/container-tmp",
            "-v", f"{LEGACY}:/build",
            "-v", f"{ROOT}:/work:ro",
@@ -657,7 +693,11 @@ def run_tmod_pipeline(variant: str, workdir: Path, tc: tclib.Toolchain) -> None:
     run(cmd, heavy=True)
     verify = [sys.executable, str(ROOT / "scripts/tmod/verify_aot_dependencies.py"),
               "--cache-root", str(LEGACY), "--variant", variant, "--json-out", str(out / "aot-mvid-check.json")]
-    run(verify)
+    pydeps = workdir / "pydeps"
+    env = dict(os.environ)
+    if pydeps.exists():
+        env["PYTHONPATH"] = str(pydeps) + (":" + env["PYTHONPATH"] if "PYTHONPATH" in env else "")
+    run(verify, env=env)
 
 
 def build_tmodloader(args: argparse.Namespace, tmod_dir: Path, mods: list[str], catalog: dict[str, dict]) -> int:
@@ -856,7 +896,8 @@ def aot_stage(romfs_hash: str, workdir: Path, tc: tclib.Toolchain, stamps: Path,
         if aot.exists():
             shutil.rmtree(aot)
         aot.mkdir(parents=True)
-        cmd = [engine() or "podman", "run", "--rm", "--userns=keep-id", "--entrypoint", "/usr/bin/python3",
+        eng = engine() or "podman"
+        cmd = [eng, "run", "--rm", *user_args(eng), "--entrypoint", "/usr/bin/python3",
                "-e", "PATH=/opt/devkitpro/devkitA64/bin:/opt/devkitpro/tools/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
                *container_mounts(workdir, tc), LLVM_IMAGE,
                "/work/scripts/compile_terraria_aot.py", "--game-dir", "/build/vanilla/romfs", "--output-dir", "/build/vanilla/aot",
@@ -916,7 +957,8 @@ def native_stage(workdir: Path, romfs_hash: str, aot: Path, launcher: Path, tc: 
     if not stage_cached(f"native link ({profile})", stamp, key, [out / "mono_nx_fna.nro"]):
         if out.exists():
             shutil.rmtree(out)
-        cmd = [engine() or "podman", "run", "--rm", "--userns=keep-id", "--entrypoint", "/usr/bin/python3",
+        eng = engine() or "podman"
+        cmd = [eng, "run", "--rm", *user_args(eng), "--entrypoint", "/usr/bin/python3",
                *container_mounts(workdir, tc), LLVM_IMAGE, "/work/scripts/native/link_nro.py",
                "--aot-manifest", "/build/vanilla/aot/build-manifest.json", "--romfs", "/build/vanilla/romfs",
                "--launcher", "/build/" + launcher.relative_to(workdir).as_posix(),
