@@ -3,14 +3,12 @@
 This guide builds a Terraria NRO for Switch homebrew from **your own copy** of the
 game (GOG Linux build 1.4.5.x). Nothing from the game is in this repository.
 
-> **Status, read first.** A vanilla build is reproducible from your game files plus
-> a **toolchain directory** whose files are all pinned by SHA-256 in its manifest.
-> `./terrabuilder toolchain --from-source --replace` builds that toolchain from the
-> pinned public sources in `toolchain.lock.json` (hours; see "Automated path" below).
-> One component, `facades`, is still a retained artifact rather than a from-source
-> build (hardware-proven as-is; see 3.2 for what rebuilding it from source would
-> take). Parts 1–3 double as the engineering recipes for every component, automated
-> or not.
+> **Status, read first.** The from-source toolchain build uses the public pins in
+> `toolchain.lock.json` plus three exact, SHA-256-pinned build-52 facade
+> assemblies checked into `toolchain-artifacts/facades`. They are preserved
+> byte-for-byte, not regenerated; a pre-existing toolchain cache is not needed.
+> The build takes hours (see "Automated path" below). Parts 1–3 explain the
+> component recipes; they do not regenerate those three facade assemblies.
 
 ## 0. What you need
 
@@ -34,20 +32,21 @@ repo is mounted read-only as `/work`.
 ./terrabuilder toolchain --from-source --replace --workdir ~/.cache/terrabuilder
 ```
 
-This runs `scripts/toolchain/build_from_source.py`, which reads every pin from
-`toolchain.lock.json` and builds: the Mesa libraries, the mono-nx SDK baseline
-(downloaded and SHA-256-verified, not rebuilt), the mono-nx native sources, FNA3D/
-FAudio/MojoShader, the release CoreLib/framework and native Mono runtime, the LLVM
-AOT cross compiler, the framework AOT objects (CoreLib, System.Text.RegularExpressions,
-System.Collections.Concurrent), Cecil (from the `mono.cecil` NuGet package), and the
-dotnet SDK. It writes the result to `<workdir>/toolchain.fromsource`, carries
-`facades` over from the toolchain at `--reference-toolchain` (default
-`<workdir>/toolchain`) since that component has no from-source recipe yet, and runs
-`toolchain verify` before printing (or, with `--replace`, performing) the swap into
-`<workdir>/toolchain`. Each step is idempotent, so a failed or interrupted run can
-just be re-invoked. Expect several hours on an 8-core/10 GB machine: it serializes
-every heavy step through `~/.cache/terrabuilder/.heavy.lock`, the same lock the CLI's
-own heavy builds take, rather than risk running more than one at a time on limited RAM.
+This runs `scripts/toolchain/build_from_source.py`, which reads every source and
+artifact pin from `toolchain.lock.json` and builds the Mesa libraries, mono-nx
+SDK baseline (downloaded and SHA-256-verified, not rebuilt), mono-nx native
+sources, FNA3D/FAudio/MojoShader, the release CoreLib/framework and native Mono
+runtime, LLVM AOT cross compiler, framework AOT objects, Cecil, and dotnet SDK.
+It copies the three build-52 facades from `toolchain-artifacts/facades` only
+after checking the exact file set, byte lengths, executable modes and SHA-256s
+against the lock. The hashes pin the original type-forwarding metadata; altered
+or missing files stop the build. The generated `manifest.json` records this
+provenance and hashes all toolchain files, then `toolchain verify` checks the
+assembled result before printing (or, with `--replace`, performing) the swap
+into `<workdir>/toolchain`. Each step is idempotent, so an interrupted run can
+be re-invoked. Expect several hours on an 8-core/10 GB machine: heavy container
+steps serialize through `~/.cache/terrabuilder/.heavy.lock`, the same lock used
+by the CLI, to limit RAM use.
 
 Parts 1–3 below are the same pipeline spelled out by hand component by component,
 which is how `build_from_source.py` itself was derived and verified; read them for
@@ -293,10 +292,11 @@ CoreLib. Where an embedded DLL shares a framework assembly's name (only
 `System.ValueTuple.dll`, a .NET Framework implementation), the RomFS keeps the
 net9 facade so its types do not duplicate CoreLib's.
 **Retained artifact:** the type-forwarding facades staged at the RomFS root
-(patched `mscorlib.dll`, `System.IO.Packaging.dll`,
-`System.Security.Permissions.dll`) come from the toolchain's `facades` component,
-imported from build 52's RomFS (`hint52/aot-final/runtime-romfs`). No script in
-this repo produces them yet.
+(`mscorlib.dll`, `System.IO.Packaging.dll`,
+`System.Security.Permissions.dll`) are exact build-52 `runtime-romfs` files,
+checked into `toolchain-artifacts/facades`. `toolchain.lock.json` pins each
+file's bytes, mode and SHA-256. The builder copies and verifies these exact
+files; it does not regenerate their metadata.
 
 ### 3.3 Release CoreLib/framework (build 58+)
 

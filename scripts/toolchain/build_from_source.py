@@ -1,17 +1,12 @@
 #!/usr/bin/env python3
-"""Builds a toolchain directory from the public, pinned sources in toolchain.lock.json.
+"""Build a toolchain from pinned sources and checked-in, hash-pinned artifacts.
 
-Covers: build images, Mesa, the mono-nx SDK baseline + native sources, native deps
-(FNA3D/FAudio/MojoShader), the release Mono runtime + CoreLib/framework, the LLVM AOT
-cross compiler, Cecil, and the dotnet SDK. Writes the result to a fresh directory (never
-the live <workdir>/toolchain) and verifies it with terrabuilder_pkg.toolchain before
-printing the swap-in command.
-
-One component has no from-source recipe yet and is carried over from an existing,
-already-verified toolchain instead (see toolchain.lock.json's not_yet_from_source):
-facades (mscorlib.dll, System.IO.Packaging.dll, System.Security.Permissions.dll
-type-forwarding facades). Pass --reference-toolchain to point at the toolchain to copy it
-from; it defaults to <workdir>/toolchain.
+Covers build images, Mesa, the mono-nx SDK baseline and native sources, native deps,
+the release Mono runtime and CoreLib/framework, the LLVM AOT cross compiler,
+framework AOT, Cecil, and the dotnet SDK. The three build-52 type-forwarding facades
+are retained byte-for-byte in toolchain-artifacts/facades; their hashes are in the
+lock file. No pre-existing maintainer toolchain is needed. The result is written to a
+fresh directory and verified before the CLI offers to replace the live toolchain.
 
 Each step is idempotent: it checks for its own output before doing any work, so a failed
 run can simply be re-invoked. Heavy container steps are serialized through the same
@@ -479,19 +474,51 @@ def step_notices(scratch: Path) -> Path:
     return out
 
 
-def step_retained(reference: Path, component: str, dest: Path) -> None:
-    """Carry over a component with no from-source recipe yet from a known-good toolchain."""
-    src = reference / component
-    if not src.is_dir():
-        raise SystemExit(f"--reference-toolchain is missing component {component!r} at {src}; "
-                          "pass a working toolchain with --reference-toolchain")
-    log(f"== {component}: carrying over from {src} (no from-source recipe yet) ==")
-    copy_tree(src, dest / component)
+def step_facades(lock: dict, dest: Path) -> dict:
+    """Copy the exact checked-in facade bytes after validating the lock's pins."""
+    record = lock["retained_artifacts"]["facades"]
+    source_dir = (REPO_ROOT / record["path"]).resolve()
+    try:
+        source_dir.relative_to(REPO_ROOT.resolve())
+    except ValueError as exc:
+        raise SystemExit("retained facade directory must be inside the repository") from exc
+    if not source_dir.is_dir():
+        raise SystemExit(f"retained facade directory is missing: {source_dir}")
+
+    expected = record["files"]
+    if set(expected) != set(tclib.COMPONENTS["facades"]):
+        raise SystemExit("retained facade pins must cover the complete facade component")
+    entries = list(source_dir.iterdir())
+    if ({entry.name for entry in entries} != set(expected)
+            or any(entry.is_symlink() or not entry.is_file() for entry in entries)):
+        raise SystemExit(f"retained facade files do not match toolchain.lock.json: {source_dir}")
+
+    output_dir = dest / "facades"
+    if output_dir.exists():
+        shutil.rmtree(output_dir)
+    output_dir.mkdir(parents=True)
+    for name, pin in sorted(expected.items()):
+        source = source_dir / name
+        try:
+            source.resolve().relative_to(source_dir)
+        except ValueError as exc:
+            raise SystemExit(f"retained facade escapes its pinned directory: {source}") from exc
+        source_exec = bool(source.stat().st_mode & 0o111)
+        if (source.stat().st_size != pin["bytes"] or sha256(source) != pin["sha256"]
+                or source_exec != pin["exec"]):
+            raise SystemExit(f"retained facade does not match its lock pin: {source}")
+        target = output_dir / name
+        shutil.copy2(source, target)
+        if (target.stat().st_size != pin["bytes"] or sha256(target) != pin["sha256"]
+                or bool(target.stat().st_mode & 0o111) != pin["exec"]):
+            raise SystemExit(f"copied facade failed lock verification: {target}")
+    log(f"facades: copied {len(expected)} build-52 assemblies; all lock hashes verified")
+    return {"path": record["path"], "origin": record["origin"], "files": expected}
 
 
 def assemble(scratch: Path, final: Path, mesa_out: Path, sdk_pristine: Path, mono_nx_native: Path,
              native_deps: Path, runtime_out: Path, aot_compiler: Path, framework_aot_out: Path,
-             cecil_out: Path, dotnet_out: Path, notices_out: Path, reference: Path, lock_path: Path) -> None:
+             cecil_out: Path, dotnet_out: Path, notices_out: Path, lock: dict, lock_path: Path) -> None:
     log(f"== assembling toolchain at {final} ==")
     if final.exists():
         shutil.rmtree(final)
@@ -510,11 +537,13 @@ def assemble(scratch: Path, final: Path, mesa_out: Path, sdk_pristine: Path, mon
     copy_tree(cecil_out, final / "cecil")
     copy_tree(dotnet_out, final / "dotnet")
     copy_tree(notices_out, final / "notices")
-    step_retained(reference, "facades", final)
+    facade_provenance = step_facades(lock, final)
 
-    provenance = {"built_by": "scripts/toolchain/build_from_source.py", "lock": "toolchain.lock.json",
-                  "retained_from_reference_toolchain": ["facades"],
-                  "reference_toolchain": str(reference)}
+    provenance = {
+        "built_by": "scripts/toolchain/build_from_source.py",
+        "lock": "toolchain.lock.json",
+        "retained_artifacts": {"facades": facade_provenance},
+    }
     manifest = tclib.write_manifest(final, origin="from-source", provenance=provenance,
                                      lock_sha256=sha256(lock_path))
     log(f"manifest written: {len(manifest['components'])} components, "
@@ -527,15 +556,12 @@ def main() -> int:
     ap.add_argument("--scratch", type=Path, default=None,
                      help="staging directory (default: <workdir>/fromsource-build)")
     ap.add_argument("--lock", type=Path, default=REPO_ROOT / "toolchain.lock.json")
-    ap.add_argument("--reference-toolchain", type=Path, default=None,
-                     help="toolchain to copy facades from (default: <workdir>/toolchain)")
     ap.add_argument("--out", type=Path, default=None,
-                     help="final toolchain output dir (default: <workdir>/toolchain.fromsource)")
+                    help="final toolchain output dir (default: <workdir>/toolchain.fromsource)")
     args = ap.parse_args()
 
     workdir = args.workdir.expanduser().resolve()
     scratch = (args.scratch or workdir / "fromsource-build").expanduser().resolve()
-    reference = (args.reference_toolchain or workdir / "toolchain").expanduser().resolve()
     final = (args.out or workdir / "toolchain.fromsource").expanduser().resolve()
     scratch.mkdir(parents=True, exist_ok=True)
 
@@ -555,8 +581,7 @@ def main() -> int:
     notices_out = step_notices(scratch)
 
     assemble(scratch, final, mesa_out, sdk_pristine, mono_nx_native, native_deps, runtime_out,
-             aot_compiler, framework_aot_out, cecil_out, dotnet_out, notices_out, reference, args.lock)
-
+             aot_compiler, framework_aot_out, cecil_out, dotnet_out, notices_out, lock, args.lock)
     problems = tclib.verify(final)
     if problems:
         log(f"toolchain verify FAILED with {len(problems)} problem(s):")
@@ -566,7 +591,8 @@ def main() -> int:
 
     log("toolchain verify: ok")
     print(f"\nBuilt and verified at {final}.")
-    print(f"To use it: mv {reference} {reference}.bak && mv {final} {reference}")
+    live = workdir / "toolchain"
+    print(f"To use it: mv {live} {live}.bak && mv {final} {live}")
     return 0
 
 

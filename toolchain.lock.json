@@ -1,6 +1,6 @@
 {
   "schema": "terrabuilder-toolchain-lock/1",
-  "_comment": "Pins for `terrabuilder toolchain --from-source`. Every entry here is a public, hash- or commit-pinned input; scripts/toolchain/build_from_source.py reads this file instead of hardcoding versions. Update it (and the provenance notes in docs/BUILDING.md) when a pin changes.",
+  "_comment": "Pins for `terrabuilder toolchain --from-source`. External inputs are hash- or commit-pinned; retained checked-in artifacts are byte-pinned under retained_artifacts. scripts/toolchain/build_from_source.py reads this file instead of hardcoding versions. Update it (and docs/BUILDING.md provenance notes) when a pin changes.",
 
   "images": {
     "toolchain": {
@@ -66,8 +66,28 @@
     "nupkg_sha256": "9cf1706f35b4f209c28da7417608bed7a307621b0f0179c52258af78bc4668d0"
   },
 
-  "not_yet_from_source": {
-    "_comment": "Component still imported from the maintainer's validated engineering-cache artifacts rather than rebuilt by this lock file's pins. Hardware-proven as-is; rebuilding it from scratch is tracked separately (docs/BUILDING.md 3.2). framework-aot moved out of this list: scripts/build_framework_aot.py now rebuilds it from the from-source runtime build (docs/BUILDING.md 3.6).",
-    "facades": "mscorlib.dll, System.IO.Packaging.dll, System.Security.Permissions.dll type-forwarding facades; imported from build 52's RomFS, not regenerated."
+  "retained_artifacts": {
+    "_comment": "Checked-in, hash-pinned artifacts that are copied unchanged during a from-source toolchain build rather than regenerated. Each SHA-256 covers the complete assembly metadata, including type forwarders.",
+    "facades": {
+      "path": "toolchain-artifacts/facades",
+      "origin": "Validated build 52 runtime-romfs facades; byte-for-byte identical to the validated toolchain's facades component.",
+      "files": {
+        "mscorlib.dll": {
+          "bytes": 49152,
+          "exec": false,
+          "sha256": "6938922a2fea87ba15c0f270e1518d5809c6e5b3d440ed8bee57c18ae4ec0e3b"
+        },
+        "System.IO.Packaging.dll": {
+          "bytes": 141584,
+          "exec": true,
+          "sha256": "599e8748ad88b891cfe992391fd62f507d63af2abacf5aee23bac3d8298f4d5e"
+        },
+        "System.Security.Permissions.dll": {
+          "bytes": 114448,
+          "exec": true,
+          "sha256": "ec27c1eea2ddd18929b07fc6094dd374ce38bc25d110a21dcc77b6373346f4ea"
+        }
+      }
+    }
   }
 }
