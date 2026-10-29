@@ -1,8 +1,9 @@
-"""Stage exact .tmod packages, lower their hooks, and prepare build_tmod_modset_nro.py inputs.
+"""Stage exact .tmod packages, tune and lower their assemblies, and prepare build_tmod_modset_nro.py inputs.
 
 Run on the host with --cache-root or inside monobuild with --cache-root=/build.
-The output variant must be fresh. Materialized mod methods are repacked and rescanned
-before final hook identities are baked; no assembly is changed after AOT compilation.
+The output variant must be fresh. Mod assemblies are tuned once first (mod_tuning: Debug-built
+mods' DisableOptimizations flag, Fargo's banner timer). Materialized mod methods are repacked and
+rescanned before final hook identities are baked; no assembly is changed after AOT compilation.
 """
 import argparse
 import hashlib
@@ -115,6 +116,7 @@ def main():
         print('PASS ' + label, flush=True)
 
     projects = {'scan': ('hook_scan', 'HookScan.csproj', 'HookScan.dll'),
+                'tune': ('mod_tuning', 'ModTuning.csproj', 'ModTuning.dll'),
                 'il': ('il_lowering', 'IlLowering.csproj', 'IlLowering.dll'),
                 'on': ('offline_hooks', 'Patcher.csproj', 'Patcher.dll')}
     tools = {}
@@ -173,10 +175,22 @@ def main():
         if exact != data:
             raise ValueError('Repacked mod assembly differs from lowered input: ' + filename)
 
+    # Tuning changes mod bytes and MVIDs, so it runs once before the first scan.
+    tuned_dir = out / 'tuned'
+    tuned_dir.mkdir()
+    tuned = []
+    for filename, entry in modules.items():
+        run([dotnet, tools['tune'], entry['path'], tuned_dir / filename, '--ref-dir', extracted,
+             '--ref-dir', stock_romfs, '--ref-dir', root / 'tmod/flat_libs'], 'tune-' + filename.removesuffix('.dll'))
+        data = (tuned_dir / filename).read_bytes()
+        if data != entry['path'].read_bytes():
+            repack(filename, data)
+            tuned.append(filename)
+
     # Mod-side lowering (UnsafeAccessor bodies, runtime-detour adapters) changes mod MVIDs, and
     # baked IL-hook identities bind those MVIDs. Iterate scan -> IL -> detour adapters until a
     # whole round changes no mod assembly; that final round's outputs are the ones baked.
-    modified = set()
+    modified = set(tuned)
     for round_number in range(1, 5):
         inventory = scan(f'inventory-{round_number}')
         il_output = out / f'il-{round_number}'
@@ -234,7 +248,7 @@ def main():
                'game': {'path': str(game), 'sha256': sha(game)},
                'hooks': {'path': str(hooks), 'sha256': sha(hooks)},
                'detour': {'path': str(detour), 'sha256': sha(detour)},
-               'inventory': str(inventory), 'materialized_mod_assemblies': modified,
+               'inventory': str(inventory), 'tuned_mod_assemblies': tuned, 'materialized_mod_assemblies': modified,
                'packages': {name: {'original': str(package['source']), 'original_sha256': package['source_sha256'],
                                    'staged': str(package['staged']), 'staged_sha256': sha(package['staged'])}
                             for name, package in packages.items()},

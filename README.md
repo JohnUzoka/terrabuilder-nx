@@ -37,8 +37,8 @@ The native overlay (`native/interpreter`, `native/shared`) builds against mono-n
   - `release_bcl/`: Release CoreLib/framework, native runtime, and LLVM cross-compiler
     builders plus artifact-verification helpers.
   - `launcher/`, `mesa/`: launcher objects and the Switch Mesa build.
-  - `tmod/`: the tModLoader port (mod set preparation, offline hooks, IL lowering,
-    AOT, and link).
+  - `tmod/`: the tModLoader port (mod set preparation and tuning, offline hooks, IL
+    lowering, AOT, and link).
 - `docs/`: [architecture](docs/architecture.md), [build guide](docs/BUILDING.md),
   [testing on a Switch](docs/testing.md), and a
   [guide to porting other FNA games](docs/porting-fna-games.md).

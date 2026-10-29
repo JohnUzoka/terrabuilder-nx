@@ -10,6 +10,9 @@ tmod09's (runtime-release/ must match it; component hashes are then recorded, no
 "corelib": <name> uses /build/tmod/corelib/<name> (build_tmod_corelib_aot.py,
 enlarged trampoline pools; tmod09's CoreLib object otherwise), and "llvm_modules": [compiled
 DLL names] compiles those through Mono's LLVM backend (run in monobuild-llvm:local).
+"aot_inline_limits": {"tModLoader.dll": 60} sets MONO_INLINELIMIT while compiling those DLLs:
+the IL size below which Mono inlines a callee (defaults: 30 under LLVM AOT, 20 without).
+Reused objects must have been compiled with the same limit.
 "native": {"libnx_heap_permille": 625, "gc_stats": true} swaps the fork's 50/50 heap.o for
 launcher/heap_split.c at that libnx share and enables the 5 s NX_GC memory log; "mesa_guard": true
 (needs libnx_heap_permille) links launcher/mesa_guard.c, which moves Mesa's nouveau_mm caches onto
@@ -53,8 +56,9 @@ def sha(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
-def run(argv, label, cwd):
-    process = subprocess.run(list(map(str, argv)), cwd=cwd, env=env, capture_output=True, text=True)
+def run(argv, label, cwd, extra_env=None):
+    process = subprocess.run(list(map(str, argv)), cwd=cwd, env=dict(env, **extra_env) if extra_env else env,
+                             capture_output=True, text=True)
     (OUT / (label + '.log')).write_text(process.stdout + process.stderr)
     if process.returncode:
         raise RuntimeError(label + '\n' + process.stdout[-4000:] + process.stderr[-4000:])
@@ -98,6 +102,8 @@ reuse_modules = config.get('reuse_modules', [])
 assert len(reuse_modules) == len(set(reuse_modules))
 aot_workers = int(config.get('aot_workers', 4))
 assert aot_workers >= 1
+aot_inline_limits = config.get('aot_inline_limits', {})
+assert all(type(limit) is int and limit > 0 for limit in aot_inline_limits.values()), aot_inline_limits
 
 for filename, destinations in replacements.items():
     assert Path(filename).name == filename and filename.endswith('.dll')
@@ -193,6 +199,7 @@ if reuse_modules:
         assert mod_key in reuse_bindings, f'Module {name} not found in {reuse_base} binding'
         rec = reuse_bindings[mod_key]
         assert rec['compiler_input_sha256'] == input_hashes[name], f'Input hash mismatch for reuse of {name}'
+        assert rec.get('aot_inline_limit') == aot_inline_limits.get(name), f'Inline limit mismatch for reuse of {name}'
         src_obj = Path(rec['aot_object'])
         assert sha(src_obj) == rec['aot_object_sha256'], f'AOT object hash mismatch for reuse of {name}'
         shutil.copy2(src_obj, AOT / (name + '.o'))
@@ -211,17 +218,19 @@ paths = ['--path=/build/runtime-source/artifacts/bin/mono/libnx.arm64.Release',
 
 
 assert set(llvm_modules) <= set(compiled), 'llvm_modules must name compiled DLLs'
+assert set(aot_inline_limits) <= set(compiled), 'aot_inline_limits must name compiled DLLs'
 
 
 def compile_one(name):
     options = f'full,interp,static,outfile={AOT}/{name}.o,tool-prefix=aarch64-none-elf-'
+    limit_env = {'MONO_INLINELIMIT': str(aot_inline_limits[name])} if name in aot_inline_limits else {}
     if name not in llvm_modules:
-        run([CROSS, *paths, '--aot=' + options, INPUT / name], 'aot-' + name, OUT)
+        run([CROSS, *paths, '--aot=' + options, INPUT / name], 'aot-' + name, OUT, limit_env)
     else:
         temp = OUT / ('llvm-tmp-' + name)
         temp.mkdir()
         options += f',llvm-path={LLVM_DIR}/,llvm-outfile={AOT}/{name}-llvm.o,temp-path={temp}'
-        run_env = dict(env, LD_LIBRARY_PATH=str(LLVM_DIR))
+        run_env = dict(env, LD_LIBRARY_PATH=str(LLVM_DIR), **limit_env)
         process = subprocess.run(list(map(str, [LLVM_DIR / 'mono-aot-cross', '--llvm', *paths, '--aot=' + options, INPUT / name])),
                                  cwd=OUT, env=run_env, capture_output=True, text=True)
         (OUT / ('aot-' + name + '.log')).write_text(process.stdout + process.stderr)
@@ -491,6 +500,8 @@ for filename in compiled:
               'aot_object': str(AOT / (filename + '.o')), 'aot_object_sha256': sha(AOT / (filename + '.o'))}
     if filename in llvm_modules:
         record.update(llvm_object=str(AOT / (filename + '-llvm.o')), llvm_object_sha256=sha(AOT / (filename + '-llvm.o')))
+    if filename in aot_inline_limits:
+        record['aot_inline_limit'] = aot_inline_limits[filename]
     if filename in external_members:
         ext_info = external_members[filename]
         extracted_path = OUT / 'extracted' / filename

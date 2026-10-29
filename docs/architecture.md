@@ -46,7 +46,11 @@ object from being paired with a different managed assembly.
 Vanilla builds AOT the managed game/runtime modules and can LLVM-optimize
 selected modules. The experimental source-mod tModLoader path LLVM-AOT compiles
 `tModLoader.dll`, FNA, and the curated source-built mods. AOT and LLVM policies are
-module-specific because large-module optimization can be very expensive.
+module-specific because large-module optimization can be very expensive. Mods
+built in Debug carry `DisableOptimizations`, which stops Mono from inlining
+anything in them; mod set preparation clears that flag before hook lowering, and
+each module a mod build compiles uses an inline limit of 60 IL bytes (Mono's
+LLVM AOT default is 30).
 
 Supported IL changes are applied offline to the user's local assemblies.
 `scripts/patch_*` and the tModLoader compatibility tools record these changes

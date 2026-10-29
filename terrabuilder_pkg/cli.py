@@ -25,9 +25,10 @@ HEAVY_LOCK = Path.home() / ".cache/terrabuilder/.heavy.lock"
 MONO_IMAGE = "localhost/monobuild:local"
 LLVM_IMAGE = "localhost/monobuild-llvm:local"
 TMOD_MESA_LIB = f"{tclib.MOUNT}/mesa/lib"
+TMOD_NXFIX_DLL = "tmod/tmod27-nxfix-v16/tModLoader_patched_nxfix.dll"
 TMOD_LEGACY_INPUTS = (
     "tmod/tmod27/input/modset.json",
-    "tmod/tmod27-nxfix-mp/tModLoader_patched_nxfix.dll",
+    TMOD_NXFIX_DLL,
     "release58/compile_main.sh",
 )
 HOST_FNA3D = {
@@ -37,6 +38,9 @@ HOST_FNA3D = {
     "mojoshader_commit": "abdc80360c1d4560ab8f356035dcd53ae6e9b87f",
 }
 TMOD_SHARED_AUDIO_FNA_SHA256 = "a24a7545293b5b2d351544ab4a7fa3f5f739e00df02714b3c5a3c352b0767678"
+# MONO_INLINELIMIT for every LLVM module a mod build compiles (Mono's LLVM AOT default is 30).
+# In run 41, out-of-line managed callees of 30-59 IL bytes held 4.4% of the game thread.
+TMOD_AOT_INLINE_LIMIT = 60
 
 DIAGNOSTIC_WRAPS = ["SDL_PollEvent", "FNA3D_SwapBuffers"]
 BEHAVIOR_WRAPS = [
@@ -348,13 +352,16 @@ def parse_mod_flags(value: str | None, catalog: dict[str, dict]) -> list[str]:
 
 def tmod_variant_key(tmod_dir: Path, mods: list[str], catalog: dict[str, dict], profile: str, tc: tclib.Toolchain) -> str:
     h = hashlib.sha256()
-    h.update(b"openal-free-quiet-launcher-v15-no-ram-log-tile-inline")
+    h.update(b"openal-free-quiet-launcher-v16-text-cache-tuned-mods-inline60")
     h.update(sha256(tmod_dir / "tModLoader.dll").encode())
     h.update(TMOD_SHARED_AUDIO_FNA_SHA256.encode())
     for source in (
+        LEGACY / TMOD_NXFIX_DLL,
         ROOT / "native/shared/nx_profiler.c",
         ROOT / "scripts/tmod/launcher/frame_stats.c",
         ROOT / "scripts/tmod/build_tmod_modset_nro.py",
+        ROOT / "scripts/tmod/prepare_modset.py",
+        ROOT / "scripts/tmod/mod_tuning/Program.cs",
         ROOT / "terrabuilder_pkg/patches/Luminance-1.0.3-tml-2026.7.patch",
     ):
         h.update(sha256(source).encode())
@@ -604,7 +611,7 @@ def seed_tmod_input(variant: str, mods: list[str], packages: Path | None, catalo
         run([sys.executable, str(ROOT / "scripts/tmod/prepare_modset.py"),
              "--cache-root", str(LEGACY), "--mods-dir", str(packages),
              "--variant", variant, "--primary", primary, "--label", label,
-             "--base", "tmod27", "--game", str(LEGACY / "tmod/tmod27-nxfix-mp/tModLoader_patched_nxfix.dll"),
+             "--base", "tmod27", "--game", str(LEGACY / TMOD_NXFIX_DLL),
              "--interpret-hooks"])
         config_path = out / "input/modset.json"
         config = json.loads(config_path.read_text())
@@ -628,6 +635,8 @@ def seed_tmod_input(variant: str, mods: list[str], packages: Path | None, catalo
             "System.Text.RegularExpressions.dll", "System.Collections.Concurrent.dll",
         ]
         config["aot_workers"] = 1
+        config["aot_inline_limits"] = {name: TMOD_AOT_INLINE_LIMIT for name in config["llvm_modules"]
+                                       if name not in config["reuse_modules"]}
         config["launcher_objects"] = launcher_config(profile, launcher)
         config["extra_ldflags"] = ["-Wl," + ",".join("--wrap=" + w for w in profile_wraps(profile))]
         native = dict(config.get("native", {}))

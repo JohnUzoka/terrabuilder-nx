@@ -30,8 +30,22 @@ builds. It:
 | Build | `tModLoader.dll` | Mod assemblies |
 | --- | --- | --- |
 | CLI, `--mods none` | LLVM (object reused from `tmod27`) | none |
-| CLI, `--mods FargowiltasSouls` | Mono AOT without LLVM, recompiled per mod set | LLVM |
+| CLI, `--mods FargowiltasSouls` | LLVM, recompiled per mod set, inline limit 60 | LLVM, inline limit 60, `DisableOptimizations` cleared |
 | `tmod27` (engineering build) | LLVM | Mono AOT without LLVM |
+
+- Mod builds read NxFix's output from the engineering cache:
+  `tmod/tmod27-nxfix-v16/tModLoader_patched_nxfix.dll`. Its hash is part of the
+  CLI variant key. After changing `scripts/tmod/nxfix/`, regenerate it (cache
+  paths relative to `~/.cache/terraria-switch-build`, `<workdir>` is the CLI
+  work directory):
+
+  ```sh
+  dotnet build scripts/tmod/nxfix/NxFix.csproj -c Release \
+    -p:CecilPath=<workdir>/toolchain/cecil/Mono.Cecil.dll
+  dotnet scripts/tmod/nxfix/bin/Release/net9.0/NxFix.dll tmod/tmod09/romfs/tModLoader.dll \
+    tmod/tmod27-nxfix-v16/tModLoader_patched_nxfix.dll \
+    --nxcrypto hint52/aot-final/runtime-romfs/NxCrypto.dll
+  ```
 
 - Known numbers: vanilla reaches 48-53 fps with Color lighting and about 60 fps
   with White lighting (starting area, default handheld clocks). With glthread
@@ -250,6 +264,78 @@ shrink (21.95 ms against 21.25 ms). What is left:
 - `ChatManager.DrawColorCodedString` reparses its text with
   `ChatManager.ParseMessage`'s regexes on every draw: 0.66 ms per frame
   (`System.Text.RegularExpressions` 3.0% of the game thread).
+
+### v16 (not yet measured on hardware)
+
+v16 (`tmodcli-aa09ff4822e6`) targets what run 41 left. Shares below are of the
+run-41 game thread (375-560 s, 67,478 samples, 21.95 ms average frame); none is
+a measured gain yet.
+
+- **Chat text (NxFix patch 17, `TextCachePatch.cs`).** Most of the cost was not
+  `ParseMessage`: `DrawColorCodedString(TextSnippet[])` runs `Regex.Split`
+  itself, per snippet for lines and per line for words, and each of those
+  replaces a split whose result is never used. Every `*WithShadow` draw runs it
+  five times. That was 4.9-6.3% (hotbar stack counts 3.1%, gamepad hints 1.8%,
+  Fargo's music banner 1.0%). The unused splits are gone and the line split is
+  a helper that returns the same array. `ParseMessage` (1.4%) memoizes only its
+  `Format` regex scan per text (512 slots, texts up to 512 characters); it still
+  builds new snippets and calls the tag handlers on every call. Expected: about
+  6-7%, 1.3-1.6 ms per frame.
+- **Lighting-cycle black (patch 16, `LightingCyclePatch.cs`).** `RenderBlack`
+  (2.3%, about 4.7 ms per 195 ms cycle) runs on the idle renderCount 4 frame
+  instead of with `RenderTiles` when `RenderPhases > 4` (`gfxQuality` below
+  0.8), and blackTarget is drawn at its own capture position. The average frame
+  does not change; one spike per cycle shrinks.
+- **Section framing (patch 18, `SectionFramingPatch.cs`).** `TileDrawing.Update`
+  frames the loaded, unframed section nearest the drawn area (within 100×75
+  tiles) for at most 1.5 ms per drawn frame. Run 41's five 88-156 ms
+  first-visit stalls become about 60-105 frames of up to 1.5 ms each. Tile and
+  wall framing hooks still run, only earlier.
+- **Debug-built mods.** Fargo's Souls, Fargowiltas and Luminance ship as Debug
+  builds (`DebuggableAttribute` modes `0x107`, which include
+  `DisableOptimizations`), so Mono inlined nothing in them, AOT included:
+  Fargo's `Alive(Projectile)` alone was 0.97% as an out-of-line call.
+  `prepare_modset.py` now runs `mod_tuning` first, which clears the flag (new
+  MVID, repacked package).
+- **Inline limit 60.** Under LLVM AOT, Mono inlines callees below 30 IL bytes.
+  Out-of-line managed callees of 30-59 IL bytes held 4.4% (FNA's
+  `Vector2.op_Addition` is 36, `Lighting.Brightness` 46, the `TileLoader` hook
+  wrappers 36-57) and 60-99 bytes another 2.3%. The CLI compiles every module
+  it builds with `MONO_INLINELIMIT=60`; inlining saves the call overhead, a
+  fraction of those shares. In the v16 ELF, 3,675 `tModLoader.dll` methods grew
+  and 1,469 shrank (its LLVM code went from 25.7 to 26.6 MB, Fargo's Souls'
+  from 9.1 to 9.6 MB), AOT failures are unchanged (28 in `tModLoader.dll`, 49
+  in FNA) and the NRO grew by 5 MB.
+- **Fargo's "music mod not found" banner.** `NoMusicNotification.Update` held
+  its timer at 200 until the banner was clicked, and drawing it cost about 2%
+  for as long as it stayed. `mod_tuning` lets the countdown run, so the banner
+  dismisses itself after 5 s.
+
+Checked and left alone:
+
+- Vanilla build 52's hint-layout skip: the layout work it could skip is 0.19%,
+  and a safe font guard would leave about 0.05%. The hint's cost is its drawing,
+  which patch 17 covers.
+- Vanilla build 50's draw gate: in tModLoader the preparation it could skip
+  costs 0.07%; moving the gate further would skip `GetFinalLight` and
+  `TileLoader.DrawEffects`.
+- FNA3D `SuppressGCTransition`: tModLoader's FNA already has all 16 vanilla
+  entries. The largest remaining transition, `FNA3D_SetVertexBufferData`
+  (which can block on a busy buffer), is 0.08%.
+
+Ryujinx run v16a (about 5 minutes in-world, walking both ways): the mods loaded,
+the world rendered, Fargo's banner faded in and dismissed itself, chat and
+gamepad-hint text drew correctly, and nothing was logged as an exception. Its
+game-thread profile shows the new paths running: every `RenderBlack` sample
+comes through `NxRenderBlackNow`; nothing in `Regex` runs under
+`DrawColorCodedString` or `ParseMessage` (every parse hit the cache); and after
+world entry, sections were framed in `NxPreframe` slices (396 samples over
+about 100 s) with a single on-demand `SectionTileFrame` sample. Emulator timings
+say nothing about hardware speed.
+
+On hardware, compare against run 41: median fps and the 34-50 ms share; in the
+profile, no `Regex` under `DrawColorCodedString`, `NxPreframe` slices instead
+of `SectionTileFrame` bursts, and `RenderBlack` on its own frame.
 
 ## 2. Hook dispatch (`offline_hooks`): low priority
 
