@@ -19,7 +19,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 from terrabuilder_pkg import toolchain as tclib
-from terrabuilder_pkg.containers import engine, root_is_invoking_user, user_args
+from terrabuilder_pkg.containers import engine, engine_status, root_is_invoking_user, user_args
 
 ROOT = Path(__file__).resolve().parents[1]
 # Source compatibility patches applied to curated mod checkouts (catalog "patches").
@@ -200,14 +200,18 @@ def machine_checks(workdir: Path) -> list[dict]:
     """Build prerequisites as {name, ok, detail, required}; a failed required check blocks every build."""
     checks = []
     eng = engine()
-    checks.append({"name": "container engine", "ok": bool(eng), "detail": eng or "missing: install podman or docker",
-                   "required": True})
+    problem, report = engine_status(eng) if eng else (
+        "missing: install Docker (on Windows: Docker Desktop with WSL integration) or Podman", "")
+    # `report` is the engine's own `info` output: the guided build saves it in its check log.
+    checks.append({"name": "container engine", "ok": not problem, "detail": problem or eng, "required": True,
+                   "report": report})
     for image in (MONO_IMAGE, LLVM_IMAGE):
-        present = bool(eng) and subprocess.run(
+        present = not problem and subprocess.run(
             [eng, "image", "inspect", image], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
         ).returncode == 0
-        checks.append({"name": f"image {image}", "ok": present, "required": True,
-                       "detail": "ok" if present else "missing: `./terrabuilder toolchain --bundle` builds it"})
+        detail = ("not checked: the container engine isn't working" if problem else
+                  "ok" if present else "missing: `./terrabuilder toolchain --bundle` builds it")
+        checks.append({"name": f"image {image}", "ok": present, "required": True, "detail": detail})
     tc = None
     try:
         tc = tclib.load(workdir / "toolchain")
@@ -356,6 +360,10 @@ def set_up_from_bundle(workdir: Path, archive: Path | None = None, *, replace: b
     """The prebuilt route to a machine that can build: the toolchain bundle plus the container image."""
     install_toolchain_bundle(workdir, archive, replace=replace)
     phase("Building the container image")
+    eng = engine()
+    problem = engine_status(eng)[0] if eng else "Docker or Podman is not installed"
+    if problem:
+        raise SystemExit(f"the container image can't be built: {problem}")
     run([sys.executable, str(ROOT / "scripts/toolchain/build_from_source.py"), "--images-only"])
 
 
@@ -1351,7 +1359,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd is None:
         from terrabuilder_pkg import installer
         return installer.main(args.workdir.expanduser().resolve())
-    return args.func(args)
+    try:
+        return args.func(args)
+    except subprocess.CalledProcessError as error:
+        # The command printed its own output above; a Python traceback would only bury it.
+        print(f"\nerror: {Path(str(error.cmd[0])).name} exited with code {error.returncode}", file=sys.stderr)
+        return 1
 
 if __name__ == "__main__":
     raise SystemExit(main())

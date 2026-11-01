@@ -603,4 +603,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except subprocess.CalledProcessError as error:
+        # run() already printed the command and it printed its own error.
+        raise SystemExit(f"error: {Path(str(error.cmd[0])).name} exited with code {error.returncode}") from None
