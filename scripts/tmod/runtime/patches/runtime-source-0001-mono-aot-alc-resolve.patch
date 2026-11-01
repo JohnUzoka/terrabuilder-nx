@@ -1,0 +1,48 @@
+From 1951b2f6811085f8d7fa5977feb67feb4954c0ab Mon Sep 17 00:00:00 2001
+From: John Uzoka <johnuzoka19@gmail.com>
+Date: Wed, 30 Sep 2026 01:20:35 -0600
+Subject: [PATCH] mono AOT: resolve module references in the requesting
+ assembly's ALC
+
+load_image used the ambient (default) ALC, so an AOT module loaded in a
+custom ALC (tModLoader ModLoadContext) could not resolve references that
+only that ALC provides (FargowiltasSouls -> Luminance), marking the module
+unusable and aborting in aot-only mode.
+
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
+---
+ src/mono/mono/mini/aot-runtime.c | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/src/mono/mono/mini/aot-runtime.c b/src/mono/mono/mini/aot-runtime.c
+index 11c8888d17b..9bdcadfe2cc 100644
+--- a/src/mono/mono/mini/aot-runtime.c
++++ b/src/mono/mono/mini/aot-runtime.c
+@@ -286,7 +286,15 @@ load_image (MonoAotModule *amodule, int index, MonoError *error)
+ {
+ 	MonoAssembly *assembly = NULL;
+ 	MonoImageOpenStatus status = MONO_IMAGE_OK;
+-	MonoAssemblyLoadContext *alc = mono_alc_get_ambient ();
++	/*
++	 * Resolve references in the ALC that loaded this module's assembly, as the metadata
++	 * loader does for the same assembly. A module in a custom ALC (e.g. a tModLoader mod)
++	 * can reference assemblies that only its ALC's Load () override provides; the default
++	 * ALC cannot find those, and aot-only mode then aborts.
++	 */
++	MonoAssemblyLoadContext *alc = mono_assembly_get_alc (amodule->assembly);
++	if (!alc)
++		alc = mono_alc_get_ambient ();
+ 
+ 	g_assert (GINT_TO_UINT32(index) < amodule->image_table_len);
+ 
+@@ -322,6 +330,7 @@ load_image (MonoAotModule *amodule, int index, MonoError *error)
+ 	} else {
+ 		MonoAssemblyByNameRequest req;
+ 		mono_assembly_request_prepare_byname (&req, alc);
++		req.requesting_assembly = amodule->assembly;
+ 		req.basedir = amodule->assembly->basedir;
+ 		assembly = mono_assembly_request_byname (&amodule->image_names [index], &req, &status);
+ 	}
+-- 
+2.53.0
+

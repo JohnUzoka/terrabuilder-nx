@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Verify Mono AOT image_table dependency MVIDs against a tmod build tree."""
+"""Verify the Mono AOT image_table dependency MVIDs of a tModLoader variant build against the
+assemblies it ships: the variant's input/, tmod-runtime's framework and CoreLib, and the base
+stage's flat_libs (first provider of a name wins)."""
 import argparse
 import json
 import struct
@@ -105,45 +107,26 @@ def add_provider(providers, path):
     providers.setdefault(path.stem.casefold(), {"name": path.stem, "path": str(path), "mvid": mvid})
 
 
-def candidate_object(cache_root, variant, module_name, entry):
-    object_path = Path(entry.get("llvm_object") or entry.get("aot_object", ""))
-    if str(object_path).startswith("/build"):
-        object_path = Path(str(object_path).replace("/build", str(cache_root), 1))
-    if object_path.exists():
-        return object_path
-
-    dll = module_name + ".dll"
-    for candidate in [
-        cache_root / "tmod" / variant / "aot" / (dll + "-llvm.o"),
-        cache_root / "tmod" / variant / "aot" / (dll + ".o"),
-        cache_root / "tmod" / "corelib" / "pools-llvm-v72" / (dll + "-llvm.o"),
-        cache_root / "tmod" / "corelib" / "pools-llvm-v72" / (dll + ".o"),
-    ]:
-        if candidate.exists():
-            return candidate
-    return None
+def module_object(build, entry):
+    """The variant's copy of a module's AOT object (its LLVM object when it has one); the
+    manifest's paths are container paths."""
+    path = build / "aot" / Path(entry.get("llvm_object") or entry["aot_object"]).name
+    return path if path.exists() else None
 
 
-def verify(cache_root, variant):
-    build = cache_root / "tmod" / variant
+def verify(build, base, tmod_runtime):
     manifest = json.loads((build / "manifest.json").read_text())
     providers = {}
     for path in sorted((build / "input").glob("*.dll")):
         add_provider(providers, path)
-    add_provider(providers, cache_root / "tmod/corelib/pools-llvm-v72/System.Private.CoreLib.dll")
-    for directory in [
-        cache_root / "runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64",
-        cache_root / "runtime-source/artifacts/bin/mono/libnx.arm64.Release",
-        cache_root / "tmod/flat_libs",
-    ]:
-        if directory.exists():
-            for path in sorted(directory.glob("*.dll")):
-                add_provider(providers, path)
+    for directory in [tmod_runtime / "framework", tmod_runtime / "corelib", base / "flat_libs"]:
+        for path in sorted(directory.glob("*.dll")):
+            add_provider(providers, path)
 
     errors = []
     checks = []
     for module_name, entry in manifest["provenance_and_binding"].items():
-        obj = candidate_object(cache_root, variant, module_name, entry)
+        obj = module_object(build, entry)
         if obj is None:
             errors.append(f"{module_name}: missing AOT object")
             continue
@@ -164,21 +147,22 @@ def verify(cache_root, variant):
                 "ok": ok,
             })
         checks.append({"module": module_name, "object": str(obj), "dependencies": dependencies})
-    return {"variant": variant, "providers": providers, "checks": checks,
+    return {"variant": build.name, "providers": providers, "checks": checks,
             "errors": errors, "status": "PASS" if not errors else "FAIL"}
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--cache-root", type=Path, default=Path("/build"))
-    parser.add_argument("--variant", required=True)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--variant-dir", type=Path, required=True, help="the variant build folder")
+    parser.add_argument("--base-dir", type=Path, required=True, help="the base stage (flat_libs/)")
+    parser.add_argument("--tmod-runtime", type=Path, required=True, help="the toolchain tmod-runtime component")
     parser.add_argument("--json-out", type=Path)
     args = parser.parse_args()
 
-    report = verify(args.cache_root, args.variant)
+    report = verify(args.variant_dir, args.base_dir, args.tmod_runtime)
     if args.json_out:
         args.json_out.write_text(json.dumps(report, indent=2) + "\n")
-    print(json.dumps({"variant": args.variant, "modules": len(report["checks"]),
+    print(json.dumps({"variant": report["variant"], "modules": len(report["checks"]),
                       "errors": len(report["errors"]), "status": report["status"]}, indent=2))
     if report["errors"]:
         for error in report["errors"][:80]:

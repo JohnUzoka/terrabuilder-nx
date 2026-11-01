@@ -3,21 +3,27 @@
 This guide builds a Terraria NRO for Switch homebrew from **your own copy** of the
 game (GOG Linux build 1.4.5.x). Nothing from the game is in this repository.
 
-> **Status, read first.** The from-source toolchain build uses the public pins in
-> `toolchain.lock.json` plus three exact, SHA-256-pinned build-52 facade
-> assemblies checked into `toolchain-artifacts/facades`. They are preserved
-> byte-for-byte, not regenerated; a pre-existing toolchain cache is not needed.
-> The build takes hours (see "Automated path" below). Parts 1–3 explain the
-> component recipes; they do not regenerate those three facade assemblies.
+> **Status, read first.** Most machines should install the prebuilt toolchain
+> (`./terrabuilder toolchain --bundle`, below; the guided build offers it). The
+> from-source toolchain build uses the public pins in `toolchain.lock.json` plus
+> three exact, SHA-256-pinned build-52 facade assemblies checked into
+> `toolchain-artifacts/facades`. They are preserved byte-for-byte, not regenerated;
+> a pre-existing toolchain cache is not needed. That build takes hours (see
+> "Automated path" below). Parts 1–3 explain the component recipes; they do not
+> regenerate those three facade assemblies.
 
 ## 0. What you need
 
 - Linux (or WSL2) with Podman (Docker works; replace `podman` with `docker`).
-- ~30 GB free disk (measured): .NET runtime checkout and build ~3.5 GB, LLVM
-  cross-compiler build ~3.4 GB, NuGet packages ~3.9 GB (the Mono LLVM SDK package alone
-  is ~1 GB), build images ~6 GB (shared layers), baselines ~5–10 GB, ~2–3 GB per
-  build variant. Old variants can be deleted once their NRO is tested.
+- ~30 GB free disk for the from-source toolchain build (measured): .NET runtime
+  checkout and build ~3.5 GB, LLVM cross-compiler build ~3.4 GB, NuGet packages
+  ~3.9 GB (the Mono LLVM SDK package alone is ~1 GB), build images ~6 GB (shared
+  layers), baselines ~5–10 GB, ~2–3 GB per build variant. Old variants can be
+  deleted once their NRO is tested. The prebuilt toolchain needs 1.85 GB (the
+  274 MiB download plus 1.56 GB unpacked) and the build image about 5 GB.
 - A legal copy of Terraria for Linux (GOG), e.g. `~/FNA-Game/Terraria/game`.
+  tModLoader builds use only its `Content/` and also accept Terraria 1.4.4.9 or a
+  copy of Steam's Terraria folder.
 - A Switch running Atmosphère and hbmenu, and an SD card.
 
 The CLI's work directory is `~/.cache/terrabuilder` (override with `--workdir` or
@@ -25,6 +31,33 @@ The CLI's work directory is `~/.cache/terrabuilder` (override with `--workdir` o
 recipes in parts 1–3 work in the engineering cache `~/.cache/terraria-switch-build`
 (`$W`). Either directory is mounted as `/build` in container commands, and this
 repo is mounted read-only as `/work`.
+
+### Prebuilt path: downloading the toolchain
+
+```sh
+./terrabuilder toolchain --bundle
+```
+
+This downloads the release asset pinned in `TOOLCHAIN_BUNDLE`
+(`terrabuilder_pkg/cli.py`), 274 MiB, into `<workdir>/downloads/`. The file must
+match the pinned SHA-256. It is unpacked next to the work directory's toolchain and
+rehashed file by file against its `manifest.json` (as `toolchain verify` does)
+before it becomes `<workdir>/toolchain`. A usable toolchain is kept unless
+`--replace` is given, which keeps the previous one as `toolchain.bak`;
+`--bundle <file>` installs a local copy of the same asset. The command then builds
+the container image from `scripts/toolchain/Containerfile` and tags it
+`localhost/monobuild:local` and `localhost/monobuild-llvm:local` (a present image
+is only re-tagged). The guided build offers both steps when its machine check finds
+them missing.
+
+The asset holds the from-source toolchain built 2026-10-03 plus the optional
+component `tmod-runtime`, which tModLoader builds need: the open-source runtime
+parts of the maintainer's tModLoader builds (`scripts/tmod/runtime/README.md`
+records where each file came from; the from-source path does not produce it). It
+is written by `./terrabuilder toolchain pack`: an xz-compressed tar of `toolchain/`
+holding exactly the files, symlinks and empty directories its manifest records.
+Publishing another toolchain means packing it, uploading the file as a release
+asset, and updating the pin.
 
 ### Automated path: building the toolchain from source
 
@@ -54,14 +87,18 @@ the reasoning behind each step or to rebuild one component in isolation.
 
 ### First-release CLI path
 
-For day-to-day use, prefer the repository-root CLI:
+For day-to-day use, run the repository-root CLI without a command: the guided
+build described in the [README](../README.md#quick-start) (folders `Terraria/`,
+`tModLoader/`, `Mods/` and `Output/` next to the script, then menus). Scripts use
+the same stages through flags:
 
 ```sh
 ./terrabuilder doctor
+./terrabuilder toolchain --bundle
 ./terrabuilder toolchain verify
 ./terrabuilder build --target vanilla \
   --game-dir "$HOME/GOG Games/Terraria1_4_5_8/game" \
-  --profile release --workdir ~/.cache/terrabuilder -y
+  --profile release --workdir ~/.cache/terrabuilder
 ```
 
 `doctor` checks Podman, the build images, the toolchain, free disk and memory.
@@ -84,60 +121,123 @@ game folder, and its own work directory.
 | launcher | `scripts/launcher/build_launcher.py` (3.1) | `vanilla/launcher-<profile>/` |
 | native | `scripts/native/link_nro.py` (3.6) | `vanilla/native-<profile>/` |
 
-The CLI copies the NRO to `<workdir>/out/Terraria.nro` and writes an `sdcard/`
-payload (`mono/config.ini` and the ICU data file `mono/etc/icudt77l.dat`, which the
-NRO reads from the SD card at startup) and a receipt JSON that includes the
-toolchain summary. Release builds omit timing/profiler diagnostics and drop the
-unused OpenAL shim/link. `--profile debug` or `--debug-diagnostics` restores
-phase/GPU/audio diagnostics; `--profile profiler` adds the sampling profiler and
-writes `Terraria-profiler.nro`. The CLI prints every command it runs (lines
-starting with `+`), so a single stage can be rerun by hand.
+The CLI writes `Output/Terraria/sdcard/` (or `--out <root>/Terraria/sdcard/`), a
+copy of the SD-card files: the NRO at `switch/Terraria.nro` plus `mono/config.ini`
+and the ICU data file `mono/etc/icudt77l.dat`, which the NRO reads from the SD card
+at startup. `Output/Terraria/receipt.json` includes the toolchain summary. Release
+builds omit timing/profiler diagnostics and drop the unused OpenAL shim/link.
+`--profile debug` or `--debug-diagnostics` restores phase/GPU/audio diagnostics;
+`--profile profiler` adds the sampling profiler. Those build types write
+`Output/Terraria-debug/` and `Output/Terraria-profiler/` with matching NRO names.
+`build` prints every command it runs (lines starting with `+`), so a single stage
+can be rerun by hand; the guided build writes the same lines to `Output/logs/`.
 
-`toolchain --from-source` builds the toolchain as described above; `toolchain
---bundle` still fails explicitly, since there is no bundle import yet. Manual
+`toolchain --bundle` and `toolchain --from-source` are described above. Manual
 Runtime/BCL/Mesa/LLVM build steps (parts 1–3) should still run under
 `flock ~/.cache/terrabuilder/.heavy.lock`, the lock the CLI and
 `build_from_source.py` both take for their heavy container steps.
 
 ### tModLoader CLI path (experimental)
 
-The CLI can also build the Nintendo Switch tModLoader port from a local
-tModLoader 1.4.4.x release folder:
+The CLI also builds the Nintendo Switch tModLoader port:
 
 ```sh
-./terrabuilder build --target tmodloader \
-  --game-dir ~/.cache/terraria-switch-build/tmod/release \
-  --mods none --workdir ~/.cache/terrabuilder -y
-
-./terrabuilder build --target tmodloader \
-  --game-dir ~/.cache/terraria-switch-build/tmod/release \
-  --mods FargowiltasSouls --workdir ~/.cache/terrabuilder -y
+./terrabuilder build --target tmodloader --mods none
+./terrabuilder build --target tmodloader --mods FargowiltasSouls
+./terrabuilder build --target tmodloader --mods ThoriumMod --terraria ~/Steam-copy/Terraria
 ```
 
-`--game-dir` is the tModLoader folder, not the vanilla GOG folder. The validator
-checks `tModLoader.deps.json` for a `tModLoader/1.4.4.x` target and requires
-`tModLoader.dll`, `tMLMod.targets`, and `Content/`.
+It uses tModLoader 2026.7.3.0, the release the patch chain and NxFix were made for.
+`--game-dir` may name a tModLoader folder with exactly that `tModLoader.dll`
+(SHA-256 `d530e508...`); without it, the CLI downloads the GitHub release zip
+(SHA-256 `6f51610f...`, 941 files) into `<workdir>/downloads` and unpacks it under
+`<workdir>/tmodloader/2026.7.3.0`. `--mods` takes curated mods and the names of
+`.tmod` packages in `Mods/` (a curated name is built from source); the guided build
+also adds mods built from a GitHub commit (`Mods/git-mods.json`).
 
-Outputs are under `~/.cache/terrabuilder/out/tmodloader-<selection>/`:
+The game content is the `Content/` folder of your own Terraria 1.4.4.9 or 1.4.5.x:
+`--terraria DIR` names a folder holding the install (searched up to three levels
+deep, like the guided build's `Terraria/` folder, which is the default). GOG's
+Linux `game` folder and a copy of Steam's `Terraria` folder (with `Content/` beside
+`Terraria.exe`) both work; the version comes from `changelog.txt`. Vanilla builds
+still need clean GOG 1.4.5.8 for Linux.
 
-- `tmodloader.nro`
-- `sdcard/` payload containing `switch/tmodloader/Terraria/tModLoader/Mods/`
-  with `enabled.json`, plus the same `mono/` runtime files as vanilla
-- `receipt.json` with the NRO SHA-256, curated mod metadata, build manifest, and
-  AOT MVID verifier result
+A tModLoader build reads only the toolchain, which must include the optional
+`tmod-runtime` component (the Mono runtime, framework, CoreLib, AOT compiler and
+precompiled CoreLib/framework objects the port was validated with; see
+`scripts/tmod/runtime/README.md`; `doctor` reports it), the build images, this repo,
+the tModLoader release, your Terraria `Content/`, and its work directory. Everything
+derived from the game or tModLoader is made on your machine:
 
-Install the NRO and the whole `sdcard/` payload together, overwriting existing
-`.tmod` files. Mono runs AOT-only and checks each mod assembly's MVID against the
-AOT module linked into the NRO. Workshop packages and earlier source builds can
-share the same file name and version string but have different code, so they
-abort at mod load with `Failed to load AOT module '<Mod>' ... doesn't match
-assembly`. The build-time verifier checks the staged inputs, not the SD card.
+| Stage | Code | Output under `<workdir>` |
+| --- | --- | --- |
+| patch tModLoader | `scripts/tmod/base_dlls.py`: console patchers (`scripts/tmod/patchers`), NxFix, the `romfs:/` and shared-audio FNA patches, NxCrypto from `managed/nx_crypto` | `tmod/dlls-<key>/` |
+| base | `scripts/tmod/base_romfs.py` (`flat_libs/`, the stock `romfs/`), `scripts/tmod/launcher/native_assets.py` (NACP, icon from the release's logo) | `tmod/base-<key>/` |
+| launcher | `scripts/launcher/build_launcher.py` (3.1) | `launcher-src/<profile>/` |
+| mod sources | catalog and GitHub mods, built in the image | `tmod/packages/<key>/` |
+| prepare | `scripts/tmod/prepare_modset.py`: mod tuning, hook scan, IL and hook lowering | `tmod/<variant>/input/` |
+| compile, link, package | `scripts/tmod/build_tmod_modset_nro.py` in `localhost/monobuild-llvm:local` | `tmod/<variant>/` |
+| verify | `scripts/tmod/verify_aot_dependencies.py`: AOT dependency MVIDs | `tmod/<variant>/aot-mvid-check.json` |
 
-tModLoader builds use the same toolchain but still read validated inputs from the
-engineering cache `~/.cache/terraria-switch-build`: the patched `tModLoader.dll`,
-the base mod set, and the `main.o` build script `release58/compile_main.sh`. Their
-launcher objects are built into `launcher-src/<profile>` there. Heavy
-AOT/link/container steps take `~/.cache/terrabuilder/.heavy.lock`.
+The C# tools are built once per source digest into `<workdir>/tools/<name>-<digest>`
+with the toolchain's .NET SDK and Mono.Cecil (`dotnet msbuild -restore -t:Build`).
+The patch stage is keyed on the release files it reads, the tool sources and the
+toolchain's `dotnet`/`cecil`; the base stage on those plus the hash of your
+`Content/` tree, the `tmod-runtime` digest and its scripts; the variant on the base,
+the build scripts and launcher sources, the mods, the build type and the toolchain.
+A stage is written to `<name>.partial` and renamed when complete. For the pinned
+release the patch stage reproduces the validated assemblies byte for byte (the
+shared-audio FNA is checked against `TMOD_SHARED_AUDIO_FNA_SHA256`), and with GOG
+1.4.4.9 Content the base RomFS equals the one earlier builds shipped except for the
+current NxFix `tModLoader.dll`, the repo-built NxCrypto, and three asset names
+(`Gore_240`, `Projectile_179`, `Projectile_618`) renamed to the case tModLoader
+expects, as it does on desktop (`TryFixFileCasings`). The icon is regenerated from
+the release's `Libraries/Native/tModLoader256.bmp`.
+
+Every build starts from `scripts/tmod/base_modset.json` (the replacements, heap and
+input settings and LLVM module list of the validated mod-set builds); `--mods none`
+uses it without mods. `tModLoader.dll`, FNA, ReLogic, NxCrypto, NVorbis, MP3Sharp
+and the mod assemblies are compiled for each variant; CoreLib and the framework's
+System.Linq, System.Text.RegularExpressions and System.Collections.Concurrent reuse
+the `tmod-runtime` objects when their input hashes match.
+
+Outputs are under `Output/tModLoader/` (`-debug`, `-profiler` for those build
+types):
+
+- `sdcard/switch/tmodloader.nro`
+- `sdcard/switch/tmodloader/Terraria/tModLoader/Mods/` with the packages and
+  `enabled.json`, plus the same `mono/` runtime files as vanilla
+- `receipt.json` with the NRO SHA-256, each mod's source (catalog entry, GitHub
+  commit, or `.tmod` path and SHA-256), the Terraria `Content/` used (path,
+  version, tree hash, renamed assets), the base and patch-stage records, the build
+  manifest, and the AOT MVID verifier result
+
+Install the whole `sdcard/` folder, overwriting existing `.tmod` files. Mono runs
+AOT-only and checks each mod assembly's MVID against the AOT module linked into
+the NRO. Workshop packages and earlier source builds can share the same file name
+and version string but have different code, so they abort at mod load with
+`Failed to load AOT module '<Mod>' ... doesn't match assembly`. The build-time
+verifier checks the staged inputs, not the SD card.
+
+A `.tmod` from `Mods/` is used as it is. The guided build checks it first: its
+loader version must be a tModLoader 1.4.4 release no newer than 2026.7
+(`loader_version_problem` in `scripts/tmod/tmod_file.py`, which `prepare_modset.py`
+and `build_tmod_modset_nro.py` apply too), and `hook_scan` must report no
+unsupported hook registration for it. Besides registrations it cannot resolve,
+`hook_scan` reports `UNSUPPORTED_TARGET` for hooks on targets that
+`offline_hooks` cannot chain (generic, vararg or ref-returning methods, generic
+parameters, and runtime detours on value-type methods), so such a mod is refused
+before its build starts. On_ hooks on value-type methods are lowered (HookGen's
+delegates take `ref Self`), and so are hooks on nested types; Thorium needs both.
+`hook_scan` also lists `missing_members`: references into tModLoader, FNA,
+ReLogic, TerrariaHooks or another scanned mod that do not resolve against this
+build's assemblies. They are not blockers; the method holding one throws when it
+runs.
+
+The guided build's `.tmod` check scans with the patch stage's `TerrariaHooks.dll`
+and NxFix'd `tModLoader.dll`; the first check downloads tModLoader and runs that
+stage if needed. Heavy AOT/link/container steps take
+`~/.cache/terrabuilder/.heavy.lock`.
 
 tModLoader release builds use the same quiet launcher defaults and OpenAL-free
 link behavior as vanilla. Debug/profiler profiles opt back into the timing wraps
@@ -165,8 +265,7 @@ Two recorded source patches are currently required for reproducible Linux builds
 Luminance 1.0.3 gets the upstream `SetFactory` compatibility fix, and
 StructureHelper 3.1.1 replaces AssGen 3.0.0's Windows-path-only generated assets
 with the equivalent checked source wrapper. Fargo's Souls builds from source with
-all source-built mod assemblies AOT/LLVM-compiled. The current source-mod
-build also native-AOT compiles `tModLoader.dll` (without LLVM optimization).
+all source-built mod assemblies AOT/LLVM-compiled, and so is `tModLoader.dll`.
 Its AOT object is verified against the staged assembly MVID. FNA's shared-audio
 patch is required: an earlier candidate used stock FNA and crashed when the
 XACT audio engine attempted to open a second SDL device.
@@ -175,8 +274,7 @@ Hardware status of the current Fargo's Souls build: the mods load, the main menu
 and a world are reachable, and audio works. Known issues: in-world performance
 is very slow (an earlier build measured roughly 15-19 fps); the Plus+Minus
 FPS toggle did not work on an earlier build and has not been re-tested;
-multiplayer and extended play are untested; only the curated open-source mod
-list is available.
+multiplayer and extended play are untested.
 
 ## 1. Sources
 
@@ -407,8 +505,9 @@ launches, so rename or delete it between measured runs.
 | Option | Where | Default | Effect |
 | --- | --- | --- | --- |
 | `MONO_NX_PHASE_TIMING` | Makefile | 0 | `NX_PHASE` frame timing and SDL/FNA3D call wrappers |
+| `MONO_NX_SWKBD` | `build_tmod_modset_nro.py` (tModLoader builds) | on | Text boxes open the system keyboard; `nx_input.c` checks `PlayerInput.WritingText` when FNA's event drain ends (`--wrap=SDL_PollEvent`) and returns the text as `SDL_TEXTINPUT` events |
 | `MONO_NX_GC_STATS` | Makefile / `link_nro.py --main-define` | 0 | `NX_GC` lines: GC counts/time, managed allocation, malloc use |
-| `/mono/gc_params.txt` | SD card | absent | One line passed to SGen as `MONO_GC_PARAMS` |
+| `/mono/gc_params.txt` | SD card | absent | One line passed to SGen as `MONO_GC_PARAMS`. Without it, tModLoader builds set `max-heap-size` to the managed region minus 160 MB, `soft-heap-limit` 256 MB lower, and synchronous sweeping (`no-lazy-sweep,no-concurrent-sweep`), logged as `NX_GC params=...`; vanilla builds use SGen's defaults. The v18 CLI builds used a 64 MB gap and need this file with `max-heap-size=968m,soft-heap-limit=712m,no-lazy-sweep,no-concurrent-sweep` (runs 45-46) |
 | `MONO_NX_EMBEDDED_BCL` | Makefile | 0 | Load CoreLib/framework from the NRO's RomFS |
 | `MONO_NX_FATAL_DIAG` | Makefile | 0 | Fatal Mono errors write a crash report |
 | `--llvm-module`, `--llvm-aot-extra` | `compile_terraria_aot.py` | CLI: Terraria, FNA | Modules compiled through LLVM, extra LLVM options |

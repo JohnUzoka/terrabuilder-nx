@@ -1,0 +1,649 @@
+*** Begin Patch
+*** Update File: SerousCommonLib.csproj
+@@
+-    <Compile Remove="Publicizer\**" />
++    <Compile Remove="Publicizer\**;src\API\Reflection\FastReflection.Fields.cs;src\API\Reflection\FastReflection.Cloning.cs" />
+*** Add File: src/API/Reflection/FastReflection.Fields.AotSafe.cs
++using System.Collections.Concurrent;
++using System.Reflection;
++using System;
++using System.Collections.Generic;
++
++#nullable enable
++namespace SerousCommonLib.API {
++	// AOT-safe replacement for the DynamicMethod-based field accessors (excluded from compilation by the csproj).
++	// Runtimes without a JIT cannot execute Reflection.Emit, so the cached delegates wrap FieldInfo.GetValue/SetValue
++	// and reproduce the checks the generated IL performed (null/static argument checks, unbox.any casts).
++	partial class FastReflection {
++		// OPTIMIZATION: Store functions by "type.TypeHandle.Value" instead of just "type" due to better GetHashCode() usage
++		private static readonly ConcurrentDictionary<nint, ConcurrentDictionary<string, Func<object?, object?>>> getFieldFuncs = new();
++		private static readonly ConcurrentDictionary<nint, ConcurrentDictionary<string, Action<object?, object?>>> setFieldFuncs = new();
++		private static readonly ConcurrentDictionary<nint, ConcurrentDictionary<string, FieldInfo>> cachedFieldInfos = new();
++
++		private static class FieldGenericDelegates<T> {
++			public static bool retrieveUnloadingRegistered, assignUnloadingRegistered;
++			
++			public delegate object? RetrieveDelegate(T instance);
++			public delegate void AssignDelegate(ref T instance, object? value);
++			
++			public static readonly ConcurrentDictionary<string, RetrieveDelegate> getFieldFuncs = new();
++			public static readonly ConcurrentDictionary<string, AssignDelegate> setFieldFuncs = new();
++		}
++
++		/// <summary>
++		/// Retrieves the value of <paramref name="fieldName"/> from <paramref name="instance"/> as an <see cref="object"/>
++		/// </summary>
++		/// <param name="type">The object type</param>
++		/// <param name="fieldName">The field name</param>
++		/// <param name="instance">The object instance</param>
++		/// <returns>The field value</returns>
++		/// <exception cref="AmbiguousMatchException"/>
++		public static object? RetrieveField(this Type type, string fieldName, object? instance) {
++			Func<object?, object?> func = BuildRetrieveFieldDelegate(type, fieldName);
++
++			return func(instance);
++		}
++
++		/// <summary>
++		/// Retrieves the value of <paramref name="fieldName"/> from <paramref name="instance"/> as an <see cref="object"/>
++		/// </summary>
++		/// <typeparam name="T">The object type</typeparam>
++		/// <param name="instance">The object instance</param>
++		/// <param name="fieldName">The field name</param>
++		/// <returns>The field value</returns>
++		/// <exception cref="AmbiguousMatchException"/>
++		public static object? RetrieveField<T>(T instance, string fieldName) {
++			FieldGenericDelegates<T>.RetrieveDelegate func = BuildGenericRetrieveFieldDelegate<T>(fieldName);
++
++			return func(instance);
++		}
++
++		/// <summary>
++		/// Retrieves the value of <paramref name="fieldName"/> from <paramref name="instance"/> as a <typeparamref name="T"/>
++		/// </summary>
++		/// <typeparam name="T">The field type</typeparam>
++		/// <param name="type">The object type</param>
++		/// <param name="fieldName">The field name</param>
++		/// <param name="instance">The object instance</param>
++		/// <returns>The field value</returns>
++		/// <exception cref="AmbiguousMatchException"/>
++		/// <exception cref="InvalidCastException"/>
++		public static T? RetrieveField<T>(this Type type, string fieldName, object? instance) {
++			try {
++				return (T)type.RetrieveField(fieldName, instance)!;
++			} catch (AmbiguousMatchException) {
++				throw;
++			} catch (InvalidCastException) {
++				throw new InvalidCastException($"Could not cast field \"{type.GetSimplifiedGenericTypeName()}.{fieldName}\" to type \"{typeof(T).GetSimplifiedGenericTypeName()}\"");
++			}
++		}
++
++		/// <summary>
++		/// Retrieves the value of <paramref name="fieldName"/> from <paramref name="instance"/> as a <typeparamref name="F"/>
++		/// </summary>
++		/// <typeparam name="T">The object type</typeparam>
++		/// <typeparam name="F">The field type</typeparam>
++		/// <param name="instance">The object instance</param>
++		/// <param name="fieldName">The field name</param>
++		/// <returns>The field value</returns>
++		/// <exception cref="AmbiguousMatchException"/>
++		/// <exception cref="InvalidCastException"></exception>
++		public static F? RetrieveField<T, F>(T instance, string fieldName) {
++			try {
++				return (F)RetrieveField(instance, fieldName)!;
++			} catch (AmbiguousMatchException) {
++				throw;
++			} catch (InvalidCastException) {
++				throw new InvalidCastException($"Could not cast field \"{typeof(T).GetSimplifiedGenericTypeName()}.{fieldName}\" to type \"{typeof(F).GetSimplifiedGenericTypeName()}\"");
++			}
++		}
++
++		/// <summary>
++		/// Retrieves the value of the static field <paramref name="fieldName"/> in <paramref name="type"/> as an <see cref="object"/>
++		/// </summary>
++		/// <param name="type">The type</param>
++		/// <param name="fieldName">The field name</param>
++		/// <returns>The field value</returns>
++		public static object? RetrieveStaticField(this Type type, string fieldName) => RetrieveField(type, fieldName, null);
++
++		/// <summary>
++		/// Retrieves the value of the static field <paramref name="fieldName"/> in <paramref name="type"/> as a <typeparamref name="T"/>
++		/// </summary>
++		/// <typeparam name="T">The field type</typeparam>
++		/// <param name="type">The type</param>
++		/// <param name="fieldName">The field name</param>
++		/// <returns>The field value</returns>
++		public static T? RetrieveStaticField<T>(this Type type, string fieldName) => RetrieveField<T>(type, fieldName, null);
++
++		/// <summary>
++		/// Assigns <paramref name="value"/> to <paramref name="fieldName"/> in <paramref name="instance"/><br/>
++		/// <b>NOTE:</b> This method will throw an exception if <paramref name="type"/> is a <see langword="struct"/> type
++		/// </summary>
++		/// <param name="type">The object type</param>
++		/// <param name="fieldName">The field name</param>
++		/// <param name="instance">The object instance</param>
++		/// <param name="value">The value to assign</param>
++		public static void AssignField(this Type type, string fieldName, object? instance, object? value) {
++			Action<object?, object?> func = BuildAssignFieldDelegate(type, fieldName);
++
++			func(instance, value);
++		}
++
++		/// <summary>
++		/// Assigns <paramref name="value"/> to <paramref name="fieldName"/> in <paramref name="instance"/>
++		/// </summary>
++		/// <typeparam name="T">The object type</typeparam>
++		/// <param name="instance">The object instance</param>
++		/// <param name="fieldName">The field name</param>
++		/// <param name="value">The value to assign</param>
++		public static void AssignField<T>(ref T instance, string fieldName, object? value) {
++			FieldGenericDelegates<T>.AssignDelegate func = BuildGenericAssignFieldDelegate<T>(fieldName);
++
++			func(ref instance, value);
++		}
++
++		/// <summary>
++		/// Assigns <paramref name="value"/> to the static field <paramref name="fieldName"/> in <paramref name="type"/>
++		/// </summary>
++		/// <param name="type">The type</param>
++		/// <param name="fieldName">The field name</param>
++		/// <param name="value">The value to assign</param>
++		public static void AssignStaticField(this Type type, string fieldName, object? value) => AssignField(type, fieldName, null, value);
++
++		private static FieldInfo GetField(Type type, string fieldName) {
++			nint handle = type.TypeHandle.Value;
++
++			if (cachedFieldInfos.TryGetValue(handle, out var fieldDict) && fieldDict.TryGetValue(fieldName, out FieldInfo? fieldInfo))
++				return fieldInfo;
++
++			fieldInfo = type.GetField(fieldName, AllFlags)!;
++
++			if (fieldInfo is null)
++				throw new ArgumentException($"Could not find field \"{fieldName}\" in type \"{type.GetSimplifiedGenericTypeName()}\"");
++
++			if (!cachedFieldInfos.TryGetValue(handle, out fieldDict))
++				cachedFieldInfos[handle] = fieldDict = new();
++
++			fieldDict[fieldName] = fieldInfo;
++
++			return fieldInfo;
++		}
++
++		// "unbox.any target" type rules: castclass for reference types; exact boxed type for value types, except that
++		// an enum and its underlying primitive type are interchangeable; Nullable<U> accepts a boxed U
++		private static bool IsUnboxAnyCompatible(Type target, object value) {
++			if (!target.IsValueType)
++				return target.IsInstanceOfType(value);
++
++			target = Nullable.GetUnderlyingType(target) ?? target;
++			Type actual = value.GetType();
++
++			if (actual == target)
++				return true;
++
++			return (actual.IsEnum || actual.IsPrimitive) && (target.IsEnum || target.IsPrimitive) && UnboxUnderlyingType(actual) == UnboxUnderlyingType(target);
++		}
++
++		private static Type UnboxUnderlyingType(Type type) => type.IsEnum ? Enum.GetUnderlyingType(type) : type;
++
++		private static object UnboxAnyChecked(Type target, object value) {
++			if (!IsUnboxAnyCompatible(target, value))
++				throw new InvalidCastException($"Unable to cast object of type '{value.GetType()}' to type '{target}'.");
++
++			return value;
++		}
++
++		// Converts a value the same way "unbox.any fieldType" did before the store
++		private static object? UnboxAnyForStore(Type fieldType, object? value) {
++			if (value is null) {
++				if (fieldType.IsValueType && Nullable.GetUnderlyingType(fieldType) is null)
++					throw new NullReferenceException();
++
++				return null;
++			}
++
++			UnboxAnyChecked(fieldType, value);
++
++			Type exact = Nullable.GetUnderlyingType(fieldType) ?? fieldType;
++			if (!exact.IsValueType || value.GetType() == exact)
++				return value;
++
++			// Enum <-> underlying primitive: rebox as the exact field type so FieldInfo.SetValue stores the same bits
++			object primitive = value.GetType().IsEnum ? Convert.ChangeType(value, Enum.GetUnderlyingType(value.GetType())) : value;
++			return exact.IsEnum ? Enum.ToObject(exact, primitive) : primitive;
++		}
++
++		private static Func<object?, object?> BuildRetrieveFieldDelegate(Type type, string fieldName) {
++			ConcurrentDictionary<string, Func<object?, object?>>? funcDictionary;
++			Func<object?, object?>? func;
++
++			nint handle = type.TypeHandle.Value;
++
++			if (getFieldFuncs.TryGetValue(handle, out funcDictionary) && funcDictionary.TryGetValue(fieldName, out func))
++				return func;
++
++			FieldInfo fieldInfo = GetField(type, fieldName);
++
++			if (!fieldInfo.IsStatic) {
++				func = instance => {
++					if (instance is null)
++						throw new ArgumentException("Cannot load an instance field from a null reference", "instance");
++
++					return fieldInfo.GetValue(UnboxAnyChecked(type, instance));
++				};
++			} else {
++				func = instance => {
++					if (instance is not null)
++						throw new ArgumentException("Cannot load a static field from an object instance", "instance");
++
++					return fieldInfo.GetValue(null);
++				};
++			}
++
++			if (!getFieldFuncs.TryGetValue(handle, out funcDictionary)) {
++				getFieldFuncs[handle] = funcDictionary = new();
++
++				// Capture the parameter into a local
++				nint h = handle;
++
++				ALCReflectionUnloader.OnUnload(type.Assembly, () => getFieldFuncs.Remove(h, out _));
++			}
++
++			funcDictionary[fieldName] = func;
++
++			return func;
++		}
++
++		private static Action<object?, object?> BuildAssignFieldDelegate(Type type, string fieldName) {
++			ConcurrentDictionary<string, Action<object?, object?>>? funcDictionary;
++			Action<object?, object?>? func;
++
++			nint handle = type.TypeHandle.Value;
++
++			if (setFieldFuncs.TryGetValue(handle, out funcDictionary) && funcDictionary.TryGetValue(fieldName, out func))
++				return func;
++
++			FieldInfo fieldInfo = GetField(type, fieldName);
++
++			if (!fieldInfo.IsStatic) {
++				if (type.IsValueType) {
++					// Exit prematurely since assigning an object to a copy would be pointless anyway
++					func = (instance, value) => {
++						if (instance is null)
++							throw new ArgumentException("Cannot assign a value to an instance field from a null reference", "instance");
++
++						throw new ArgumentException($"Cannot modify a field in a copied value type instance.  Use \"{nameof(FastReflection)}.AssignField<T>(ref T, string, object)\" if you want to assign fields in a value type instance.");
++					};
++				} else {
++					func = (instance, value) => {
++						if (instance is null)
++							throw new ArgumentException("Cannot assign a value to an instance field from a null reference", "instance");
++
++						UnboxAnyChecked(type, instance);
++						fieldInfo.SetValue(instance, UnboxAnyForStore(fieldInfo.FieldType, value));
++					};
++				}
++			} else {
++				func = (instance, value) => {
++					if (instance is not null)
++						throw new ArgumentException("Cannot assign a value to a static field from an object instance", "instance");
++
++					fieldInfo.SetValue(null, UnboxAnyForStore(fieldInfo.FieldType, value));
++				};
++			}
++
++			if (!setFieldFuncs.TryGetValue(handle, out funcDictionary)) {
++				setFieldFuncs[handle] = funcDictionary = new();
++
++				// Capture the parameter into a local
++				nint h = handle;
++
++				ALCReflectionUnloader.OnUnload(type.Assembly, () => setFieldFuncs.Remove(h, out _));
++			}
++
++			funcDictionary[fieldName] = func;
++
++			return func;
++		}
++
++		private static FieldGenericDelegates<T>.RetrieveDelegate BuildGenericRetrieveFieldDelegate<T>(string fieldName) {
++			Type type = typeof(T);
++			FieldGenericDelegates<T>.RetrieveDelegate? func;
++
++			if (FieldGenericDelegates<T>.getFieldFuncs.TryGetValue(fieldName, out func))
++				return func;
++
++			FieldInfo fieldInfo = GetField(type, fieldName);
++
++			func = instance => {
++				object? boxed = instance;
++
++				// "ldfld" on a null reference
++				if (boxed is null && !fieldInfo.IsStatic)
++					throw new NullReferenceException();
++
++				return fieldInfo.GetValue(boxed);
++			};
++
++			if (!FieldGenericDelegates<T>.retrieveUnloadingRegistered) {
++				FieldGenericDelegates<T>.retrieveUnloadingRegistered = true;
++
++				ALCReflectionUnloader.OnUnload(type.Assembly, FieldGenericDelegates<T>.getFieldFuncs.Clear);
++				Loadable.Unload += FieldGenericDelegates<T>.getFieldFuncs.Clear;
++			}
++
++			FieldGenericDelegates<T>.getFieldFuncs[fieldName] = func;
++
++			return func;
++		}
++
++		private static FieldGenericDelegates<T>.AssignDelegate BuildGenericAssignFieldDelegate<T>(string fieldName) {
++			Type type = typeof(T);
++			FieldGenericDelegates<T>.AssignDelegate? func;
++
++			if (FieldGenericDelegates<T>.setFieldFuncs.TryGetValue(fieldName, out func))
++				return func;
++
++			FieldInfo fieldInfo = GetField(type, fieldName);
++
++			func = (ref T instance, object? value) => {
++				object? converted = UnboxAnyForStore(fieldInfo.FieldType, value);
++
++				if (fieldInfo.IsStatic) {
++					fieldInfo.SetValue(null, converted);
++					return;
++				}
++
++				// Value types are boxed, assigned and copied back into the caller's storage
++				object? boxed = instance;
++
++				// "stfld" on a null reference
++				if (boxed is null)
++					throw new NullReferenceException();
++
++				fieldInfo.SetValue(boxed, converted);
++
++				if (type.IsValueType)
++					instance = (T)boxed;
++			};
++
++			if (!FieldGenericDelegates<T>.assignUnloadingRegistered) {
++				FieldGenericDelegates<T>.assignUnloadingRegistered = true;
++
++				ALCReflectionUnloader.OnUnload(type.Assembly, FieldGenericDelegates<T>.setFieldFuncs.Clear);
++				Loadable.Unload += FieldGenericDelegates<T>.setFieldFuncs.Clear;
++			}
++
++			FieldGenericDelegates<T>.setFieldFuncs[fieldName] = func;
++
++			return func;
++		}
++	}
++}
+*** Add File: src/API/Reflection/FastReflection.Cloning.AotSafe.cs
++using System.Collections.Generic;
++using System.Diagnostics.CodeAnalysis;
++using System.Reflection;
++using System.Runtime.CompilerServices;
++using System;
++using System.Linq;
++
++#nullable enable
++namespace SerousCommonLib.API {
++	// AOT-safe replacement for the DynamicMethod-based deep cloning (excluded from compilation by the csproj).
++	// Runtimes without a JIT cannot execute Reflection.Emit or instantiate generic helpers over types only known at
++	// run time, so the per-type clone delegates walk the same cached field list with FieldInfo.GetValue/SetValue.
++	partial class FastReflection {
++		private static readonly Dictionary<Type, Func<object?, object?>> cloneFuncs = new();
++		private static readonly Dictionary<Type, FieldInfo[]> cachedFieldInfoArrays = new();
++
++		[ThreadStatic, Obsolete($"Use {nameof(DetectedObjectInstances)} instead")]
++		private static HashSet<object> detectedObjectInstances;
++		[ThreadStatic]
++		private static int nestingLevel;
++
++		private static HashSet<object> DetectedObjectInstances => detectedObjectInstances ??= new(ReferenceEqualityComparer.Instance);
++
++		/// <summary>
++		/// Performs a recursive deep cloning algorithm to clone <paramref name="instance"/>
++		/// </summary>
++		/// <param name="type">The type of the instance to clone</param>
++		/// <param name="instance">The instance to clone</param>
++		/// <returns>The cloned instance</returns>
++		/// <remarks>
++		/// <b>NOTE:</b>  This algorithm has a few caveats that should be kept in mind:<br/>
++		/// <list type="number">
++		/// <item>
++		/// <see langword="null"/> values in members are copied directly.
++		/// </item>
++		/// <item>
++		/// Any <see langword="unmanaged"/> members (meaning, types whose members do not contain any references) are copied directly.
++		/// </item>
++		/// <item>
++		/// <see cref="Array"/> members will have their lengths preserved and each array element is deep cloned individually.
++		/// </item>
++		/// <item>
++		/// <see cref="string"/> members are copied directly.
++		/// </item>
++		/// <item>
++		/// Pointer and <see langword="ref struct"/> members are set to <see langword="default"/>.
++		/// </item>
++		/// <item>
++		/// Members which cause recursion (e.g. obj1.field → obj2, obj2.field → obj1) may or may not be copied directly.<br/>
++		/// Such members should be checked manually after deep cloning.
++		/// </item>
++		/// </list>
++		/// </remarks>
++		/// <exception cref="ArgumentException"/>
++		[return: NotNullIfNotNull(nameof(instance))]
++		public static object? DeepClone(this Type type, object? instance) {
++			if (type.IsAbstract || (type.IsAbstract && type.IsSealed) || type.IsInterface || type.IsGenericTypeDefinition)
++				throw new ArgumentException($"Type \"{type.GetSimplifiedGenericTypeName()}\" cannot be used with this method.");
++
++			if (instance is null)
++				return null;
++
++			if (instance.GetType().IsClass)
++				DetectedObjectInstances.Add(instance);
++
++			Func<object?, object?> func = BuildDeepCloneDelegate(type);
++			
++			nestingLevel++;
++			object obj = func(instance)!;
++			nestingLevel--;
++
++			// Only clear the dictionary if this DeepClone method wasn't called within another DeepClone method
++			if (nestingLevel == 0)
++				DetectedObjectInstances.Clear();
++
++			return obj;
++		}
++
++		/// <inheritdoc cref="DeepClone(Type, object?)"/>
++		[return: NotNullIfNotNull("instance")]
++		public static T? DeepClone<T>(T? instance) => (T?)typeof(T).DeepClone(instance);
++
++		private static Func<object?, object?> BuildDeepCloneDelegate(Type type) {
++			if (cloneFuncs.TryGetValue(type, out var func))
++				return func;
++
++			if (!TypeHasRefs(type)) {
++				// Optimization:  If the type is a struct and every single member (and their members) are unmanaged,
++				// then this object is also unmanaged and can just be copied directly.
++				// This check will also cover the primitive types.  Nice!
++				func = static obj => obj;
++			} else if (typeof(Array).IsAssignableFrom(type)) {
++				// Optimization/Bug Fix:  If the type is an array, then execute the CloneArray helper
++				Type elementType = type.GetElementType()!;
++				func = obj => CloneArray(type, elementType, obj);
++			} else if (type == typeof(string)) {
++				// Optimization/Bug Fix:  If the type is a string, then just return the string.  Copying the fields doesn't suffice
++				func = static obj => obj;
++			} else {
++				// Type has at least one reference type somewhere...  everything needs to be cloned manually
++				if (!cachedFieldInfoArrays.TryGetValue(type, out var fields))
++					cachedFieldInfoArrays[type] = fields = type.GetFields(AllFlags & (~BindingFlags.Static)).Where(f => !f.IsStatic && !f.IsLiteral).ToArray();
++
++				func = obj => CloneFields(type, fields, obj);
++			}
++
++			cloneFuncs[type] = func;
++
++			return func;
++		}
++
++		private static object? CloneFields(Type type, FieldInfo[] fields, object? instance) {
++			// Optimization:  If the argument is null, then the clone will also be null
++			if (instance is null)
++				return null;
++
++			// Optimization/Bug Fix:  If an object was already cloned, just return that object in order to prevent infinite recursion
++			if (ObjectDefinedAlready(instance))
++				return instance;
++
++			object source = UnboxAnyChecked(type, instance);
++
++			// Initialize the clone
++			// If initializing the clone fails via "UninitializedObject", then bail
++			object? clone = UninitializedObject(type, out bool uninitSuccess);
++			if (!uninitSuccess)
++				return clone;
++
++			// Do the mario
++			foreach (var field in fields) {
++				Type fieldType = field.FieldType;
++
++				// Pointer members stay default (zeroed by the uninitialized clone)
++				if (fieldType.IsPointer || fieldType.IsFunctionPointer)
++					continue;
++
++				object? value = CloneObject(field.GetValue(source));
++
++				// A clone that is not an instance of the field type is replaced with the default value ("isinst" + "DefaultObj<T>()")
++				if (value is not null && !fieldType.IsInstanceOfType(value))
++					value = null;
++
++				// "stfld" on a null clone (e.g. delegate types, which are never initialized)
++				if (clone is null)
++					throw new NullReferenceException();
++
++				// FieldInfo.SetValue stores default(T) for a null value in a value type field
++				field.SetValue(clone, value);
++			}
++
++			// If no fields are present, then an uninitialized object is the same as a cloned object, so this should be fine
++			return clone;
++		}
++
++		private static readonly Dictionary<Type, bool> typeHasRefs = new();
++
++		// Non-generic equivalent of RuntimeHelpers.IsReferenceOrContainsReferences<T>()
++		private static bool TypeHasRefs(Type type) {
++			if (typeHasRefs.TryGetValue(type, out bool hasRefs))
++				return hasRefs;
++
++			if (type.IsPointer || type.IsFunctionPointer)
++				hasRefs = false;
++			else if (!type.IsValueType || type.IsByRef)
++				hasRefs = true;
++			else if (type.IsPrimitive || type.IsEnum)
++				hasRefs = false;
++			else {
++				hasRefs = false;
++				foreach (var field in type.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)) {
++					if (TypeHasRefs(field.FieldType)) {
++						hasRefs = true;
++						break;
++					}
++				}
++			}
++
++			typeHasRefs[type] = hasRefs;
++
++			return hasRefs;
++		}
++
++		private static bool ObjectDefinedAlready(object? obj) {
++			if (obj is null || !TypeHasRefs(obj.GetType()))
++				return false;
++
++			return DetectedObjectInstances.Contains(obj);
++		}
++
++		private static object? CloneObject(object? obj) => obj?.GetType().DeepClone(obj);
++
++		private static object? CloneArray(Type arrayType, Type elementType, object? obj) {
++			if (obj is null)
++				return null;
++
++			Array array = (Array)UnboxAnyChecked(arrayType, obj);
++			Array ret = Array.CreateInstance(elementType, array.Length);
++			
++			for (int i = 0; i < array.Length; i++)
++				ret.SetValue(CloneObject(array.GetValue(i)), i);
++			
++			return ret;
++		}
++
++		private static object? UninitializedObject(Type check, out bool success) {
++			// Types are manually specified here based on the CLR source code
++			// https://github.com/dotnet/runtime/blob/4cbe6f99d23e04c56a89251d49de1b0f14000427/src/coreclr/vm/reflectioninvocation.cpp#L1617
++			// https://github.com/dotnet/runtime/blob/4cbe6f99d23e04c56a89251d49de1b0f14000427/src/coreclr/vm/reflectioninvocation.cpp#L1865
++			success = true;
++
++			// Don't allow void
++			if (check == typeof(void))
++				throw new InvalidGenericTypeException("void");
++
++			// Don't allow generic variables (e.g., the 'T' from List<T>) or open generic types (List<>)
++			if (check.IsGenericTypeParameter || check.IsGenericTypeDefinition)
++				throw new InvalidGenericTypeException(check);
++
++			// Don't allow arrays, pointers, byrefs, or function pointers
++			if (check.IsPointer) {
++				success = false;
++				return null;
++			}
++
++			// Don't allow ref structs
++			if (check.IsByRefLike) {
++				success = false;
++				return null;
++			}
++
++			// Don't allow abstract classes or interface types
++			if (check.IsAbstract) {
++				success = false;
++				return null;
++			}
++
++			// default(T) of a byref or delegate type
++			if (check.IsByRef)
++				return null;
++
++			// Don't allow creating instances of delegates
++			if (typeof(Delegate).IsAssignableFrom(check))
++				return null;
++
++			// Don't allow string or string-like (variable length) types.
++			// The CLR's only types with a component size are string and arrays
++			if (check == typeof(string) || typeof(Array).IsAssignableFrom(check))
++				return ActivatorObject(check);
++
++			// All of the checks have passed.  Make the object
++			return RuntimeHelpers.GetUninitializedObject(check);
++		}
++
++		private static object? ActivatorObject(Type type) {
++			if (type == typeof(string))
++				return string.Empty;
++			
++			if (type.IsValueType || type.GetConstructor(Type.EmptyTypes) is not null)
++				return Activator.CreateInstance(type);
++
++			// default(T) of a reference type
++			return null;
++		}
++	}
++}
+*** End Patch

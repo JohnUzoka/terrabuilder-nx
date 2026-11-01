@@ -8,7 +8,8 @@
 //    first-chance exception re-raised InvalidProgramException inside the handler, recursing
 //    until the native stack overflowed (tmod03 on hardware). This pass computes the stack
 //    depth of every instruction and turns each `pop` that would underflow into `nop`.
-//    With --reference, the fix count must equal the reference assembly's ResetColor calls.
+//    The fix count must equal the --reference (stock) assembly's ResetColor calls, which also
+//    rejects an input that is already NxFix output (it has no invalid pops left).
 //
 // 2. Content roots. The launcher's working directory is sdmc:/ (saves must land on SD), but
 //    tModLoader expects the working directory to be the install folder: TMLContentManager
@@ -34,10 +35,11 @@
 //    NPCID.Sets..cctor. The non-Windows branch now runs the same Action on a 32 MB thread and
 //    joins it (MonoLaunch.NxRunOnLargeStack). The Windows branch is unchanged.
 //
-// 5. Audio is intentionally left enabled. Earlier builds forced TestAudioSupport to return
-//    false while the launcher used SDL's dummy driver. The Switch launcher now wraps the real
-//    SDL switch audio backend and FNA shares a single FAudio device between SoundEffect and
-//    XACT, so tModLoader must exercise its normal audio path.
+// 5. Audio stays enabled. An early NxFix pass replaced SoundEngine.TestAudioSupport with a stub
+//    that logged "Switch port: audio disabled" and returned false. Its output (tmod09's
+//    tModLoader.dll) later became NxFix's input by mistake, which silenced every build from run
+//    39 to v16. The launcher opens SDL's switch audio backend and FNA shares one FAudio device
+//    between SoundEffect and XACT, so NxFix refuses an input that still has the stub.
 //
 // 6. Process memory reads. System.Diagnostics.Process is unsupported on libnx (it throws
 //    PlatformNotSupportedException). MemoryTracking.Finish runs at the end of every mod load
@@ -73,29 +75,26 @@
 // earlier patchers kept the stock MVID while changing IL, so an AOT object compiled from
 // different IL (tmod01) still loaded. Now a stale object is rejected.
 //
-// Usage: NxFix <in.dll> <out.dll> --nxcrypto <NxCrypto.dll> [--reference <unpatched tModLoader.dll>]
+// Usage: NxFix <console-patched tModLoader.dll> <out.dll> --nxcrypto <NxCrypto.dll> --reference <stock tModLoader.dll>
 using Mono.Cecil;
 using Mono.Cecil.Cil;
+using static NxIl;
 
 string Option(string name) { var i = Array.IndexOf(args, name); return i >= 2 && i + 1 < args.Length ? args[i + 1] : null; }
 string reference = Option("--reference");
 string nxCryptoPath = Option("--nxcrypto");
-if (args.Length < 2 || nxCryptoPath == null)
+if (args.Length < 2 || nxCryptoPath == null || reference == null)
 {
-    Console.Error.WriteLine("usage: NxFix <in.dll> <out.dll> --nxcrypto <NxCrypto.dll> [--reference <unpatched.dll>]");
+    Console.Error.WriteLine("usage: NxFix <console-patched tModLoader.dll> <out.dll> --nxcrypto <NxCrypto.dll> --reference <stock tModLoader.dll>");
     return 64;
 }
 string input = args[0], output = args[1];
 if (Path.GetFullPath(input) == Path.GetFullPath(output))
     throw new ArgumentException("write to a new file, not in place");
 
+// References resolve from the input's folder; base_dlls.py links the release libraries there.
 var resolver = new DefaultAssemblyResolver();
 resolver.AddSearchDirectory(Path.GetDirectoryName(Path.GetFullPath(input)));
-var inputDir = Path.GetDirectoryName(Path.GetFullPath(input));
-if (Directory.Exists("/home/john_uzoka/.cache/terraria-switch-build/tmod/flat_libs"))
-    resolver.AddSearchDirectory("/home/john_uzoka/.cache/terraria-switch-build/tmod/flat_libs");
-if (Directory.Exists("/home/john_uzoka/.cache/terraria-switch-build/tmod/tmod09/romfs"))
-    resolver.AddSearchDirectory("/home/john_uzoka/.cache/terraria-switch-build/tmod/tmod09/romfs");
 var asm = AssemblyDefinition.ReadAssembly(input, new ReaderParameters { AssemblyResolver = resolver });
 var module = asm.MainModule;
 
@@ -129,7 +128,6 @@ if (unrepairable.Count > 0)
     return 2;
 }
 
-if (reference != null)
 {
     var original = AssemblyDefinition.ReadAssembly(reference, new ReaderParameters { AssemblyResolver = resolver });
     int resetColorCalls = AllTypes(original.MainModule.Types)
@@ -279,6 +277,9 @@ if (!monoLaunch.Methods.Any(m => m.Name == "NxRunOnLargeStack"))
     Console.WriteLine("FIX MonoLaunch.Main: non-Windows branch runs Main_End on a 32 MB thread and joins it");
 }
 
+var testAudioSupport = module.GetType("Terraria.Audio.SoundEngine").Methods.Single(m => m.Name == "TestAudioSupport");
+if (testAudioSupport.Body.Instructions.Any(i => i.Operand is string s && s.StartsWith("Switch port: audio disabled")))
+    throw new InvalidOperationException("SoundEngine.TestAudioSupport is the early NxFix audio-disable stub: the input is NxFix output, not the console-patched tModLoader.dll");
 Console.WriteLine("KEEP SoundEngine: audio support path left enabled for SDL switch + shared FAudio");
 
 var tcpSocket = module.GetType("Terraria.Net.Sockets.TcpSocket") ?? throw new InvalidOperationException("TcpSocket not found");
@@ -644,6 +645,50 @@ tileThrows[0].Operand = null;
 VerifyPatched(tileGet, true, "");
 Console.WriteLine("FIX Tilemap.get_Item(int, int): out-of-range throw moved to a NoInlining helper");
 
+// 16. Lighting-cycle black refresh (LightingCyclePatch.cs): RenderBlack, about 4.7 ms on the
+//     renderCount 3 frame, runs on the idle renderCount 4 frame instead.
+LightingCyclePatch.Apply(module);
+
+// 17. Chat text (TextCachePatch.cs): DrawColorCodedString stops running Regex.Split per draw and
+//     ParseMessage memoizes its Format regex scan; snippets and tag handlers still run every call.
+TextCachePatch.Apply(module);
+
+// 18. Section framing (SectionFramingPatch.cs): TileDrawing.Update frames the unframed section
+//     nearest the drawn area for up to 1.5 ms per frame, so first visits no longer stall 90-160 ms.
+SectionFramingPatch.Apply(module);
+
+// 19. Face-button labels: use the vanilla Switch mapping so A/B and X/Y prompts match
+//     the printed buttons. Existing user profiles and stick settings remain untouched.
+SwitchPadMappingPatch.Apply(module);
+
+// 20. Mod integrity hashes: compile the SHA-1 stream loop into tModLoader.dll and read
+//     in 1 MiB chunks; retain the stored digest comparison and corrupt-file rejection.
+TmodHashPatch.Apply(module);
+
+// 21. First-load cleanup: no mod contexts exist yet, so there is nothing for the
+//     ten forced unload collections to collect. Real unload/reload keeps the original loop.
+UnloadGcPatch.Apply(module);
+
+// 22. Pylon map tint (PylonMapPatch.cs): the minimap's pylon-range check walks about 14,000 tiles
+//     per draw; the tint now reuses it for 30 updates. Teleport requests still check every time.
+PylonMapPatch.Apply(module);
+
+// 23. Sound setters (SoundSetterPatch.cs): ActiveSound.Update sends Pan/Volume/Pitch to FAudio
+//     only when they change instead of three P/Invokes per sound per frame.
+SoundSetterPatch.Apply(module);
+
+// 24. Dust slots (DustSlotPatch.cs): NewDust walks Main.dust from the lowest slot that may be
+//     free instead of from 0, so crowded scenes stop rescanning thousands of live dusts per spawn.
+DustSlotPatch.Apply(module);
+
+// 25. Sound instance collection (SoundCollectorPatch.cs): the stopped-sound sweep, one FAudio
+//     state query per tracked sound, runs every eighth update.
+SoundCollectorPatch.Apply(module);
+
+// 26. Graveyard wind (AmbientWindPatch.cs): the per-tile 1-in-120,000 airborne-cloud trial is a
+//     geometric countdown instead of a random draw for each of 3,600 tiles per update.
+AmbientWindPatch.Apply(module);
+
 var oldMvid = module.Mvid;
 using (var image = new MemoryStream())
 {
@@ -655,195 +700,3 @@ Console.WriteLine($"MVID {oldMvid} -> {module.Mvid}");
 asm.Write(output);
 Console.WriteLine("WROTE " + output);
 return 0;
-
-static IEnumerable<TypeDefinition> AllTypes(IEnumerable<TypeDefinition> types)
-{
-    foreach (var type in types)
-    {
-        yield return type;
-        foreach (var nested in AllTypes(type.NestedTypes))
-            yield return nested;
-    }
-}
-
-static bool IsVoid(TypeReference type)
-{
-    while (type is IModifierType modified)
-        type = modified.ElementType;
-    return type.MetadataType == MetadataType.Void;
-}
-
-// Patches insert instructions into large methods; long-form branches keep every offset encodable.
-static void WidenShortBranches(MethodBody body)
-{
-    foreach (var ins in body.Instructions)
-    {
-        if (ins.OpCode.OperandType != OperandType.ShortInlineBrTarget)
-            continue;
-        ins.OpCode = ins.OpCode.Code switch
-        {
-            Code.Br_S => OpCodes.Br, Code.Brfalse_S => OpCodes.Brfalse, Code.Brtrue_S => OpCodes.Brtrue,
-            Code.Beq_S => OpCodes.Beq, Code.Bge_S => OpCodes.Bge, Code.Bgt_S => OpCodes.Bgt,
-            Code.Ble_S => OpCodes.Ble, Code.Blt_S => OpCodes.Blt, Code.Bne_Un_S => OpCodes.Bne_Un,
-            Code.Bge_Un_S => OpCodes.Bge_Un, Code.Bgt_Un_S => OpCodes.Bgt_Un, Code.Ble_Un_S => OpCodes.Ble_Un,
-            Code.Blt_Un_S => OpCodes.Blt_Un, Code.Leave_S => OpCodes.Leave,
-            _ => throw new InvalidOperationException("unknown short branch " + ins),
-        };
-    }
-}
-
-static void VerifyPatched(MethodDefinition method, bool expected, string unexpected)
-{
-    var problems = new List<string>();
-    if (!expected || UnderflowingPops(method, problems).Count > 0 || problems.Count > 0)
-        throw new InvalidOperationException($"{method.FullName}: {unexpected} {string.Join("; ", problems)}");
-}
-
-// Forward dataflow over the evaluation-stack depth. Returns the `pop` instructions whose
-// entry depth is 0; any other underflow or inconsistent merge is reported as unrepairable.
-static List<Instruction> UnderflowingPops(MethodDefinition method, List<string> problems)
-{
-    var body = method.Body;
-    var depth = new Dictionary<Instruction, int>();
-    var work = new Stack<Instruction>();
-    var bad = new List<Instruction>();
-    void Enqueue(Instruction target, int d)
-    {
-        if (target == null)
-            return;
-        if (depth.TryGetValue(target, out var known))
-        {
-            if (known != d)
-                problems.Add($"{method.FullName}: inconsistent stack depth at {target} ({known} vs {d})");
-            return;
-        }
-        depth[target] = d;
-        work.Push(target);
-    }
-    Enqueue(body.Instructions[0], 0);
-    foreach (var handler in body.ExceptionHandlers)
-    {
-        Enqueue(handler.TryStart, 0);
-        Enqueue(handler.HandlerStart, handler.HandlerType is ExceptionHandlerType.Catch or ExceptionHandlerType.Filter ? 1 : 0);
-        if (handler.HandlerType == ExceptionHandlerType.Filter)
-            Enqueue(handler.FilterStart, 1);
-    }
-    while (work.Count > 0)
-    {
-        var instruction = work.Pop();
-        int d = depth[instruction];
-        int pops = Pops(instruction, method, d);
-        if (Environment.GetEnvironmentVariable("NXFIX_TRACE") is string trace && method.FullName.Contains(trace))
-            Console.Error.WriteLine($"TRACE {instruction} depth={d} pops={pops} push={Pushes(instruction)}");
-        if (pops > d)
-        {
-            if (instruction.OpCode.Code == Code.Pop && d == 0)
-            {
-                bad.Add(instruction);
-                pops = 0;
-            }
-            else
-            {
-                problems.Add($"{method.FullName}: stack underflow at {instruction} (depth {d}, pops {pops})");
-                continue;
-            }
-        }
-        int after = d - pops + Pushes(instruction);
-        switch (instruction.OpCode.FlowControl)
-        {
-            case FlowControl.Branch:
-                Enqueue((Instruction)instruction.Operand, instruction.OpCode.Code is Code.Leave or Code.Leave_S ? 0 : after);
-                break;
-            case FlowControl.Cond_Branch:
-                if (instruction.Operand is Instruction[] targets)
-                    foreach (var target in targets)
-                        Enqueue(target, after);
-                else
-                    Enqueue((Instruction)instruction.Operand, after);
-                Enqueue(instruction.Next, after);
-                break;
-            case FlowControl.Return:
-            case FlowControl.Throw:
-                break;
-            default:
-                Enqueue(instruction.Next, after);
-                break;
-        }
-    }
-    return bad;
-}
-
-static int Pops(Instruction instruction, MethodDefinition method, int depth)
-{
-    var op = instruction.OpCode;
-    switch (op.StackBehaviourPop)
-    {
-        case StackBehaviour.Pop0: return 0;
-        case StackBehaviour.Pop1:
-        case StackBehaviour.Popi:
-        case StackBehaviour.Popref:
-            return 1;
-        case StackBehaviour.Pop1_pop1:
-        case StackBehaviour.Popi_pop1:
-        case StackBehaviour.Popi_popi:
-        case StackBehaviour.Popi_popi8:
-        case StackBehaviour.Popi_popr4:
-        case StackBehaviour.Popi_popr8:
-        case StackBehaviour.Popref_pop1:
-        case StackBehaviour.Popref_popi:
-            return 2;
-        case StackBehaviour.Popi_popi_popi:
-        case StackBehaviour.Popref_popi_popi:
-        case StackBehaviour.Popref_popi_popi8:
-        case StackBehaviour.Popref_popi_popr4:
-        case StackBehaviour.Popref_popi_popr8:
-        case StackBehaviour.Popref_popi_popref:
-            return 3;
-        case StackBehaviour.PopAll:
-            return depth;
-        case StackBehaviour.Varpop:
-            switch (op.Code)
-            {
-                case Code.Ret:
-                    return IsVoid(method.ReturnType) ? 0 : 1;
-                case Code.Newobj:
-                    return ((MethodReference)instruction.Operand).Parameters.Count;
-                case Code.Calli:
-                {
-                    var site = (CallSite)instruction.Operand;
-                    return site.Parameters.Count + (site.HasThis && !site.ExplicitThis ? 1 : 0) + 1;
-                }
-                default:
-                {
-                    var callee = (MethodReference)instruction.Operand;
-                    return callee.Parameters.Count + (callee.HasThis && !callee.ExplicitThis ? 1 : 0);
-                }
-            }
-        default:
-            throw new NotSupportedException($"pop behaviour {op.StackBehaviourPop} at {instruction}");
-    }
-}
-
-static int Pushes(Instruction instruction)
-{
-    var op = instruction.OpCode;
-    switch (op.StackBehaviourPush)
-    {
-        case StackBehaviour.Push0: return 0;
-        case StackBehaviour.Push1_push1: return 2;
-        case StackBehaviour.Push1:
-        case StackBehaviour.Pushi:
-        case StackBehaviour.Pushi8:
-        case StackBehaviour.Pushr4:
-        case StackBehaviour.Pushr8:
-        case StackBehaviour.Pushref:
-            return 1;
-        case StackBehaviour.Varpush:
-            if (op.Code == Code.Newobj)
-                return 1;
-            var returnType = instruction.Operand is CallSite site ? site.ReturnType : ((MethodReference)instruction.Operand).ReturnType;
-            return IsVoid(returnType) ? 0 : 1;
-        default:
-            throw new NotSupportedException($"push behaviour {op.StackBehaviourPush} at {instruction}");
-    }
-}

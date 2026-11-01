@@ -237,6 +237,14 @@ public class TargetResolver
         return null;
     }
 
+    // The tModLoader method a resolved target names; null for targets in other assemblies.
+    public MethodDefinition? FindTmlMethod(HookTarget? target)
+    {
+        if (target == null || target.Assembly != "tModLoader" || !_tmlTypes.TryGetValue(target.Type, out var type))
+            return null;
+        return type.Methods.FirstOrDefault(m => m.FullName == target.FullName);
+    }
+
     public HookTarget CreateTargetFromMethodDefinition(MethodDefinition method)
     {
         return new HookTarget

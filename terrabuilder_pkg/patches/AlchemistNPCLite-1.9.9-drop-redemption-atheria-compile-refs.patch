@@ -1,0 +1,27 @@
+*** Begin Patch
+*** Update File: NPCs/Operator.cs
+@@
+-        [JITWhenModsEnabled("Redemption")]
++        /*[JITWhenModsEnabled("Redemption")]
+-        [JITWhenModsEnabled("FargowiltasSouls")]
++        */ [JITWhenModsEnabled("FargowiltasSouls")]
+*** Update File: NPCs/Operator.cs
+@@
+-                .AddModItemToShop(Atheria, "HardlightPrism", 15000, () => ShardsConditions.DownedNova)
+-                .AddModItemToShop(Redemption, "ThornBag", 250000, () => RedemptionDowned.Thorn)
+-                .AddModItemToShop(Redemption, "KeeperBag", 350000, () => RedemptionDowned.Keeper)
+-                .AddModItemToShop(Redemption, "SoIBag", 1000000, () => RedemptionDowned.SeedOfInfection)
+-                .AddModItemToShop(Redemption, "SlayerBag", 1500000, () => RedemptionDowned.KingSlayer)
+-                .AddModItemToShop(Redemption, "OmegaGigaporaBag", 3000000, () => RedemptionDowned.OmegaGigapora)
+-                .AddModItemToShop(Redemption, "OmegaOblitBag", 5000000, () => RedemptionDowned.Obliterator)
+-                .AddModItemToShop(Redemption, "PZBag", 6000000, () => RedemptionDowned.PatientZero)
+-                .AddModItemToShop(Redemption, "UkkoBag", 6000000, () => RedemptionDowned.DeityDuo)
+-                .AddModItemToShop(Redemption, "AkkaBag", 6000000, () => RedemptionDowned.DeityDuo)
+-                .AddModItemToShop(Redemption, "NebBag", 10000000, () => RedemptionDowned.Nebuleus)
+*** Update File: NPCs/Brewer.cs
+@@
+-                .AddModItemToShop(Redemption, "VigourousPotion", 250000, () => Operator.RedemptionDowned.Nebuleus);
++                ;
+-                .AddModItemToShop(Atheria, "ChargedFlightPotion", 7500, () => Operator.ShardsConditions.DownedNova);
++                ;
+*** End Patch

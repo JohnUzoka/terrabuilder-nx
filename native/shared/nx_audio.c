@@ -39,6 +39,10 @@ extern void __real_SDL_CloseAudioDevice(SDL_AudioDeviceID dev);
 extern int __real_SDL_SetThreadPriority(SDL_ThreadPriority priority);
 extern SDL_AudioDeviceID __real_SDL_OpenAudioDevice(const char *device, int iscapture,
     const SDL_AudioSpec *desired, SDL_AudioSpec *obtained, int allowed_changes);
+/* Profiler builds sample every pthread from core 2; see nx_profiler_remove_thread. Weak: other
+ * builds link no profiler. */
+extern void nx_profiler_add_thread(uint32_t thread_handle) __attribute__((weak));
+extern void nx_profiler_remove_thread(uint32_t thread_handle) __attribute__((weak));
 
 static int env_int(const char *name, int fallback, int low, int high)
 {
@@ -57,8 +61,12 @@ int __wrap_SDL_SetThreadPriority(SDL_ThreadPriority priority)
     int core = env_int("NX_AUDIO_CORE", 2, 0, 2);
     int level = priority == SDL_THREAD_PRIORITY_TIME_CRITICAL ? NX_AUDIO_PRIORITY_MIXER : NX_AUDIO_PRIORITY_API;
     Handle self = threadGetCurHandle();
+    if (nx_profiler_remove_thread)
+        nx_profiler_remove_thread(self);
     Result core_rc = svcSetThreadCoreMask(self, core, 1u << core);
     Result priority_rc = svcSetThreadPriority(self, level);
+    if (nx_profiler_add_thread)
+        nx_profiler_add_thread(self);
     io_debugf("NX_AUDIO thread %s -> core %d priority 0x%X (rc=0x%x/0x%x)",
         priority == SDL_THREAD_PRIORITY_TIME_CRITICAL ? "mixer" : "api", core, level,
         (unsigned)core_rc, (unsigned)priority_rc);

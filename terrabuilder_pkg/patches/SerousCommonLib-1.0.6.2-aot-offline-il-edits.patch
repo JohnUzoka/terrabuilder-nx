@@ -1,0 +1,33 @@
+*** Begin Patch
+*** Update File: src/API/Helpers/ILHelper.cs
+@@
+-			string modName = patchSource.GetType().Namespace!;
+-			string localDir = Path.Combine(Program.SavePath, "aA Mods", modName);
+-			if (_autologgingSources.Add(modName))
+-			if (writeLogFiles) {
+-				patchSource.Logger.Error(error + "\n  Reason: " + badReturnReason);
+-			if (writeLogFiles) {
++			string modName = patchSource?.GetType().Namespace;  // patchSource is null while the AOT build applies IL edits offline
++			string localDir = patchSource is null ? null : Path.Combine(Program.SavePath, "aA Mods", modName);
++			if (patchSource is not null && _autologgingSources.Add(modName))
++			if (writeLogFiles && patchSource is not null) {
++				if (patchSource is null) Console.WriteLine(error + "\n  Reason: " + badReturnReason); else patchSource.Logger.Error(error + "\n  Reason: " + badReturnReason);
++			if (writeLogFiles && patchSource is not null) {
+*** Update File: src/API/Edits/ClippedListRecalculateSupport.cs
+@@
+-	internal class ClippedListRecalculateSupport : Edit {
+-			c.Emit(OpCodes.Isinst, typeof(BaseClippedList));
++	internal partial class ClippedListRecalculateSupport : Edit {
++			c.EmitDelegate<Func<UIElement, bool>>(IsBaseClippedList);
+*** Add File: src/API/Edits/ClippedListRecalculateSupport.AotSafe.cs
++using SerousCommonLib.UI;
++using Terraria.UI;
++
++namespace SerousCommonLib.API.Edits {
++	partial class ClippedListRecalculateSupport {
++		// AOT port: UIElement.Recalculate is edited offline into tModLoader itself, which cannot reference this mod's types,
++		// so the injected "isinst BaseClippedList; brtrue" becomes a call to this static check followed by the same brtrue.
++		private static bool IsBaseClippedList(UIElement parent) => parent is BaseClippedList;
++	}
++}
+*** End Patch

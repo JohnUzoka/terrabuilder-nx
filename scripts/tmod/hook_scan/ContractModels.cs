@@ -25,6 +25,12 @@ public class HookInventory
 
     [JsonPropertyName("unsupported")]
     public List<UnsupportedEntry> Unsupported { get; set; } = new();
+
+    // References from mod code to tModLoader/FNA/ReLogic/TerrariaHooks or another scanned mod that do
+    // not resolve against the assemblies this build ships. Not a build blocker: the method holding the
+    // reference throws MissingMethodException/MissingFieldException/TypeLoadException only when it runs.
+    [JsonPropertyName("missing_members")]
+    public List<MissingMemberEntry> MissingMembers { get; set; } = new();
 }
 
 public class GameAssemblies
@@ -202,4 +208,22 @@ public class UnsupportedEntry
 
     [JsonPropertyName("detail")]
     public string Detail { get; set; } = "";
+}
+
+public class MissingMemberEntry
+{
+    [JsonPropertyName("mod")]
+    public string Mod { get; set; } = "";
+
+    [JsonPropertyName("member")]
+    public string Member { get; set; } = "";
+
+    [JsonPropertyName("assembly")]
+    public string Assembly { get; set; } = "";
+
+    [JsonPropertyName("first_caller")]
+    public string FirstCaller { get; set; } = "";
+
+    [JsonPropertyName("sites")]
+    public int Sites { get; set; }
 }

@@ -1,0 +1,638 @@
+*** Begin Patch
+*** Update File: MagicStorage.csproj
+@@
+-    <EmbeddedResource Include="Common\Systems\scramble" />
++    <Compile Remove="Edits\SolidTopCollisionHackILEdits.cs;Edits\OpCommandCodeSendHandlerILEdit.cs;Edits\ItemTransferParticleMoreEatingILEdit.cs;Edits\ItemCraftAchievementHijackILEdit.cs;Edits\ShimmerHelperILEdits.cs;Edits\MarshmallowStickILEdit.cs;Edits\PityDropsDynamicPercentageILEdit.cs" /><EmbeddedResource Include="Common\Systems\scramble" />
+*** Add File: Edits/AotSafe/SolidTopCollisionHackILEdits.cs
++using MagicStorage.Components;
++using Mono.Cecil.Cil;
++using MonoMod.Cil;
++using SerousCommonLib.API;
++using System;
++using System.Reflection;
++using Terraria;
++using Terraria.ModLoader;
++using IL_Collision = Terraria.IL_Collision;
++
++namespace MagicStorage.Edits {
++	internal class SolidTopCollisionHackILEdits : Edit {
++		private static ILContext.Manipulator _patchIsTopOfTile, _patchIsNotTopOfTile;
++
++		public override void LoadEdits() {
++			// For some reason, the game only allows Main.tileSolidTop[] collision on the topmost subtiles in a tile spritesheet,
++			// necessitating this dumb hack to make the Storage Unit upgrades not lose collision
++
++			// These functions check "tile.frameY == 0"
++			_patchIsTopOfTile = Patch_IsTopOfTile;
++			IL_Collision.SolidCollision_Vector2_int_int_bool += _patchIsTopOfTile;
++			IL_Collision.HitTiles += _patchIsTopOfTile;
++			IL_Collision.SolidTiles_int_int_int_int_bool += _patchIsTopOfTile;
++			IL_Collision.StepUp += _patchIsTopOfTile;
++			IL_Collision.GetTileRotation += _patchIsTopOfTile;
++
++			// These functions check "tile.frameY != 0"
++			_patchIsNotTopOfTile = Patch_IsNotTopOfTile;
++			IL_Collision.TileCollision += _patchIsNotTopOfTile;
++			IL_Collision.AdvancedTileCollision += _patchIsNotTopOfTile;
++			IL_Collision.SlopeCollision += _patchIsNotTopOfTile;
++			IL_Collision.noSlopeCollision += _patchIsNotTopOfTile;
++		}
++
++		public override void UnloadEdits() {
++			if (_patchIsTopOfTile is not null) {
++				IL_Collision.SolidCollision_Vector2_int_int_bool -= _patchIsTopOfTile;
++				IL_Collision.HitTiles -= _patchIsTopOfTile;
++				IL_Collision.SolidTiles_int_int_int_int_bool -= _patchIsTopOfTile;
++				IL_Collision.StepUp -= _patchIsTopOfTile;
++				IL_Collision.GetTileRotation -= _patchIsTopOfTile;
++
++				_patchIsTopOfTile = null;
++			}
++
++			if (_patchIsNotTopOfTile is not null) {
++				IL_Collision.TileCollision -= _patchIsNotTopOfTile;
++				IL_Collision.AdvancedTileCollision -= _patchIsNotTopOfTile;
++				IL_Collision.SlopeCollision -= _patchIsNotTopOfTile;
++				IL_Collision.noSlopeCollision -= _patchIsNotTopOfTile;
++
++				_patchIsNotTopOfTile = null;
++			}
++		}
++
++		private static readonly MethodInfo Tile_get_frameY = typeof(Tile).GetProperty("frameY", BindingFlags.NonPublic | BindingFlags.Instance).GetMethod;
++
++		// AOT port: the manipulators are lowered offline by invoking them without registration-time state, so the
++		// former PatchContext(Func<Tile, bool>) instances are expressed as one static manipulator per injected check.
++		// EmitDelegate of a static method group still emits a direct call to HackIsTopOfTile/HackIsNotTopOfTile.
++		private static void Patch_IsTopOfTile(ILContext il) => ILHelper.CommonPatchingWrapper(il, MagicStorageMod.Instance, false, Patch_FrameY_Check_IsTopOfTile);
++
++		private static void Patch_IsNotTopOfTile(ILContext il) => ILHelper.CommonPatchingWrapper(il, MagicStorageMod.Instance, false, Patch_FrameY_Check_IsNotTopOfTile);
++
++		private static bool Patch_FrameY_Check_IsTopOfTile(ILCursor c, ref string badReturnReason) => Patch_FrameY_Check(c, ref badReturnReason, HackIsTopOfTile);
++
++		private static bool Patch_FrameY_Check_IsNotTopOfTile(ILCursor c, ref string badReturnReason) => Patch_FrameY_Check(c, ref badReturnReason, HackIsNotTopOfTile);
++
++		private static bool Patch_FrameY_Check(ILCursor c, ref string badReturnReason, Func<Tile, bool> injectedFunc) {
++			// For each instance of Tile.frameY being accessed, inject a condition before it
++			int found = 0;
++			while (FindClause(c, out OpCode branch, out ILLabel label, out int local, out int codeStride)) {
++				// Found a match, inject the logic
++				found++;
++
++				c.Emit(OpCodes.Ldloc, local);
++				c.EmitDelegate(injectedFunc);
++				c.Emit(branch, label);
++
++				// Nop the original code
++				for (int i = 0; i < codeStride; i++) {
++					c.Next.OpCode = OpCodes.Nop;
++					c.Next.Operand = null;
++					c.Index++;
++				}
++			}
++
++			if (found == 0) {
++				badReturnReason = "Could not find any valid Tile::frameY clauses used in boolean arithmetic";
++				return false;
++			}
++
++		//	MagicStorageMod.Instance.Logger.Debug($"Patched {found} clause{(found == 1 ? "" : "s")} in {c.Method.Name}");
++
++			return true;
++		}
++
++		private static bool HackIsTopOfTile(Tile tile) {
++			if (TileLoader.GetTile(tile.TileType) is StorageUnit)
++				return tile.TileFrameY % 36 == 0;
++
++			return tile.TileFrameY == 0;
++		}
++
++		private static bool HackIsNotTopOfTile(Tile tile) {
++			if (TileLoader.GetTile(tile.TileType) is StorageUnit)
++				return tile.TileFrameY % 36 != 0;
++
++			return tile.TileFrameY != 0;
++		}
++
++		private static bool FindClause(ILCursor c, out OpCode branchCode, out ILLabel labelOnSuccess, out int tileLocal, out int codeStride) {
++			// Boolean arithmetic
++			ILLabel label = null;
++			int local = -1;
++			if (c.TryGotoNext(MoveType.Before, i => i.MatchLdloca(out local),
++				i => i.MatchCall(Tile_get_frameY),
++				i => i.MatchLdindI2(),
++				i => i.MatchLdcI4(0),
++				i => i.MatchCeq(),
++				i => i.MatchBr(out label))) {
++				branchCode = OpCodes.Br;
++				labelOnSuccess = label;
++				tileLocal = local;
++				codeStride = 6;
++
++			//	MagicStorageMod.Instance.Logger.Debug($"Found br clause for {c.Method.Name}");
++
++				return true;
++			}
++
++			// Conditional, branch if false
++			if (c.TryGotoNext(MoveType.Before, i => i.MatchLdloca(out local),
++				i => i.MatchCall(Tile_get_frameY),
++				i => i.MatchLdindI2(),
++				i => i.MatchBrfalse(out label))) {
++				branchCode = OpCodes.Brfalse;
++				labelOnSuccess = label;
++				tileLocal = local;
++				codeStride = 4;
++
++			//	MagicStorageMod.Instance.Logger.Debug($"Found brfalse clause for {c.Method.Name}");
++
++				return true;
++			}
++
++			// Conditional, branch if true
++			if (c.TryGotoNext(MoveType.Before, i => i.MatchLdloca(out local),
++				i => i.MatchCall(Tile_get_frameY),
++				i => i.MatchLdindI2(),
++				i => i.MatchBrtrue(out label))) {
++				branchCode = OpCodes.Brtrue;
++				labelOnSuccess = label;
++				tileLocal = local;
++				codeStride = 4;
++
++			//	MagicStorageMod.Instance.Logger.Debug($"Found brtrue clause for {c.Method.Name}");
++
++				return true;
++			}
++
++			branchCode = default;
++			labelOnSuccess = null;
++			tileLocal = -1;
++			codeStride = -1;
++			return false;
++		}
++	}
++}
+*** Add File: Edits/AotSafe/OpCommandCodeSendHandlerILEdit.cs
++using MagicStorage.Common.Systems;
++using Mono.Cecil.Cil;
++using MonoMod.Cil;
++using SerousCommonLib.API;
++using System.Collections.Generic;
++using System.Linq;
++using Terraria;
++using Terraria.Audio;
++using Terraria.ID;
++using ILMain = Terraria.IL_Main;
++
++namespace MagicStorage.Edits {
++	internal class OpCommandCodeSendHandlerILEdit : Edit {
++		public override void LoadEdits() {
++			ILMain.DoUpdate_HandleChat += Main_DoUpdate_HandleChat;
++		}
++
++		public override void UnloadEdits() {
++			ILMain.DoUpdate_HandleChat -= Main_DoUpdate_HandleChat;
++		}
++
++		private void Main_DoUpdate_HandleChat(ILContext il) {
++			ILHelper.CommonPatchingWrapper(il, MagicStorageMod.Instance, throwOnFail: false, DoCommonPatching);
++		}
++
++		private static bool DoCommonPatching(ILCursor c, ref string badReturnReason) {
++			int patchNum = 1;
++
++			ILLabel oldLabel = null;
++			if (!c.TryGotoNext(MoveType.After, i => i.MatchBrtrue(out oldLabel),
++				i => i.MatchRet()))
++				goto bad_il;
++
++			patchNum++;
++
++			Instruction oldTarget = oldLabel.Target;
++
++			List<ILLabel> labels = c.IncomingLabels.ToList();
++
++			int index = c.Index;
++
++			c.EmitDelegate(IsRequestingOperatorKey);
++			
++			Instruction instr = c.Instrs[index];
++
++			foreach (var label in labels)
++				label.Target = instr;
++
++			ILLabel postRequest = c.DefineLabel();
++			postRequest.Target = oldTarget;
++
++			c.Emit(OpCodes.Brfalse, postRequest);
++			c.EmitDelegate(SendOperatorKeyFromChat);
++			c.Emit(OpCodes.Ret);
++
++			return true;
++
++			bad_il:
++			badReturnReason += "\nReason: Could not find instruction sequence for patch #" + patchNum;
++			return false;
++		}
++
++		// AOT port: the injected callbacks are static methods (formerly lambdas) so EmitDelegate emits direct calls
++		// that the offline IL lowering can bind; the bodies are unchanged.
++		private static bool IsRequestingOperatorKey() => Main.netMode == NetmodeID.MultiplayerClient && Netcode.RequestingOperatorKey;
++
++		private static void SendOperatorKeyFromChat() {
++			NetHelper.ClientSendOperatorKey(Main.chatText);
++			Main.chatText = "";
++			Main.ClosePlayerChat();
++			Main.chatRelease = false;
++			SoundEngine.PlaySound(SoundID.MenuClose);
++		}
++	}
++}
+*** Add File: Edits/AotSafe/ItemTransferParticleMoreEatingILEdit.cs
++using MagicStorage.Components;
++using Microsoft.Xna.Framework;
++using Mono.Cecil.Cil;
++using MonoMod.Cil;
++using SerousCommonLib.API;
++using System;
++using System.Reflection;
++using Terraria;
++using Terraria.DataStructures;
++
++namespace MagicStorage.Edits {
++	internal class ItemTransferParticleMoreEatingILEdit : Edit {
++		public override void LoadEdits() {
++			Terraria.GameContent.Drawing.IL_ParticleOrchestrator.Spawn_ItemTransfer += ParticleOrchestrator_Spawn_ItemTransfer;
++		}
++
++		public override void UnloadEdits() {
++			Terraria.GameContent.Drawing.IL_ParticleOrchestrator.Spawn_ItemTransfer -= ParticleOrchestrator_Spawn_ItemTransfer;
++		}
++
++		private static void ParticleOrchestrator_Spawn_ItemTransfer(ILContext il) {
++			ILHelper.CommonPatchingWrapper(il, MagicStorageMod.Instance, throwOnFail: false, Patch_ParticleOrchestrator_Spawn_ItemTransfer);
++		}
++
++		private static readonly MethodInfo Chest_AskForChestToEatItem = typeof(Chest).GetMethod(nameof(Chest.AskForChestToEatItem), BindingFlags.Public | BindingFlags.Static);
++
++		private static bool Patch_ParticleOrchestrator_Spawn_ItemTransfer(ILCursor c, ref string badReturnReason) {
++			var positionLocal = c.Context.MakeLocalVariable<Vector2>();
++
++			int durationLocal = -1;
++			if (!c.TryGotoNext(MoveType.Before, i => i.MatchLdloc(out durationLocal),
++				i => i.MatchLdcI4(10),
++				i => i.MatchAdd(),
++				i => i.MatchCall(Chest_AskForChestToEatItem))) {
++				badReturnReason = "Could not find Chest.AskForChestToEatItem() call";
++				return false;
++			}
++
++			c.Emit(OpCodes.Stloc, positionLocal);
++			c.Emit(OpCodes.Ldloc, positionLocal);
++
++			// Already know that the call exists, no need to TryGotoNext here
++			c.GotoNext(MoveType.After, i => i.MatchCall(Chest_AskForChestToEatItem));
++
++			c.Emit(OpCodes.Ldloc, positionLocal);
++			c.Emit(OpCodes.Ldloc, durationLocal);
++			c.EmitDelegate<Action<Vector2, int>>(AskStorageCenterToEatItem);
++
++			return true;
++		}
++
++		// AOT port: formerly a lambda; a static method lets EmitDelegate emit a direct call that the offline IL lowering can bind.
++		private static void AskStorageCenterToEatItem(Vector2 worldPosition, int duration) {
++			Point16 tileCoordinates = worldPosition.ToTileCoordinates16();
++			if (TileEntity.ByPosition.TryGetValue(tileCoordinates, out TileEntity entity) && entity is TEStorageCenter center)
++				center.AskToEatItem(duration);
++		}
++	}
++}
+*** Add File: Edits/AotSafe/ItemCraftAchievementHijackILEdit.cs
++using MonoMod.Cil;
++using SerousCommonLib.API;
++using System;
++using System.Reflection;
++using Terraria;
++using Terraria.GameContent.Achievements;
++
++namespace MagicStorage.Edits {
++	internal class ItemCraftAchievementHijackILEdit : Edit {
++		public override void LoadEdits() {
++			IL_AchievementsHelper.NotifyItemCraft += AchievementsHelper_NotifyItemCraft;
++		}
++
++		public override void UnloadEdits() {
++			IL_AchievementsHelper.NotifyItemCraft -= AchievementsHelper_NotifyItemCraft;
++		}
++
++		private static void AchievementsHelper_NotifyItemCraft(MonoMod.Cil.ILContext il) => ILHelper.CommonPatchingWrapper(il, MagicStorageMod.Instance, false, HijackEventArgs);
++
++		private static bool HijackEventArgs(ILCursor c, ref string badReturnReason) {
++			FieldInfo Item_netID = typeof(Item).GetField(nameof(Item.netID), BindingFlags.Public | BindingFlags.Instance);
++			FieldInfo Item_stack = typeof(Item).GetField(nameof(Item.stack), BindingFlags.Public | BindingFlags.Instance);
++
++			if (!c.TryGotoNext(MoveType.After, i => i.MatchLdfld(Item_netID))) {
++				badReturnReason = "Could not find access to Item.netID";
++				return false;
++			}
++
++			c.EmitDelegate<Func<int, int>>(HijackNetID);
++
++			if (!c.TryGotoNext(MoveType.After, i => i.MatchLdfld(Item_stack))) {
++				badReturnReason = "Could not find access to Item.stack";
++				return false;
++			}
++
++			c.EmitDelegate<Func<int, int>>(HijackStack);
++
++			return true;
++		}
++
++		// AOT port: formerly lambdas; static methods let EmitDelegate emit direct calls that the offline IL lowering can bind.
++		private static int HijackNetID(int netID) => CraftingGUI.RecipeEventHijack.Args?.NetID ?? netID;
++
++		private static int HijackStack(int stack) => CraftingGUI.RecipeEventHijack.Args?.Stack ?? stack;
++	}
++}
+*** Add File: Edits/AotSafe/ShimmerHelperILEdits.cs
++using MagicStorage.Common.Systems.Shimmering;
++using MonoMod.Cil;
++using SerousCommonLib.API;
++using System;
++using System.Reflection;
++using Terraria;
++using IL_Item = Terraria.IL_Item;
++
++namespace MagicStorage.Edits {
++	internal class ShimmerHelperILEdits : Edit {
++		public override void LoadEdits() {
++			IL_Item.FindDecraftAmount += Item_FindDecraftAmount;
++		//	IL_Item.CanShimmer += Item_CanShimmer;
++		}
++
++		public override void UnloadEdits() {
++			IL_Item.FindDecraftAmount -= Item_FindDecraftAmount;
++		//	IL_Item.CanShimmer -= Item_CanShimmer;
++		}
++
++		private static readonly FieldInfo Item_stack = typeof(Item).GetField(nameof(Item.stack), BindingFlags.Public | BindingFlags.Instance);
++
++		private static void Item_FindDecraftAmount(ILContext il) {
++			ILHelper.CommonPatchingWrapper(il, MagicStorageMod.Instance, false, ConditionallyOverrideStack);
++		}
++
++		private static bool ConditionallyOverrideStack(ILCursor c, ref string badReturnReason) {
++			if (!c.TryGotoNext(MoveType.After, i => i.MatchLdfld(Item_stack))) {
++				badReturnReason = "Could not find stack field access";
++				return false;
++			}
++
++			c.EmitDelegate<Func<int, int>>(OverrideDecraftStack);
++
++			return true;
++		}
++
++		// AOT port: formerly a lambda; a static method lets EmitDelegate emit a direct call that the offline IL lowering can bind.
++		private static int OverrideDecraftStack(int stack) => ShimmerMetrics.DecraftAmountStackOverride ?? stack;
++
++		/*
++		private static readonly FieldInfo Item_makeNPC = typeof(Item).GetField(nameof(Item.makeNPC), BindingFlags.Public | BindingFlags.Instance);
++
++		private static void Item_CanShimmer(ILContext il) {
++			ILHelper.CommonPatchingWrapper(il, MagicStorageMod.Instance, false, ConditionallyOverrideMakeNPC);
++		}
++
++		private static bool ConditionallyOverrideMakeNPC(ILCursor c, ref string badReturnReason) {
++			if (!c.TryGotoNext(MoveType.After, i => i.MatchLdfld(Item_makeNPC))) {
++				badReturnReason = "Could not find makeNPC field access";
++				return false;
++			}
++
++			c.EmitDelegate<Func<int, int>>(static makeNPC => ShimmerHelper.IgnoreMakeNPC ? -1 : makeNPC);
++
++			return true;
++		}
++		*/
++	}
++}
+*** Add File: Edits/AotSafe/MarshmallowStickILEdit.cs
++#nullable enable
++using MagicStorage.Items;
++using Microsoft.Xna.Framework;
++using Mono.Cecil.Cil;
++using MonoMod.Cil;
++using SerousCommonLib.API;
++using System;
++using Terraria;
++using Terraria.ID;
++using ILPlayer = Terraria.IL_Player;
++
++namespace MagicStorage.Edits;
++
++public class MarshmallowStickILEdit : Edit
++{
++	public override void LoadEdits()
++	{
++		ILPlayer.ItemCheck_ApplyHoldStyle_Inner += Player_ItemCheck_ApplyHoldStyle_Inner;
++	}
++
++	public override void UnloadEdits()
++	{
++		ILPlayer.ItemCheck_ApplyHoldStyle_Inner -= Player_ItemCheck_ApplyHoldStyle_Inner;
++	}
++
++	private static void Player_ItemCheck_ApplyHoldStyle_Inner(ILContext il) {
++		ILHelper.CommonPatchingWrapper(il, MagicStorageMod.Instance, throwOnFail: false, PatchMethod);
++	}
++
++	private static bool PatchMethod(ILCursor c, ref string badReturnReason) {
++		if (!c.TryGotoNext(MoveType.Before,
++			i => i.MatchLdarg(0),
++			i => i.MatchLdflda<Player>("itemLocation"),
++			i => i.MatchLdarg(0),
++			i => i.MatchLdflda<Entity>("position"),
++			i => i.MatchLdfld<Vector2>("Y"),
++			i => i.MatchLdcR4(24),
++			i => i.MatchAdd(),
++			i => i.MatchLdarg(1),
++			i => i.MatchAdd())) {
++			badReturnReason = "Could not find instruction sequence for positioning the Marshmallow on a Stick";
++			return false;
++		}
++
++		ILLabel jumpLabel = c.MarkLabel();
++
++		//Go back to the beginning and find the code that handles the Marshmallow on a Stick usage
++		c.Index = 0;
++
++		if (!c.TryGotoNext(MoveType.After,
++			i => i.MatchLdarg(2),
++			i => i.MatchLdfld<Item>("type"),
++			i => i.MatchLdcI4(ItemID.MarshmallowonaStick),
++			i => i.MatchBneUn(out _))) {
++			badReturnReason = "Could not find instruction sequence for skipping the logic for the Marshmallow on a Stick";
++			return false;
++		}
++
++		//After the check that the type is valid, but before the actual use code
++		c.Emit(OpCodes.Ldarg_0);
++		c.EmitDelegate<Func<Player, bool>>(HoldBiomeGlobe);
++		c.Emit(OpCodes.Brtrue, jumpLabel);
++
++		return true;
++	}
++
++	// AOT port: formerly a lambda; a static method lets EmitDelegate emit a direct call that the offline IL lowering can bind.
++	private static bool HoldBiomeGlobe(Player player) {
++		bool isGlobe = player.GetModPlayer<BiomePlayer>().biomeGlobe;
++
++		//Mimic the code that sets the X position of the item since that's being skipped
++		if (isGlobe)
++			player.itemLocation.X = player.position.X + player.width * 0.5f + 8 * player.direction;
++
++		return isGlobe;
++	}
++}
+*** Add File: Edits/AotSafe/PityDropsDynamicPercentageILEdit.cs
++using MagicStorage.Common.DropRules;
++using Mono.Cecil.Cil;
++using MonoMod.Cil;
++using MonoMod.Utils;
++using SerousCommonLib.API;
++using System;
++using System.Collections.Generic;
++using System.Linq;
++using System.Reflection;
++using Terraria.GameContent.Bestiary;
++using Terraria.GameContent.ItemDropRules;
++
++namespace MagicStorage.Edits {
++	internal class PityDropsDynamicPercentageILEdit : Edit {
++		// AOT port: the locals injected into tModLoader's BestiaryDatabase.ExtractDropsForNPC are typed object instead of
++		// PityDropsRule / List<PityDropsRule> (tModLoader code baked offline cannot reference mod types); they only ever hold
++		// those types, and the callbacks below cast them back. The callbacks are static methods (formerly lambdas) so
++		// EmitDelegate emits direct calls that the offline IL lowering can bind.
++		private delegate IItemDropRule PreReportDroprates(IItemDropRule rule, ref object pityRule);
++		private delegate void PostReportDroprates(object pityRule, List<DropRateInfo> list, ref object partnerList);
++		private delegate ItemDropBestiaryInfoElement LinkElementToRule(ItemDropBestiaryInfoElement element, object partnerList, ref int partnerListIndex);
++
++		public override void LoadEdits() {
++			IL_BestiaryDatabase.ExtractDropsForNPC += BestiaryDatabase_ExtractDropsForNPC;
++			IL_ItemDropBestiaryInfoElement.ProvideUIElement += ItemDropBestiaryInfoElement_ProvideUIElement;
++		}
++
++		public override void UnloadEdits() {
++			IL_BestiaryDatabase.ExtractDropsForNPC -= BestiaryDatabase_ExtractDropsForNPC;
++			IL_ItemDropBestiaryInfoElement.ProvideUIElement -= ItemDropBestiaryInfoElement_ProvideUIElement;
++		}
++
++		private static void BestiaryDatabase_ExtractDropsForNPC(ILContext il) => ILHelper.CommonPatchingWrapper(il, MagicStorageMod.Instance, false, InjectPityDropsContext);
++
++		private static bool InjectPityDropsContext(ILCursor c, ref string badReturnReason) {
++			// EDIT: Tracking PityDropsRule with added DropRateInfo lines
++			//   By tracking which DropRateInfo was from a PityDropsRule, the corresponding ItemDropBestiaryInfoElement
++			//   can be modified dynamically to reflect the PityDropRule's modifications.
++			//   This can't just be done in PityDropsRule.ReportDroprates() since that only runs during mod loading
++			//   and not during gameplay.
++
++			// Define or find the necessary locals
++			int ruleLocal = c.Context.MakeLocalVariable<object>();  // PityDropsRule
++			int partnerListLocal = c.Context.MakeLocalVariable<object>();  // List<PityDropsRule>
++			int partnerListIndexLocal = c.Context.MakeLocalVariable<int>();
++			int infoListLocal = c.Context.Body.Variables.FirstOrDefault(static v => v.VariableType.Is(typeof(List<DropRateInfo>)))?.Index
++				?? throw new InvalidOperationException("Failed to find List<IItemDropRule> local variable");
++
++			MethodInfo List_T_IItemDropRule_Enumerator_get_Current = typeof(List<IItemDropRule>.Enumerator).GetProperty(nameof(List<IItemDropRule>.Enumerator.Current)).GetGetMethod()
++				?? throw new InvalidOperationException("Failed to resolve property getter for List<T>.Enumerator.Current");
++
++			if (!c.TryGotoNext(MoveType.After, i => i.MatchCall(List_T_IItemDropRule_Enumerator_get_Current))) {
++				badReturnReason = "Failed to find access to List<IItemDropRule>.Enumerator.Current";
++				return false;
++			}
++
++			c.Emit(OpCodes.Ldloca, ruleLocal);
++
++			c.EmitDelegate<PreReportDroprates>(TrackPityRule);
++
++			MethodInfo IItemDropRule_ReportDroprates = typeof(IItemDropRule).GetMethod(nameof(IItemDropRule.ReportDroprates), BindingFlags.Public | BindingFlags.Instance)
++				?? throw new InvalidOperationException("Failed to resolve method IItemDropRule.ReportDroprates()");
++
++			if (!c.TryGotoNext(MoveType.After, i => i.MatchCallvirt(IItemDropRule_ReportDroprates))) {
++				badReturnReason = "Failed to find call IItemDropRule.ReportDroprates()";
++				return false;
++			}
++
++			c.Emit(OpCodes.Ldloc, ruleLocal);
++			c.Emit(OpCodes.Ldloc, infoListLocal);
++			c.Emit(OpCodes.Ldloca, partnerListLocal);
++
++			c.EmitDelegate<PostReportDroprates>(TrackReportedDroprates);
++
++			ConstructorInfo ItemDropBestiaryInfoElement_ctor = typeof(ItemDropBestiaryInfoElement).GetConstructor([ typeof(DropRateInfo) ])
++				?? throw new InvalidOperationException("Failed to resolve constructor ItemDropBestiaryInfoElement(DropRateInfo)");
++
++			if (!c.TryGotoNext(MoveType.After, i => i.MatchNewobj(ItemDropBestiaryInfoElement_ctor))) {
++				badReturnReason = "Failed to find call to ItemDropBestiaryInfoElement constructor";
++				return false;
++			}
++
++			c.Emit(OpCodes.Ldloc, partnerListLocal);
++			c.Emit(OpCodes.Ldloca, partnerListIndexLocal);
++
++			c.EmitDelegate<LinkElementToRule>(LinkElementToPityRule);
++
++			return true;
++		}
++
++		private static IItemDropRule TrackPityRule(IItemDropRule rule, ref object pityRule) {
++			pityRule = rule as PityDropsRule;  // Null if not a PityDropsRule
++			return rule;
++		}
++
++		private static void TrackReportedDroprates(object pityRule, List<DropRateInfo> list, ref object partnerListObject) {
++			List<PityDropsRule> partnerList = (List<PityDropsRule>)(partnerListObject ??= new List<PityDropsRule>());
++
++			if (list.Count > partnerList.Count)
++				partnerList.AddRange(Enumerable.Repeat((PityDropsRule)pityRule, list.Count - partnerList.Count));
++		}
++
++		private static ItemDropBestiaryInfoElement LinkElementToPityRule(ItemDropBestiaryInfoElement element, object partnerListObject, ref int partnerListIndex) {
++			if (partnerListObject is not List<PityDropsRule> partnerList)
++				return element;  // Somehow, the lists got desynced.  Default to doing nothing.
++
++			if (partnerList[partnerListIndex] is PityDropsRule pityRule)
++				PityDropsHandler.MarkElement(element, pityRule);
++
++			partnerListIndex++;
++			return element;
++		}
++
++		private static void ItemDropBestiaryInfoElement_ProvideUIElement(ILContext il) => ILHelper.CommonPatchingWrapper(il, MagicStorageMod.Instance, false, InjectRateAdjustment);
++
++		private static bool InjectRateAdjustment(ILCursor c, ref string badReturnReason) {
++			FieldInfo ItemDropBestiaryInfoElement__droprateInfo = typeof(ItemDropBestiaryInfoElement).GetField(nameof(ItemDropBestiaryInfoElement._droprateInfo), BindingFlags.NonPublic | BindingFlags.Instance)
++				?? throw new InvalidOperationException("Failed to resolve field ItemDropBestiaryInfoElement._droprateInfo");
++
++			if (!c.TryGotoNext(MoveType.After, i => i.MatchLdfld(ItemDropBestiaryInfoElement__droprateInfo))) {
++				badReturnReason = "Failed to find access to field ItemDropBestiaryInfoElement._droprateInfo";
++				return false;
++			}
++
++			c.Emit(OpCodes.Ldarg_0);
++
++			c.EmitDelegate<Func<DropRateInfo, ItemDropBestiaryInfoElement, DropRateInfo>>(ApplyPityToRateInfo);
++
++			return true;
++		}
++
++		private static DropRateInfo ApplyPityToRateInfo(DropRateInfo rateInfo, ItemDropBestiaryInfoElement self) {
++			if (PityDropsHandler.IsAffected(self, out var pityRule))
++				PityDropsHandler.ApplyPity(pityRule, ref rateInfo);
++
++			return rateInfo;
++		}
++	}
++}
+*** End Patch

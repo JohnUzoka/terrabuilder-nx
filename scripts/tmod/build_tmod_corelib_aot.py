@@ -6,6 +6,11 @@ Save & Quit with "Ran out of trampolines of type 1 ... (limit 4096)" (static RGC
 Vanilla builds 58+ already raised the specific/IMT/GSharedVT/unbox pools; modded
 tModLoader also needs the static-RGCTX pool raised.
 
+This is the recipe for the toolchain's tmod-runtime/corelib-aot objects (pools-llvm-v72,
+CORELIB_LLVM=1; scripts/tmod/runtime/README.md). Builds never run it: they reuse those objects.
+It is a maintainer tool that runs in the engineering cache (/build = ~/.cache/terraria-switch-build),
+where tmod09's RomFS held the same CoreLib as tmod-runtime/corelib.
+
 Env: CORELIB_VARIANT (output name under /build/tmod/corelib), CORELIB_LLVM=1 to compile
 through Mono's LLVM backend (run in localhost/monobuild-llvm:local; emits a -llvm.o
 sidecar, as vanilla build64). Output: object(s) + manifest.json. Input is the exact

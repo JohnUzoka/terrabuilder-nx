@@ -11,6 +11,12 @@
 icudt*.dat
 dist/
 
+# The guided build's folders: the user's game, tModLoader and mods, and finished builds
+/Terraria/
+/tModLoader/
+/Mods/
+/Output/
+
 # Hardware logs and crash captures (kept in the workshop, not here)
 log*.txt
 crash_reports/

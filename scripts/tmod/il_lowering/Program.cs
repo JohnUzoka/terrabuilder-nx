@@ -84,26 +84,16 @@ public class Program
         Console.WriteLine("  Generic Data-Driven Build-Time IL Hook Lowering Pass");
         Console.WriteLine("=================================================================");
 
-        string inventoryPath = GetArg(args, "--inventory", CacheRoot.Path + "/tmod/auto-hooks/scan/souls-set/hook-inventory.json");
-        string tmlIn = GetArg(args, "--tml-in", CacheRoot.Path + "/tmod/save-exit/crypto/tModLoader_patched_nxfix.dll");
-        string hooksIn = GetArg(args, "--hooks-in", CacheRoot.Path + "/tmod/tmod09/romfs/TerrariaHooks.dll");
-        string detourIn = GetArg(args, "--detour-in", CacheRoot.Path + "/tmod/release/Libraries/monomod.runtimedetour/25.3.2/lib/net8.0/MonoMod.RuntimeDetour.dll");
-        string outDir = GetArg(args, "--out-dir", CacheRoot.Path + "/tmod/auto-hooks/il-lowering2");
+        string inventoryPath = RequireArg(args, "--inventory");
+        string tmlIn = RequireArg(args, "--tml-in");
+        string hooksIn = RequireArg(args, "--hooks-in");
+        string detourIn = RequireArg(args, "--detour-in");
+        string outDir = RequireArg(args, "--out-dir");
 
         var modsDirs = new List<string>();
-        string extraModsDir = GetArg(args, "--mods-dir", null);
-        if (!string.IsNullOrEmpty(extraModsDir))
+        foreach (var d in RequireArg(args, "--mods-dir").Split(new[] { ';', ':' }, StringSplitOptions.RemoveEmptyEntries))
         {
-            foreach (var d in extraModsDir.Split(new[] { ';', ':' }, StringSplitOptions.RemoveEmptyEntries))
-            {
-                if (!modsDirs.Contains(d)) modsDirs.Add(d);
-            }
-        }
-        // Default fallbacks if none specified
-        if (modsDirs.Count == 0)
-        {
-            modsDirs.Add(CacheRoot.Path + "/tmod/mod-trials/souls/extracted");
-            modsDirs.Add(CacheRoot.Path + "/tmod/mod-trials/fargo/extracted");
+            if (!modsDirs.Contains(d)) modsDirs.Add(d);
         }
 
         Directory.CreateDirectory(outDir);
@@ -133,8 +123,13 @@ public class Program
                 string dll = modEl.GetProperty("dll").GetString();
                 string mvid = modEl.GetProperty("mvid").GetString();
                 modInfoMap[name] = (dll, mvid);
+                // Every scanned mod/library assembly is a mod scope for slot lowering.
+                ModAssemblyNames.Add(name);
+                ModAssemblyNames.Add(Path.GetFileNameWithoutExtension(dll));
             }
         }
+        if (ModAssemblyNames.Count == 0)
+            throw new InvalidOperationException($"Inventory {inventoryPath} lists no mod assemblies.");
 
         // Build search directories for ALC and Cecil
         var searchPaths = new List<string>(modsDirs);
@@ -142,19 +137,11 @@ public class Program
         AddPath(Path.GetDirectoryName(tmlIn));
         AddPath(Path.GetDirectoryName(hooksIn));
         AddPath(Path.GetDirectoryName(detourIn));
-        // Auto-discover sibling Libraries / release directory
-        string tmlDir = Path.GetDirectoryName(tmlIn);
-        AddPath(Path.Combine(tmlDir, "Libraries"));
-        AddPath(Path.Combine(Path.GetDirectoryName(tmlDir) ?? "", "Libraries"));
-        AddPath(Path.Combine(Path.GetDirectoryName(tmlDir) ?? "", "release"));
-        AddPath(Path.Combine(Path.GetDirectoryName(tmlDir) ?? "", "release", "Libraries"));
-        // Global fallbacks if they exist
-        AddPath(CacheRoot.Path + "/tmod/release");
-        AddPath(CacheRoot.Path + "/tmod/release/Libraries");
-        AddPath(CacheRoot.Path + "/tmod/tmod09/romfs");
-        AddPath("/build/tmod/release");
-        AddPath("/build/tmod/release/Libraries");
-        AddPath("/build/tmod/romfs");
+        // Reference folders (e.g. the tModLoader release), in the order given.
+        for (int i = 0; i < args.Length - 1; i++)
+        {
+            if (args[i] == "--ref-dir") AddPath(args[i + 1]);
+        }
 
         // 2. Setup ALC for mod loading
         var alc = new ModLoadContext(searchPaths.ToArray());
@@ -211,12 +198,25 @@ public class Program
             Console.WriteLine($"\n[IL Hook Entry] Target: {targetFullName}, Manipulator: {manipFullName}, Mod: {modName}");
 
             // Resolve target method in game assembly
-            var targetType = tmlAsm.MainModule.GetType(targetTypeName)
+            // The inventory writes nested types as Outer+Inner; Cecil names them Outer/Inner.
+            var targetType = tmlAsm.MainModule.GetType(targetTypeName.Replace('+', '/'))
                 ?? throw new InvalidOperationException($"Target type {targetTypeName} not found in {tmlIn}!");
 
-            var targetMethod = targetType.Methods.FirstOrDefault(m => m.FullName == targetFullName ||
-                (m.Name == targetMethodName && m.IsStatic == targetIsStatic))
-                ?? throw new InvalidOperationException($"Target method {targetFullName} not found in {targetTypeName}!");
+            // Exact signature first; a bare name only identifies the target when it is not overloaded.
+            var exactTargets = targetType.Methods.Where(m => m.FullName == targetFullName).ToList();
+            var targetCandidates = exactTargets.Count == 1 ? exactTargets
+                : targetType.Methods.Where(m => m.Name == targetMethodName && m.IsStatic == targetIsStatic).ToList();
+            if (targetCandidates.Count != 1)
+                throw new InvalidOperationException(targetCandidates.Count == 0
+                    ? $"Target method {targetFullName} not found in {targetTypeName}!"
+                    : $"Target method {targetFullName} is ambiguous in {targetTypeName} ({targetCandidates.Count} overloads named {targetMethodName}).");
+            var targetMethod = targetCandidates[0];
+
+            // LoweredILRegistry, RegisteredCount_/IsActive_ slots and the runtime target check are keyed
+            // by method name, so two different targets with one name cannot both be lowered.
+            var sameName = loweredSpecs.FirstOrDefault(s => s.TargetMethod == targetMethodName && s.TargetFullName != targetMethod.FullName);
+            if (sameName != null)
+                throw new NotSupportedException($"IL hooks on {sameName.TargetFullName} and {targetMethod.FullName} share the name {targetMethodName}; the lowered registry is keyed by method name.");
 
             Console.WriteLine($"Found target MethodDefinition: {targetMethod.FullName} ({targetMethod.Body.Instructions.Count} instrs)");
 
@@ -241,6 +241,9 @@ public class Program
             // Parse manipulator method declaration
             // e.g. "System.Void Luminance.Core.Graphics.ScreenShaderFixer::PerformEdit(MonoMod.Cil.ILContext,Luminance.Core.Hooking.ManagedILEdit)"
             ParseManipulatorName(manipFullName, out string manipDeclTypeName, out string manipMethodName);
+            // Cecil separates nested types with '/'; reflection (build-time load and the runtime
+            // Register/Unregister identity check against Type.FullName) uses '+'.
+            manipDeclTypeName = manipDeclTypeName.Replace('/', '+');
 
             // Load mod assembly containing the manipulator
             Assembly modRuntimeAsm = null;
@@ -357,7 +360,9 @@ public class Program
                 throw new InvalidOperationException($"No compatible manipulator signature found for {manipFullName}!");
 
             Console.WriteLine($"Invoking real manipulator: {selectedManipMethod.DeclaringType.FullName}::{selectedManipMethod.Name}");
-            selectedManipMethod.Invoke(targetInstance, invokeParams);
+            // Same path as MonoMod's ILHook on PC: ILContext.Invoke wraps branch targets in ILLabels
+            // (ILCursor `out ILLabel` matches depend on it), then unwraps them and fixes short/long branch forms.
+            ilContext.Invoke(_ => selectedManipMethod.Invoke(targetInstance, invokeParams));
             Console.WriteLine($"Manipulator invoked successfully. Edited body instructions: {editedClone.Body.Instructions.Count}");
 
             // Post-process the edited clone:
@@ -396,13 +401,13 @@ public class Program
         return 0;
     }
 
-    private static string GetArg(string[] args, string name, string defaultVal)
+    private static string RequireArg(string[] args, string name)
     {
         for (int i = 0; i < args.Length - 1; i++)
         {
             if (args[i] == name) return args[i + 1];
         }
-        return defaultVal;
+        throw new ArgumentException($"{name} is required");
     }
 
     private static void ParseManipulatorName(string fullName, out string typeName, out string methodName)
@@ -423,17 +428,16 @@ public class Program
         methodName = clean.Substring(colonColon + 2);
     }
 
+    // Names of every mod/library assembly in the inventory (filled in Main).
+    private static readonly HashSet<string> ModAssemblyNames = new(StringComparer.OrdinalIgnoreCase);
+
     private static bool IsModAssembly(IMetadataScope scope)
     {
         if (scope == null) return false;
         string name = scope.Name;
         if (name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
             name = Path.GetFileNameWithoutExtension(name);
-
-        return string.Equals(name, "FargowiltasSouls", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(name, "Luminance", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(name, "StructureHelper", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(name, "Fargowiltas", StringComparison.OrdinalIgnoreCase);
+        return ModAssemblyNames.Contains(name);
     }
 
     private static void PostProcessEditedClone(
@@ -464,10 +468,23 @@ public class Program
                         SlotName = slotName,
                         Kind = "StaticMethod",
                         AssemblyName = mr.DeclaringType.Scope.Name.Replace(".dll", ""),
-                        DeclaringType = mr.DeclaringType.FullName,
+                        // Bound at runtime through Assembly.GetType, which names nested types with '+'.
+                        DeclaringType = mr.DeclaringType.FullName.Replace('/', '+'),
                         MethodName = mr.Name,
                         Signature = mr.FullName
                     };
+
+                    // The runtime binder looks the slot method up by name in the manipulator's assembly.
+                    if (!string.Equals(rule.AssemblyName, spec.ModName, StringComparison.OrdinalIgnoreCase))
+                        throw new NotSupportedException(
+                            $"IL edit on {spec.TargetFullName} by {spec.ModName} calls {mr.FullName} in another assembly ({rule.AssemblyName}); slots bind in the manipulator's assembly. Fail closed.");
+                    var slotMethodDef = mr.Resolve()
+                        ?? throw new InvalidOperationException($"Cannot resolve mod slot method {mr.FullName}.");
+                    if (mr is GenericInstanceMethod || slotMethodDef.HasGenericParameters || slotMethodDef.DeclaringType.HasGenericParameters)
+                        throw new NotSupportedException($"IL edit on {spec.TargetFullName} calls generic mod method {mr.FullName}. Fail closed.");
+                    if (slotMethodDef.DeclaringType.Methods.Count(m => m.Name == mr.Name) != 1)
+                        throw new NotSupportedException(
+                            $"IL edit on {spec.TargetFullName} calls overloaded mod method {mr.FullName}; the runtime binder resolves slots by name. Fail closed.");
 
                     string delTypeName = $"Delegate_{spec.TargetMethod}_{slotName}";
                     var delegateTypeDef = CreateDelegateTypeDefinition(hooksAsm.MainModule, mr, delTypeName);
@@ -572,20 +589,73 @@ public class Program
         return delType;
     }
 
+    /// <summary>Import a slot signature type into TerrariaHooks with its real scope, nesting,
+    /// value-type-ness and shape (byref, array, generic instance). Mod types fail closed: TerrariaHooks
+    /// must not reference mod assemblies.</summary>
     private static TypeReference ImportTypeToHooks(ModuleDefinition hooksModule, TypeReference type)
     {
+        switch (type)
+        {
+            case ByReferenceType byRef:
+                return new ByReferenceType(ImportTypeToHooks(hooksModule, byRef.ElementType));
+            case ArrayType array:
+                return array.IsVector
+                    ? new ArrayType(ImportTypeToHooks(hooksModule, array.ElementType))
+                    : new ArrayType(ImportTypeToHooks(hooksModule, array.ElementType), array.Rank);
+            case GenericInstanceType generic:
+                var instance = new GenericInstanceType(ImportTypeToHooks(hooksModule, generic.ElementType));
+                foreach (var argument in generic.GenericArguments)
+                    instance.GenericArguments.Add(ImportTypeToHooks(hooksModule, argument));
+                return instance;
+            case TypeSpecification or GenericParameter:
+                throw new NotSupportedException($"Unsupported slot signature type {type.FullName} ({type.GetType().Name}).");
+        }
+
         if (type.IsPrimitive || type.FullName == "System.Void" || type.FullName == "System.String" || type.FullName == "System.Object")
         {
             return hooksModule.ImportReference(type);
         }
 
-        // If it's a type in tModLoader (e.g. Terraria.Player)
-        var tmlRef = hooksModule.AssemblyReferences.FirstOrDefault(a => a.Name == "tModLoader");
-        if (tmlRef != null)
+        var outermost = type;
+        while (outermost.DeclaringType != null) outermost = outermost.DeclaringType;
+        if (IsModAssembly(outermost.Scope))
+            throw new NotSupportedException($"Slot signature uses mod type {type.FullName}; TerrariaHooks cannot reference mod assemblies. Fail closed.");
+
+        if (ScopeAssemblyName(outermost.Scope) == "tModLoader")
         {
-            return new TypeReference(type.Namespace, type.Name, hooksModule, tmlRef);
+            var tmlRef = hooksModule.AssemblyReferences.FirstOrDefault(a => a.Name == "tModLoader")
+                ?? throw new InvalidOperationException("TerrariaHooks has no tModLoader reference.");
+            return TmlTypeReference(hooksModule, tmlRef, type);
         }
-        return hooksModule.ImportReference(type);
+
+        // FNA, ReLogic, corelib, ...: keep the original assembly scope.
+        var imported = hooksModule.ImportReference(type);
+        imported.IsValueType = ResolvedIsValueType(type);
+        return imported;
+    }
+
+    private static TypeReference TmlTypeReference(ModuleDefinition hooksModule, AssemblyNameReference tmlRef, TypeReference type)
+    {
+        var reference = new TypeReference(type.DeclaringType == null ? type.Namespace : "", type.Name,
+            hooksModule, tmlRef, ResolvedIsValueType(type));
+        if (type.DeclaringType != null)
+            reference.DeclaringType = TmlTypeReference(hooksModule, tmlRef, type.DeclaringType);
+        return reference;
+    }
+
+    private static string ScopeAssemblyName(IMetadataScope scope) => scope switch
+    {
+        ModuleDefinition module => module.Assembly?.Name.Name ?? Path.GetFileNameWithoutExtension(module.Name),
+        AssemblyNameReference assembly => assembly.Name,
+        _ => scope?.Name,
+    };
+
+    private static bool ResolvedIsValueType(TypeReference type)
+    {
+        // A TypeRef only carries value-type-ness from the signature it was read in; the definition is authoritative.
+        var definition = type.Resolve()
+            ?? throw new InvalidOperationException($"Cannot resolve slot signature type {type.FullName}.");
+        return definition.IsValueType;
     }
 
     private static MethodDefinition CreateSlotInvokerMethod(

@@ -41,6 +41,13 @@ void heap_debug()
             (void*)mono_nx_guard_region, (size_t)mono_nx_guard_region_size);
 }
 
+// Size of the region given to Mono's fake mmap (SGen). build_tmod_modset_nro.py patches the
+// launcher to derive SGen's default max-heap-size from it.
+size_t mono_nx_mono_heap_bytes(void)
+{
+    return (size_t)(mono_heap_end - mono_heap_start);
+}
+
 // Custom symbol exported by mono
 void mono_nx_fakemmap_init(intptr_t memory_start, intptr_t memory_end);
 

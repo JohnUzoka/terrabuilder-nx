@@ -1,0 +1,16 @@
+*** Begin Patch
+*** Add File: AlchemistNPCLite.csproj
++<Project Sdk="Microsoft.NET.Sdk">
++  <Import Project="..\tModLoader.targets" />
++  <PropertyGroup>
++    <AssemblyName>AlchemistNPCLite</AssemblyName>
++    <LangVersion>latest</LangVersion>
++  </PropertyGroup>
++  <ItemGroup>
++    <Reference Include="FargowiltasSouls">
++      <HintPath>FargowiltasSouls.dll</HintPath>
++      <Private>false</Private>
++    </Reference>
++  </ItemGroup>
++</Project>
+*** End Patch

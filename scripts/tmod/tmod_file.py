@@ -10,6 +10,27 @@ import struct
 import zlib
 from pathlib import Path
 
+# The tModLoader release this port is built from (NxFix input, base mod set, AOT objects).
+PORT_LOADER_VERSION = '2026.7.3.0'
+
+
+def loader_version_problem(loader_version):
+    """Why tModLoader 2026.7.3.0 would skip a package built with `loader_version`, or None.
+
+    Mirrors ModOrganizer.SelectVersionToLoad: a package built for a newer tModLoader (by
+    year.month) is skipped, and so is one from before tModLoader 1.4.4 (SocialBrowserModule
+    .GetBrowserVersionNumber below 2023.3.85 is 1.4.3 or 1.4.4-Transitive). Older 1.4.4 packages
+    load; members they use that 2026.7.3.0 no longer has fail only when that code runs (the hook
+    scanner lists them as missing_members).
+    """
+    version = tuple(int(part) for part in loader_version.split('.'))
+    port = tuple(int(part) for part in PORT_LOADER_VERSION.split('.'))
+    if version[:2] > port[:2]:
+        return f'built for tModLoader {loader_version}, newer than this port\'s {PORT_LOADER_VERSION}'
+    if version < (2023, 3, 85):
+        return f'built for tModLoader {loader_version}, before tModLoader 1.4.4'
+    return None
+
 
 def _take(stream, size, end):
     if size < 0 or size > end - stream.tell():

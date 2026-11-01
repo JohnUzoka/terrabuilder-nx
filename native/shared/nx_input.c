@@ -536,6 +536,254 @@ static void begin_draw(void) {}
 static void end_draw(void) {}
 #endif
 
+#if defined(MONO_NX_SWKBD)
+/* System keyboard for Terraria text boxes (tModLoader builds).
+ *
+ * Every text box in tModLoader, vanilla Terraria and the curated mods sets
+ * Terraria.GameInput.PlayerInput.WritingText while it is focused, then reads typed
+ * characters with Main.GetInputText; PlayerInput.UpdateInput clears the flag every update.
+ * FNA drains SDL's queue at the start of each tick, so when a drain ends (SDL_PollEvent
+ * returns 0) the flag still holds what the previous frame's Draw left. When it turns on,
+ * the launcher shows the system keyboard (swkbdShow; the game thread waits until it
+ * closes), waits for the pad buttons and the touch screen to be released, and returns the
+ * text through FNA's own path as SDL_TEXTINPUT events. Terraria keeps at most 10 typed
+ * characters per update (Main.keyCount), so a drain delivers only as many UTF-16 units as
+ * that buffer has room for and later ticks deliver the rest. Cancel (B) types nothing.
+ *
+ * One keyboard per focus: the flag must stay off for NX_SWKBD_REARM_DRAINS drains in a row
+ * (a tick whose Draw is skipped leaves it off for one) before the next rising edge opens
+ * it again. Screens that keep a filter box active the whole time they are open (mod list,
+ * mod sources, mod browser, achievements) never open it.
+ *
+ * SDL's own text input stays off (__wrap_SDL_StartTextInput): devkitPro SDL stops polling
+ * touch, mouse and USB keyboards while it is on, and its inline keyboard lets the game act
+ * on the same button presses.
+ */
+#define NX_SWKBD_MAX_CHARS 256
+#define NX_SWKBD_TERRARIA_KEYS 10
+#define NX_SWKBD_REARM_DRAINS 20
+#define NX_SWKBD_STALL_DRAINS 600
+
+/* MONO_API in mono/utils/mono-threads-api.h, which the installed headers omit. */
+extern void *mono_threads_enter_gc_unsafe_region(void **stackdata);
+extern void mono_threads_exit_gc_unsafe_region(void *cookie, void **stackdata);
+
+static struct {
+    bool resolved;
+    bool disabled;
+    bool focus_used;
+    unsigned off_drains;
+    unsigned stall_drains;
+    Handle thread;
+    MonoVTable *input_vtable;
+    MonoVTable *main_vtable;
+    MonoClassField *writing_text;
+    MonoClassField *key_count;
+    MonoClassField *game_menu;
+    MonoClassField *menu_ui;
+    MonoClassField *ingame_ui;
+    MonoClassField *current_state;
+    size_t length;
+    size_t delivered;
+    char text[NX_SWKBD_MAX_CHARS * 4 + 1];
+} swkbd;
+
+static bool swkbd_resolve(void)
+{
+    if (swkbd.resolved)
+        return !swkbd.disabled;
+    swkbd.resolved = true;
+    MonoImage *image = mono_image_loaded("tModLoader");
+    MonoClass *input = image ? mono_class_from_name(image, "Terraria.GameInput", "PlayerInput") : NULL;
+    MonoClass *main_class = image ? mono_class_from_name(image, "Terraria", "Main") : NULL;
+    MonoClass *ui = image ? mono_class_from_name(image, "Terraria.UI", "UserInterface") : NULL;
+    if (input) {
+        swkbd.writing_text = mono_class_get_field_from_name(input, "WritingText");
+        swkbd.input_vtable = mono_class_vtable(mono_get_root_domain(), input);
+    }
+    if (main_class) {
+        swkbd.key_count = mono_class_get_field_from_name(main_class, "keyCount");
+        swkbd.game_menu = mono_class_get_field_from_name(main_class, "gameMenu");
+        swkbd.menu_ui = mono_class_get_field_from_name(main_class, "MenuUI");
+        swkbd.ingame_ui = mono_class_get_field_from_name(main_class, "InGameUI");
+        swkbd.main_vtable = mono_class_vtable(mono_get_root_domain(), main_class);
+    }
+    if (ui)
+        swkbd.current_state = mono_class_get_field_from_name(ui, "_currentState");
+    if (!swkbd.writing_text || !swkbd.input_vtable || !swkbd.key_count || !swkbd.game_menu ||
+        !swkbd.menu_ui || !swkbd.ingame_ui || !swkbd.main_vtable || !swkbd.current_state) {
+        swkbd.disabled = true;
+        io_debugf("NX_SWKBD disabled: tModLoader's PlayerInput/Main/UserInterface fields not found");
+        return false;
+    }
+    io_debugf("NX_SWKBD ready: the system keyboard opens when a text box takes input");
+    return true;
+}
+
+/* Name of the open screen if it keeps a filter box active while open, else NULL. Object
+ * references are read in GC-unsafe mode so a collection cannot move them meanwhile.
+ */
+static const char *swkbd_always_on_screen(void)
+{
+    static const char *const screens[] = { "UIMods", "UIModSources", "UIModBrowser", "UIAchievementsMenu" };
+    MonoBoolean in_menu = 0;
+    mono_field_static_get_value(swkbd.main_vtable, swkbd.game_menu, &in_menu);
+    void *stackdata;
+    void *cookie = mono_threads_enter_gc_unsafe_region(&stackdata);
+    MonoObject *ui = NULL;
+    MonoObject *state = NULL;
+    mono_field_static_get_value(swkbd.main_vtable, in_menu ? swkbd.menu_ui : swkbd.ingame_ui, &ui);
+    if (ui)
+        mono_field_get_value(ui, swkbd.current_state, &state);
+    const char *name = state ? mono_class_get_name(mono_object_get_class(state)) : NULL;
+    mono_threads_exit_gc_unsafe_region(cookie, &stackdata);
+    for (size_t i = 0; name && i < sizeof screens / sizeof screens[0]; ++i) {
+        if (strcmp(name, screens[i]) == 0)
+            return screens[i];
+    }
+    return NULL;
+}
+
+/* The keyboard closes on a button press or a tap; that press must not reach the game. */
+static void swkbd_wait_for_release(void)
+{
+    const uint64_t buttons = HidNpadButton_A | HidNpadButton_B | HidNpadButton_X |
+        HidNpadButton_Y | HidNpadButton_StickL | HidNpadButton_StickR | HidNpadButton_L |
+        HidNpadButton_R | HidNpadButton_ZL | HidNpadButton_ZR | HidNpadButton_Plus |
+        HidNpadButton_Minus | HidNpadButton_Left | HidNpadButton_Up | HidNpadButton_Right |
+        HidNpadButton_Down | HidNpadButton_LeftSL | HidNpadButton_LeftSR |
+        HidNpadButton_RightSL | HidNpadButton_RightSR;
+    PadState pad;
+    padInitializeDefault(&pad);
+    for (int i = 0; i < 200; ++i) {
+        padUpdate(&pad);
+        HidTouchScreenState touch = {0};
+        bool touching = hidGetTouchScreenStates(&touch, 1) > 0 && touch.count > 0;
+        if (!(padGetButtons(&pad) & buttons) && !touching)
+            return;
+        svcSleepThread(10000000LL);
+    }
+    io_debugf("NX_SWKBD input still held 2 s after the keyboard closed");
+}
+
+static void swkbd_show(void)
+{
+    SwkbdConfig config;
+    Result rc = swkbdCreate(&config, 0);
+    if (R_FAILED(rc)) {
+        io_debugf("NX_SWKBD swkbdCreate failed: 0x%08x", (unsigned)rc);
+        return;
+    }
+    swkbdConfigMakePresetDefault(&config);
+    swkbdConfigSetStringLenMax(&config, NX_SWKBD_MAX_CHARS);
+    uint64_t begin = armGetSystemTick();
+    swkbd.text[0] = '\0';
+    rc = swkbdShow(&config, swkbd.text, sizeof swkbd.text);
+    swkbdClose(&config);
+    double seconds = (double)(armGetSystemTick() - begin) / (double)armGetSystemTickFreq();
+    swkbd_wait_for_release();
+    swkbd.length = R_SUCCEEDED(rc) ? strnlen(swkbd.text, sizeof swkbd.text - 1) : 0;
+    swkbd.delivered = 0;
+    swkbd.stall_drains = 0;
+    io_debugf("NX_SWKBD closed after %.1f s: rc=0x%08x, %zu bytes to type", seconds,
+        (unsigned)rc, swkbd.length);
+}
+
+/* Fills *event with the next SDL_TEXTINPUT chunk that fits Terraria's key buffer. */
+static int swkbd_deliver(SDL_Event *event)
+{
+    int32_t used = NX_SWKBD_TERRARIA_KEYS;
+    mono_field_static_get_value(swkbd.main_vtable, swkbd.key_count, &used);
+    int room = NX_SWKBD_TERRARIA_KEYS - used;
+    if (room <= 0) {
+        if (++swkbd.stall_drains >= NX_SWKBD_STALL_DRAINS) {
+            io_debugf("NX_SWKBD dropped %zu undelivered bytes: the text box stopped reading",
+                swkbd.length - swkbd.delivered);
+            swkbd.length = swkbd.delivered = 0;
+        }
+        return 0;
+    }
+    size_t start = swkbd.delivered;
+    size_t end = start;
+    int units = 0;
+    while (end < swkbd.length) {
+        unsigned char lead = (unsigned char)swkbd.text[end];
+        size_t bytes = lead < 0xC0 ? 1 : lead < 0xE0 ? 2 : lead < 0xF0 ? 3 : 4;
+        int needed = bytes == 4 ? 2 : 1; /* UTF-16 units FNA hands to Terraria */
+        if (end + bytes > swkbd.length) {
+            swkbd.length = end; /* truncated sequence at the end: not typed */
+            break;
+        }
+        if (units + needed > room || end + bytes - start > SDL_TEXTINPUTEVENT_TEXT_SIZE - 1)
+            break;
+        end += bytes;
+        units += needed;
+    }
+    if (end == start) {
+        if (swkbd.delivered >= swkbd.length)
+            swkbd.length = swkbd.delivered = 0;
+        return 0; /* otherwise a surrogate pair waits for two free slots */
+    }
+    SDL_zerop(event);
+    event->text.type = SDL_TEXTINPUT;
+    event->text.timestamp = SDL_GetTicks();
+    SDL_Window *window = SDL_GetKeyboardFocus();
+    event->text.windowID = window ? SDL_GetWindowID(window) : 0;
+    memcpy(event->text.text, swkbd.text + start, end - start);
+    swkbd.delivered = end;
+    swkbd.stall_drains = 0;
+    if (swkbd.delivered == swkbd.length)
+        swkbd.length = swkbd.delivered = 0;
+    return 1;
+}
+
+/* Runs when SDL_PollEvent has nothing left; returns its result for the same call. */
+static int swkbd_after_drain(SDL_Event *event)
+{
+    if (!event || stopping || swkbd.disabled)
+        return 0;
+    Handle self = threadGetCurHandle();
+    if (!swkbd.thread)
+        swkbd.thread = self;
+    else if (self != swkbd.thread)
+        return 0;
+    if (!swkbd_resolve())
+        return 0;
+
+    MonoBoolean writing = 0;
+    mono_field_static_get_value(swkbd.input_vtable, swkbd.writing_text, &writing);
+    if (writing) {
+        swkbd.off_drains = 0;
+    } else if (++swkbd.off_drains >= NX_SWKBD_REARM_DRAINS) {
+        swkbd.off_drains = NX_SWKBD_REARM_DRAINS;
+        swkbd.focus_used = false;
+        if (swkbd.length) {
+            io_debugf("NX_SWKBD dropped %zu undelivered bytes: the text box closed",
+                swkbd.length - swkbd.delivered);
+            swkbd.length = swkbd.delivered = 0;
+        }
+    }
+    if (swkbd.length)
+        return swkbd_deliver(event);
+    if (!writing || swkbd.focus_used)
+        return 0;
+    swkbd.focus_used = true;
+    const char *screen = swkbd_always_on_screen();
+    if (screen) {
+        io_debugf("NX_SWKBD not opened: %s keeps its filter box active", screen);
+        return 0;
+    }
+    swkbd_show();
+    return swkbd.length ? swkbd_deliver(event) : 0;
+}
+#else
+static int swkbd_after_drain(SDL_Event *event)
+{
+    (void)event;
+    return 0;
+}
+#endif
+
 #if defined(MONO_NX_PHASE_TIMING)
 
 /* These APIs run on the game/video thread, never the input sampler. The
@@ -552,7 +800,7 @@ int SDLCALL __wrap_SDL_PollEvent(SDL_Event *event)
     uint64_t begin = armGetSystemTick();
     int result = __real_SDL_PollEvent(event);
     record_phase(&poll_phase, begin, armGetSystemTick());
-    return result;
+    return result ? result : swkbd_after_drain(event);
 }
 
 void __wrap_FNA3D_SwapBuffers(FNA3D_Device *device,
@@ -581,7 +829,8 @@ extern __typeof__(FNA3D_SwapBuffers) __real_FNA3D_SwapBuffers;
 
 int SDLCALL __wrap_SDL_PollEvent(SDL_Event *event)
 {
-    return __real_SDL_PollEvent(event);
+    int result = __real_SDL_PollEvent(event);
+    return result ? result : swkbd_after_drain(event);
 }
 
 void __wrap_FNA3D_SwapBuffers(FNA3D_Device *device,

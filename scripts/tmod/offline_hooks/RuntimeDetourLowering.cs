@@ -626,7 +626,10 @@ partial class Program
     }
 
     /// <summary>Typed adapter: hook_E.Invoke(orig_E orig, args) calls the mod's detour with the
-    /// mod's own orig delegate wrapping orig.Invoke, cached per chain link (immutable pair).</summary>
+    /// mod's own orig delegate, cached per chain link (immutable pair). That delegate is bound to
+    /// the link's compiled Call method, which invokes orig. Binding it to orig.Invoke instead (a
+    /// delegate over another delegate's Invoke) sends every call through Mono's interpreter on
+    /// the console; run 43 spent 22% of the game thread in Magic Storage's NearbyEffects chain.</summary>
     static TypeDefinition BuildAdapter(ModuleDefinition module, TypeDefinition factory, TypeDefinition api, ModuleDefinition hooks, HookTargetSpec spec,
         MethodDefinition target, MethodDefinition detour, int index)
     {
@@ -665,7 +668,17 @@ partial class Program
         pair.Fields.Add(pairMod);
         var pairCtor = new MethodDefinition(".ctor", MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName, module.TypeSystem.Void);
         pairCtor.Parameters.Add(new ParameterDefinition("orig", ParameterAttributes.None, origRef));
-        pairCtor.Parameters.Add(new ParameterDefinition("mod", ParameterAttributes.None, modOrigRef));
+        var forward = new MethodDefinition("Call", MethodAttributes.Public | MethodAttributes.HideBySig, module.ImportReference(target.ReturnType));
+        foreach (var p in origInvokeDef.Parameters)
+            forward.Parameters.Add(new ParameterDefinition(p.Name, p.Attributes, module.ImportReference(p.ParameterType)));
+        var fil = forward.Body.GetILProcessor();
+        fil.Append(fil.Create(OpCodes.Ldarg_0));
+        fil.Append(fil.Create(OpCodes.Ldfld, pairOrig));
+        foreach (var p in forward.Parameters)
+            fil.Append(fil.Create(OpCodes.Ldarg, p));
+        fil.Append(fil.Create(OpCodes.Callvirt, origInvoke));
+        fil.Append(fil.Create(OpCodes.Ret));
+        pair.Methods.Add(forward);
         var pil = pairCtor.Body.GetILProcessor();
         pil.Append(pil.Create(OpCodes.Ldarg_0));
         pil.Append(pil.Create(OpCodes.Call, objectCtor));
@@ -673,7 +686,9 @@ partial class Program
         pil.Append(pil.Create(OpCodes.Ldarg_1));
         pil.Append(pil.Create(OpCodes.Stfld, pairOrig));
         pil.Append(pil.Create(OpCodes.Ldarg_0));
-        pil.Append(pil.Create(OpCodes.Ldarg_2));
+        pil.Append(pil.Create(OpCodes.Ldarg_0));
+        pil.Append(pil.Create(OpCodes.Ldftn, forward));
+        pil.Append(pil.Create(OpCodes.Newobj, modOrigCtor));
         pil.Append(pil.Create(OpCodes.Stfld, pairMod));
         pil.Append(pil.Create(OpCodes.Ret));
         pair.Methods.Add(pairCtor);
@@ -725,10 +740,6 @@ partial class Program
         iil.Append(iil.Create(OpCodes.Ldarg_1));
         iil.Append(iil.Create(OpCodes.Beq, call));
         iil.Append(build);
-        iil.Append(iil.Create(OpCodes.Ldarg_1));
-        iil.Append(iil.Create(OpCodes.Dup));
-        iil.Append(iil.Create(OpCodes.Ldvirtftn, origInvoke));
-        iil.Append(iil.Create(OpCodes.Newobj, modOrigCtor));
         iil.Append(iil.Create(OpCodes.Newobj, pairCtor));
         iil.Append(iil.Create(OpCodes.Stloc, link));
         iil.Append(iil.Create(OpCodes.Ldarg_0));
