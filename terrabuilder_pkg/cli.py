@@ -179,7 +179,9 @@ def image_id(image: str) -> str:
     try:
         return capture([eng, "image", "inspect", "--format", "{{.Id}}", image])
     except subprocess.CalledProcessError as error:
-        raise SystemExit(f"container image {image} is missing; see docs/BUILDING.md") from error
+        problem = engine_status(eng)[0]
+        raise SystemExit(f"the container image can't be used: {problem}" if problem else
+                         f"container image {image} is missing: `./terrabuilder toolchain --bundle` builds it") from error
 
 
 def toolchain_summary(tc: tclib.Toolchain) -> dict:
