@@ -1,0 +1,39 @@
+*** Begin Patch
+*** Update File: src/API/IO/GuidSerializer.cs
+@@
+-using System.Runtime.CompilerServices;
+-	extern static ref int Guid__a(ref Guid guid);
+-	extern static ref short Guid__b(ref Guid guid);
+-	extern static ref short Guid__c(ref Guid guid);
+-	extern static ref byte Guid__d(ref Guid guid);
+-	extern static ref byte Guid__e(ref Guid guid);
+-	extern static ref byte Guid__f(ref Guid guid);
+-	extern static ref byte Guid__g(ref Guid guid);
+-	extern static ref byte Guid__h(ref Guid guid);
+-	extern static ref byte Guid__i(ref Guid guid);
+-	extern static ref byte Guid__j(ref Guid guid);
+-	extern static ref byte Guid__k(ref Guid guid);
+-	[UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_a")]
+-	[UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_b")]
+-	[UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_c")]
+-	[UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_d")]
+-	[UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_e")]
+-	[UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_f")]
+-	[UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_g")]
+-	[UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_h")]
+-	[UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_i")]
+-	[UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_j")]
+-	[UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_k")]
++using System.Buffers.Binary;
++	static int Guid__a(ref Guid guid) { Span<byte> bytes = stackalloc byte[16]; guid.TryWriteBytes(bytes); return BinaryPrimitives.ReadInt32LittleEndian(bytes); }
++	static short Guid__b(ref Guid guid) { Span<byte> bytes = stackalloc byte[16]; guid.TryWriteBytes(bytes); return BinaryPrimitives.ReadInt16LittleEndian(bytes[4..]); }
++	static short Guid__c(ref Guid guid) { Span<byte> bytes = stackalloc byte[16]; guid.TryWriteBytes(bytes); return BinaryPrimitives.ReadInt16LittleEndian(bytes[6..]); }
++	static byte Guid__d(ref Guid guid) { Span<byte> bytes = stackalloc byte[16]; guid.TryWriteBytes(bytes); return bytes[8]; }
++	static byte Guid__e(ref Guid guid) { Span<byte> bytes = stackalloc byte[16]; guid.TryWriteBytes(bytes); return bytes[9]; }
++	static byte Guid__f(ref Guid guid) { Span<byte> bytes = stackalloc byte[16]; guid.TryWriteBytes(bytes); return bytes[10]; }
++	static byte Guid__g(ref Guid guid) { Span<byte> bytes = stackalloc byte[16]; guid.TryWriteBytes(bytes); return bytes[11]; }
++	static byte Guid__h(ref Guid guid) { Span<byte> bytes = stackalloc byte[16]; guid.TryWriteBytes(bytes); return bytes[12]; }
++	static byte Guid__i(ref Guid guid) { Span<byte> bytes = stackalloc byte[16]; guid.TryWriteBytes(bytes); return bytes[13]; }
++	static byte Guid__j(ref Guid guid) { Span<byte> bytes = stackalloc byte[16]; guid.TryWriteBytes(bytes); return bytes[14]; }
++	static byte Guid__k(ref Guid guid) { Span<byte> bytes = stackalloc byte[16]; guid.TryWriteBytes(bytes); return bytes[15]; }
+*** End Patch

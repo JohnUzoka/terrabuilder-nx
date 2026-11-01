@@ -2,22 +2,62 @@
 
 Pinned runtime aot-compiler.c emit_image_table/encode_int/encode_string:
 little-endian count, four NUL strings, 8-byte alignment, flags + four version ints.
+Standard library only: the CLI runs this on the host.
 """
 import struct
 
-from elftools.elf.elffile import ELFFile
+SECTION_HEADER = struct.Struct('<IIQQQQIIQQ')  # name type flags addr offset size link info addralign entsize
+SYMBOL = struct.Struct('<IBBHQQ')  # name info other shndx value size
+SHT_SYMTAB = 2
+SHT_SYMTAB_SHNDX = 18
+SHN_XINDEX = 0xffff
+
+
+def image_table_offsets(stream, path):
+    """File offsets (start, end) of the image_table symbol and of the end of its section."""
+    header = stream.read(64)
+    if len(header) != 64 or header[:6] != b'\x7fELF\x02\x01':
+        raise ValueError(f'Not a little-endian ELF64 object: {path}')
+    section_offset = struct.unpack_from('<Q', header, 0x28)[0]
+    entry_size, count = struct.unpack_from('<HH', header, 0x3a)
+    if entry_size != SECTION_HEADER.size or not section_offset:
+        raise ValueError(f'Unsupported ELF section headers in {path}')
+
+    def read(offset, size):
+        stream.seek(offset)
+        data = stream.read(size)
+        if len(data) != size:
+            raise ValueError(f'ELF data outside the file: {path}')
+        return data
+
+    if count == 0:  # extended numbering (LLVM sidecars): the count is section 0's sh_size
+        count = SECTION_HEADER.unpack(read(section_offset, entry_size))[5]
+    sections = list(SECTION_HEADER.iter_unpack(read(section_offset, entry_size * count)))
+    symtabs = [index for index, section in enumerate(sections) if section[1] == SHT_SYMTAB]
+    if len(symtabs) != 1:
+        raise ValueError(f'Expected one symbol table in {path}')
+    symtab = sections[symtabs[0]]
+    names = read(sections[symtab[6]][4], sections[symtab[6]][5])
+    matches = [(index, symbol) for index, symbol in enumerate(SYMBOL.iter_unpack(read(symtab[4], symtab[5])))
+               if names.startswith(b'image_table\0', symbol[0])]
+    if len(matches) != 1:
+        raise ValueError(f'Expected one image_table in {path}')
+    index, symbol = matches[0]
+    shndx = symbol[3]
+    if shndx == SHN_XINDEX:
+        extended = [section for section in sections if section[1] == SHT_SYMTAB_SHNDX and section[6] == symtabs[0]]
+        if len(extended) != 1:
+            raise ValueError(f'image_table section index missing in {path}')
+        shndx = struct.unpack('<I', read(extended[0][4] + 4 * index, 4))[0]
+    if not 0 < shndx < len(sections):
+        raise ValueError(f'image_table is not in a section of {path}')
+    section = sections[shndx]
+    return section[4] + symbol[4] - section[3], section[4] + section[5]
 
 
 def image_dependencies(path):
     with open(path, 'rb') as stream:
-        elf = ELFFile(stream)
-        symbols = elf.get_section_by_name('.symtab').get_symbol_by_name('image_table')
-        if not symbols or len(symbols) != 1:
-            raise ValueError(f'Expected one image_table in {path}')
-        symbol = symbols[0]
-        section = elf.get_section(symbol['st_shndx'])
-        base = section['sh_offset'] + symbol['st_value'] - section['sh_addr']
-        end = section['sh_offset'] + section['sh_size']
+        base, end = image_table_offsets(stream, path)
         stream.seek(base)
 
         def integer():

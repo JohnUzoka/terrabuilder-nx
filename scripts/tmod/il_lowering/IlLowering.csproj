@@ -6,11 +6,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
-  <PropertyGroup>
-    <CacheRoot Condition="'$(CacheRoot)' == ''">$(HOME)/.cache/terraria-switch-build</CacheRoot>
-    <TmodRelease Condition="'$(TmodRelease)' == ''">$(CacheRoot)/tmod/release</TmodRelease>
-  </PropertyGroup>
-
   <ItemGroup>
     <Reference Include="Mono.Cecil">
       <HintPath>$(TmodRelease)/Libraries/mono.cecil/0.11.6/lib/netstandard2.0/Mono.Cecil.dll</HintPath>
@@ -34,4 +29,7 @@
       <HintPath>$(TmodRelease)/Libraries/monomod.ilhelpers/1.1.0/lib/net8.0/MonoMod.ILHelpers.dll</HintPath>
     </Reference>
   </ItemGroup>
+  <Target Name="RequireTmodRelease" BeforeTargets="ResolveReferences">
+    <Error Condition="'$(TmodRelease)' == '' Or !Exists('$(TmodRelease)/tModLoader.dll')" Text="Provide -p:TmodRelease=/absolute/path/to/the/unpacked/tModLoader/release" />
+  </Target>
 </Project>

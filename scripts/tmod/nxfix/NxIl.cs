@@ -43,8 +43,32 @@ internal static void WidenShortBranches(MethodBody body)
 internal static void VerifyPatched(MethodDefinition method, bool expected, string unexpected)
 {
     var problems = new List<string>();
+    PrivateMembersOfOtherTypes(method, problems);
     if (!expected || UnderflowingPops(method, problems).Count > 0 || problems.Count > 0)
         throw new InvalidOperationException($"{method.FullName}: {unexpected} {string.Join("; ", problems)}");
+}
+
+// A private method or field is accessible only from its own type and the types nested in it. Mono
+// throws MethodAccessException/FieldAccessException otherwise, and in AOT code only when the access
+// runs, so a helper a patch calls from another type has to be internal.
+static void PrivateMembersOfOtherTypes(MethodDefinition method, List<string> problems)
+{
+    foreach (var instruction in method.Body.Instructions)
+    {
+        var (owner, member) = instruction.Operand switch
+        {
+            MethodDefinition m when m.IsPrivate => (m.DeclaringType, m.FullName),
+            FieldDefinition f when f.IsPrivate => (f.DeclaringType, f.FullName),
+            _ => (null, null),
+        };
+        if (owner == null)
+            continue;
+        var type = method.DeclaringType;
+        while (type != null && type != owner)
+            type = type.DeclaringType;
+        if (type == null)
+            problems.Add($"{member} is private to {owner.FullName}");
+    }
 }
 
 // Forward dataflow over the evaluation-stack depth. Returns the `pop` instructions whose

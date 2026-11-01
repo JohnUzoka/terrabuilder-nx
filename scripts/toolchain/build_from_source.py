@@ -118,7 +118,9 @@ def apply_patch(dest: Path, patch_rel: str) -> None:
 
 def ensure_image(eng: str, lock_entry: dict, extra_tags: tuple = ()) -> None:
     tag = lock_entry["tag"]
-    exists = subprocess.run([eng, "image", "exists", tag]).returncode == 0
+    # `image inspect` rather than Podman's `image exists`, which Docker does not have.
+    exists = subprocess.run([eng, "image", "inspect", tag], stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL).returncode == 0
     if exists:
         log(f"image {tag} already present, skipping build")
     else:
@@ -558,17 +560,21 @@ def main() -> int:
     ap.add_argument("--lock", type=Path, default=REPO_ROOT / "toolchain.lock.json")
     ap.add_argument("--out", type=Path, default=None,
                     help="final toolchain output dir (default: <workdir>/toolchain.fromsource)")
+    ap.add_argument("--images-only", action="store_true",
+                    help="only build the container image; builds with a prebuilt toolchain need it too")
     args = ap.parse_args()
 
     workdir = args.workdir.expanduser().resolve()
     scratch = (args.scratch or workdir / "fromsource-build").expanduser().resolve()
     final = (args.out or workdir / "toolchain.fromsource").expanduser().resolve()
-    scratch.mkdir(parents=True, exist_ok=True)
 
     lock = json.loads(args.lock.read_text())
     eng = engine()
 
     step_images(lock, scratch, eng)
+    if args.images_only:
+        return 0
+    scratch.mkdir(parents=True, exist_ok=True)
     mesa_out = step_mesa(lock, scratch, eng)
     sdk_pristine = step_mono_nx_sdk(lock, scratch, eng)
     mono_nx_native = step_mono_nx_native(lock, scratch, eng)

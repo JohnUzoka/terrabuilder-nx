@@ -81,6 +81,9 @@ static FILE *prof_file;
 static Handle main_thread;
 #define MAX_EXTRA_THREADS 8
 static volatile Handle extra_threads[MAX_EXTRA_THREADS];
+// The extra thread being sampled right now (0 between samples); nx_profiler_remove_thread waits
+// for it to change.
+static volatile Handle sampling_now;
 static void profiler_unregister_thread(Handle thread);
 static uint64_t code_start, code_end;
 static uint64_t stack_copy[STACK_COPY_BYTES / 8];
@@ -201,8 +204,14 @@ static void profiler_worker(void *arg)
         sample_once(main_thread, 0);
         for (size_t i = 0; i < MAX_EXTRA_THREADS; ++i) {
             Handle thread = extra_threads[i];
-            if (thread)
+            if (!thread)
+                continue;
+            // Publish before re-reading the slot: nx_profiler_remove_thread clears the slot and
+            // then reads sampling_now, so one side always sees the other.
+            __atomic_store_n(&sampling_now, thread, __ATOMIC_SEQ_CST);
+            if (__atomic_load_n(&extra_threads[i], __ATOMIC_SEQ_CST) == thread)
                 sample_once(thread, 8);
+            __atomic_store_n(&sampling_now, 0, __ATOMIC_RELEASE);
         }
         if (main_failures > 100) {
             io_debugf("NX_PROF stopping: the kernel refuses main thread pause/context reads");
@@ -310,8 +319,10 @@ void nx_profiler_start(void)
     memcpy(header + 32, &interval_us, 4);
     memcpy(header + 36, &scan_offset, 4);
     fwrite(header, 1, sizeof header, prof_file);
-    // Above the game's 0x2C so samples are on time; core 2 keeps it off the main thread's core.
-    Result rc = threadCreate(&prof_thread, profiler_worker, NULL, NULL, 0x4000, 0x2B, 2);
+    // Above the game's 0x2C and the audio mixer (0x2A) and FACT API (0x2B) threads that nx_audio
+    // moves to core 2, which Horizon does not time-slice, so samples stay on schedule while audio
+    // mixes. Each wake pauses a thread for tens of microseconds every 2.5 ms.
+    Result rc = threadCreate(&prof_thread, profiler_worker, NULL, NULL, 0x4000, 0x29, 2);
     if (R_SUCCEEDED(rc)) {
         rc = threadStart(&prof_thread);
         if (R_FAILED(rc))
@@ -331,6 +342,14 @@ void nx_profiler_start(void)
 void nx_profiler_add_thread(Handle thread)
 {
     profiler_register_thread(thread);
+}
+
+void nx_profiler_remove_thread(Handle thread)
+{
+    profiler_unregister_thread(thread);
+    __atomic_thread_fence(__ATOMIC_SEQ_CST);
+    while (__atomic_load_n(&sampling_now, __ATOMIC_SEQ_CST) == thread)
+        svcSleepThread(100000);
 }
 
 void nx_profiler_stop(void)

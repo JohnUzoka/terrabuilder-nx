@@ -173,7 +173,10 @@ partial class Program
         Console.WriteLine($"Saved {outPath} with deterministic content-derived MVID: {asm.MainModule.Mvid}");
     }
 
-    static void CheckUnsupportedTarget(MethodDefinition targetMethod, string targetName)
+    // hook_scan's UNSUPPORTED_TARGET check mirrors these rules, so a mod that needs one is refused
+    // before its build. On_ chains (allowValueType) pass a value type's `this` as the managed pointer
+    // HookGen's orig/hook delegates take (ref Self); runtime-detour adapters take Self by value.
+    static void CheckUnsupportedTarget(MethodDefinition targetMethod, string targetName, bool allowValueType = false)
     {
         if (targetMethod.HasGenericParameters)
             throw new NotSupportedException($"Generic method '{targetName}' is unsupported in offline hook lowering.");
@@ -184,7 +187,7 @@ partial class Program
         if (targetMethod.ReturnType.IsByReference)
             throw new NotSupportedException($"Ref return in method '{targetName}' is unsupported in offline hook lowering.");
 
-        if (targetMethod.DeclaringType.IsValueType)
+        if (targetMethod.DeclaringType.IsValueType && !allowValueType)
             throw new NotSupportedException($"Value type target method '{targetName}' is unsupported in offline hook lowering.");
 
         foreach (var p in targetMethod.Parameters)
@@ -389,10 +392,15 @@ partial class Program
             Environment.Exit(LowerModDetours(lowerModDetoursInventory, hooksInArg, tmlInArg, detourInPath, modsDirArg, refDirs));
         }
 
-        string terrariaHooksIn = positionalArgs.Count > 0 ? positionalArgs[0] : CacheRoot.Path + "/tmod/tmod09/romfs/TerrariaHooks.dll";
-        string terrariaHooksOut = positionalArgs.Count > 1 ? positionalArgs[1] : CacheRoot.Path + "/tmod/mod-trials/fargo/patched/TerrariaHooks.dll";
-        string tmlIn = positionalArgs.Count > 2 ? positionalArgs[2] : CacheRoot.Path + "/tmod/tmod09/romfs/tModLoader.dll";
-        string tmlOut = positionalArgs.Count > 3 ? positionalArgs[3] : CacheRoot.Path + "/tmod/mod-trials/fargo/patched/tModLoader.dll";
+        if (positionalArgs.Count != 4)
+            throw new ArgumentException("usage: Patcher <TerrariaHooks.dll> <TerrariaHooks out> <tModLoader.dll> <tModLoader out> "
+                + "[--inventory <inventory.json>] --detour-in <MonoMod.RuntimeDetour.dll> [--ref-dir <dir>]...");
+        if (!legacyMode && detourInPath == null)
+            throw new ArgumentException("--detour-in is required");
+        string terrariaHooksIn = positionalArgs[0];
+        string terrariaHooksOut = positionalArgs[1];
+        string tmlIn = positionalArgs[2];
+        string tmlOut = positionalArgs[3];
 
         Directory.CreateDirectory(Path.GetDirectoryName(terrariaHooksOut)!);
         Directory.CreateDirectory(Path.GetDirectoryName(tmlOut)!);
@@ -955,17 +963,16 @@ partial class Program
         var resolverTml = new DefaultAssemblyResolver();
         resolverTml.AddSearchDirectory(Path.GetDirectoryName(tmlIn));
         resolverTml.AddSearchDirectory(Path.GetDirectoryName(terrariaHooksOut));
-        resolverTml.AddSearchDirectory(CacheRoot.Path + "/tmod/release");
-        resolverTml.AddSearchDirectory(CacheRoot.Path + "/tmod/release/Libraries");
-        resolverTml.AddSearchDirectory(CacheRoot.Path + "/tmod/flat_libs");
-        resolverTml.AddSearchDirectory(CacheRoot.Path + "/tmod/mod-trials/fargo/romfs");
+        foreach (string directory in refDirs)
+            resolverTml.AddSearchDirectory(directory);
         var tmlAsm = AssemblyDefinition.ReadAssembly(tmlIn, new ReaderParameters { AssemblyResolver = resolverTml, ReadWrite = false });
 
         var patchedHooksAsm = AssemblyDefinition.ReadAssembly(terrariaHooksOut);
 
         foreach (var spec in activeHooks)
         {
-            var targetType = tmlAsm.MainModule.GetType(spec.TargetTypeName)
+            // The inventory writes nested types as Outer+Inner; Cecil names them Outer/Inner.
+            var targetType = tmlAsm.MainModule.GetType(spec.TargetTypeName.Replace('+', '/'))
                 ?? throw new InvalidOperationException($"Type {spec.TargetTypeName} not found in tModLoader!");
 
             var hookTypeDef = patchedHooksAsm.MainModule.GetType(spec.HookTypeName)!;
@@ -1027,7 +1034,10 @@ partial class Program
 
             Console.WriteLine($"Matched unique target: {matchedMethod.FullName} for event {spec.EventName}");
 
-            CheckUnsupportedTarget(matchedMethod, matchedMethod.FullName);
+            CheckUnsupportedTarget(matchedMethod, matchedMethod.FullName, allowValueType: true);
+            // HookGen's orig/hook delegates take a value type's `this` as `ref Self`; ldarg.0 in the
+            // target's own body is already that managed pointer.
+            TypeReference selfType = targetType.IsValueType ? new ByReferenceType(targetType) : targetType;
 
             MethodReference baseCtorCallRef = null;
             if (spec.IsCtor)
@@ -1053,7 +1063,7 @@ partial class Program
                     matchedMethod.ReturnType
                 );
 
-                staticBridge.Parameters.Add(new ParameterDefinition("self", ParameterAttributes.None, targetType));
+                staticBridge.Parameters.Add(new ParameterDefinition("self", ParameterAttributes.None, selfType));
                 foreach (var p in matchedMethod.Parameters)
                 {
                     var newP = new ParameterDefinition(p.Name, p.Attributes, p.ParameterType);
@@ -1176,7 +1186,7 @@ partial class Program
                 linkMethod.Parameters.Add(new ParameterDefinition("boxedIndex", ParameterAttributes.None, tmlAsm.MainModule.TypeSystem.Object));
                 if (!spec.IsStatic)
                 {
-                    linkMethod.Parameters.Add(new ParameterDefinition("self", ParameterAttributes.None, targetType));
+                    linkMethod.Parameters.Add(new ParameterDefinition("self", ParameterAttributes.None, selfType));
                 }
                 foreach (var p in matchedMethod.Parameters)
                 {
@@ -1472,13 +1482,10 @@ partial class Program
         SetContentDerivedMvid(tmlAsm, tmlOut);
 
         // Also patch MonoMod.RuntimeDetour.dll global guard if target directory specified
-        string targetDir = Path.GetDirectoryName(tmlOut)!;
-        string defaultMmIn = CacheRoot.Path + "/tmod/release/Libraries/monomod.runtimedetour/25.3.2/lib/net8.0/MonoMod.RuntimeDetour.dll";
-        string targetMmOut = Path.Combine(targetDir, "MonoMod.RuntimeDetour.dll");
-        string mmIn = detourInPath ?? (File.Exists(targetMmOut) && new FileInfo(targetMmOut).Length > 0 ? targetMmOut : defaultMmIn);
+        string targetMmOut = Path.Combine(Path.GetDirectoryName(tmlOut)!, "MonoMod.RuntimeDetour.dll");
         if (!legacyMode)
         {
-            PatchMonoModRuntimeDetour(mmIn, targetMmOut);
+            PatchMonoModRuntimeDetour(detourInPath, targetMmOut);
         }
     }
 }

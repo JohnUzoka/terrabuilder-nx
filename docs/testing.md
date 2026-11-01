@@ -5,16 +5,16 @@ goes wrong. Builds are tested on Switch hardware running Atmosphère and hbmenu.
 
 ## Install
 
-Each build writes an NRO, an `sdcard/` folder, and a receipt JSON under
-`~/.cache/terrabuilder/out/`. tModLoader builds use a `tmodloader-<mods>/`
-subfolder.
+Each build writes an `sdcard/` folder that mirrors the SD card, and a receipt
+JSON next to it, under `Output/` in the repository (or `build --out`).
 
 | Target | Copy | To |
 | --- | --- | --- |
-| Vanilla | `out/Terraria.nro` | `sd:/switch/` |
-| Vanilla | contents of `out/sdcard/` | SD card root |
-| tModLoader | `out/tmodloader-<mods>/tmodloader.nro` | `sd:/switch/` |
-| tModLoader | contents of `out/tmodloader-<mods>/sdcard/` | SD card root, overwriting existing files |
+| Vanilla | contents of `Output/Terraria/sdcard/` (`switch/Terraria.nro`, `mono/`) | SD card root |
+| tModLoader | contents of `Output/tModLoader/sdcard/` (`switch/tmodloader.nro`, `switch/tmodloader/`, `mono/`) | SD card root, overwriting existing files |
+
+Debug and Profiler builds use `Output/Terraria-debug/`, `Output/Terraria-profiler/`
+and the `tModLoader-*` equivalents, with matching NRO names.
 
 Every `sdcard/` payload contains `mono/config.ini` and the ICU data file
 `mono/etc/icudt77l.dat`. Both NROs read these from the SD card before anything

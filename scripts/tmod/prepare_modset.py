@@ -1,19 +1,23 @@
 """Stage exact .tmod packages, tune and lower their assemblies, and prepare build_tmod_modset_nro.py inputs.
 
-Run on the host with --cache-root or inside monobuild with --cache-root=/build.
-The output variant must be fresh. Mod assemblies are tuned once first (mod_tuning: Debug-built
+Runs on the host. Inputs: the base stage (--base-dir: romfs/, flat_libs/), the unpacked tModLoader
+release, the NxFix'd tModLoader.dll, scripts/tmod/base_modset.json, the toolchain's tmod-runtime,
+.NET SDK and Mono.Cecil. The C# tools are built once into --tools (scripts/tmod/base_dlls.py).
+The output variant folder must be fresh. Mod assemblies are tuned once first (mod_tuning: Debug-built
 mods' DisableOptimizations flag, Fargo's banner timer). Materialized mod methods are repacked and
 rescanned before final hook identities are baked; no assembly is changed after AOT compilation.
 """
 import argparse
 import hashlib
 import json
-import os
 from pathlib import Path
 import shutil
 import subprocess
 
-from tmod_file import extract_tmod_member, read_tmod_info, replace_tmod_member
+from base_dlls import build_tool, dotnet_env, tool_digest
+from tmod_file import extract_tmod_member, loader_version_problem, read_tmod_info, replace_tmod_member
+
+DETOUR = 'Libraries/monomod.runtimedetour/25.3.2/lib/net8.0/MonoMod.RuntimeDetour.dll'
 
 
 def sha(path):
@@ -23,12 +27,17 @@ def sha(path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--cache-root', type=Path, required=True)
+    parser.add_argument('--out', type=Path, required=True, help='the variant folder (must not exist)')
     parser.add_argument('--mods-dir', type=Path, required=True)
-    parser.add_argument('--variant', required=True)
     parser.add_argument('--primary', required=True)
     parser.add_argument('--label', required=True)
-    parser.add_argument('--base', default='tmod13c')
+    parser.add_argument('--base-dir', type=Path, required=True, help='the base stage: romfs/ and flat_libs/')
+    parser.add_argument('--release', type=Path, required=True, help='the unpacked tModLoader release')
+    parser.add_argument('--config', type=Path, required=True, help='baseline modset.json (scripts/tmod/base_modset.json)')
+    parser.add_argument('--tmod-runtime', type=Path, required=True, help='the toolchain tmod-runtime component')
+    parser.add_argument('--dotnet', type=Path, required=True)
+    parser.add_argument('--cecil', type=Path, required=True)
+    parser.add_argument('--tools', type=Path, required=True, help='where the C# tools are built (shared, cached)')
     parser.add_argument('--game', type=Path, required=True,
                         help='NX/save-patched tModLoader.dll before any offline hook lowering')
     parser.add_argument('--interpret-hooks', action='store_true',
@@ -36,27 +45,26 @@ def main():
                              'accessor/delegate code otherwise pushes large mod sets past the ±128 MiB '
                              'CALL26 reach of the AOT method tables; hardware performance is unmeasured.')
     args = parser.parse_args()
-    root = args.cache_root.resolve()
     game = args.game.resolve()
-    for variant in (args.variant, args.base):
-        if Path(variant).name != variant or not variant.startswith('tmod'):
-            parser.error('Expected a tmod variant name, not a path')
-    out = root / 'tmod' / args.variant
+    out = args.out.resolve()
     if out.exists():
         parser.error(f'Fresh output variant required: {out}')
-    baseline = root / 'tmod' / args.base
-    stock_romfs = root / 'tmod/tmod09/romfs'
+    release = args.release.resolve()
+    stock_romfs = args.base_dir.resolve() / 'romfs'
+    flat_libs = args.base_dir.resolve() / 'flat_libs'
     hooks = stock_romfs / 'TerrariaHooks.dll'
-    detour = root / 'tmod/release/Libraries/monomod.runtimedetour/25.3.2/lib/net8.0/MonoMod.RuntimeDetour.dll'
-    dotnet = root / 'runtime-source/.dotnet/dotnet'
-    tool_root = Path(__file__).resolve().parent
-    config = json.loads((baseline / 'input/modset.json').read_text())
+    detour = release / DETOUR
+    dotnet = args.dotnet.resolve()
+    config = json.loads(args.config.read_text())
     packages = {}
     for path in sorted(args.mods_dir.resolve().glob('*.tmod')):
         info = read_tmod_info(path)
         name = info['name']
-        if not name.isidentifier() or info['loader_version'] != '2026.7.3.0':
-            raise ValueError(f'Unsupported package identity: {name} ({info["loader_version"]})')
+        if not name.isidentifier():
+            raise ValueError(f'Unsupported package identity: {name}')
+        problem = loader_version_problem(info['loader_version'])
+        if problem:
+            raise ValueError(f'{name}: {problem}')
         if name.casefold() in {existing.casefold() for existing in packages}:
             raise ValueError(f'Duplicate mod package: {name}')
         packages[name] = {'source': path, 'source_sha256': sha(path), 'info': info}
@@ -99,10 +107,7 @@ def main():
             path.write_bytes(data)
             modules[filename] = {'owner': name, 'member': member, 'path': path,
                                  'original_sha256': member_info['member_sha256']}
-    environment = dict(os.environ, DOTNET_ROOT=str(dotnet.parent), TERRARIA_BUILD_CACHE=str(root),
-                       DOTNET_CLI_HOME=str(out / 'dotnet-home'),
-                       DOTNET_SYSTEM_GLOBALIZATION_INVARIANT='1',
-                       DOTNET_CLI_TELEMETRY_OPTOUT='1', DOTNET_SKIP_FIRST_TIME_EXPERIENCE='1')
+    environment = dotnet_env(dotnet, args.tools.resolve())
     commands = []
 
     def run(argv, label):
@@ -115,25 +120,11 @@ def main():
             raise RuntimeError(f'{label} failed ({result.returncode}); see {logs / (label + ".log")}')
         print('PASS ' + label, flush=True)
 
-    projects = {'scan': ('hook_scan', 'HookScan.csproj', 'HookScan.dll'),
-                'tune': ('mod_tuning', 'ModTuning.csproj', 'ModTuning.dll'),
-                'il': ('il_lowering', 'IlLowering.csproj', 'IlLowering.dll'),
-                'on': ('offline_hooks', 'Patcher.csproj', 'Patcher.dll')}
-    tools = {}
-    source_hashes = {}
-    for name, (directory, project, assembly) in projects.items():
-        source = out / 'tools' / name / 'source'
-        shutil.copytree(tool_root / directory, source,
-                        ignore=shutil.ignore_patterns('bin', 'obj', '__pycache__'))
-        for path in sorted(source.rglob('*')):
-            if path.is_file():
-                source_hashes[str(path.relative_to(out))] = sha(path)
-        cecil = (root / 'tmod/release/Libraries/mono.cecil/0.11.6/lib/netstandard2.0/Mono.Cecil.dll'
-                 if name == 'scan' else root / 'release58/ildump/out/Mono.Cecil.dll')
-        output = out / 'tools' / name / 'bin'
-        run([dotnet, 'build', source / project, '-c', 'Release', '-o', output, '--nologo', '-v', 'q',
-             '-p:CacheRoot=' + str(root), '-p:CecilPath=' + str(cecil)], 'build-' + name)
-        tools[name] = output / assembly
+    projects = {'scan': 'hook_scan', 'tune': 'mod_tuning', 'il': 'il_lowering', 'on': 'offline_hooks'}
+    tools = {name: build_tool(project, dotnet=dotnet, cecil=args.cecil.resolve(), tools=args.tools.resolve(),
+                              release=release)
+             for name, project in projects.items()}
+    tool_digests = {project: tool_digest(project) for project in projects.values()}
 
     def scan(label):
         inventory_path = out / (label + '.json')
@@ -162,7 +153,7 @@ def main():
     def lower_il(inventory, directory, label):
         run([dotnet, tools['il'], '--inventory', inventory, '--tml-in', game,
              '--hooks-in', hooks, '--detour-in', detour, '--out-dir', directory,
-             '--mods-dir', extracted], label)
+             '--mods-dir', extracted, '--ref-dir', release], label)
 
     def repack(filename, data):
         entry = modules[filename]
@@ -181,7 +172,7 @@ def main():
     tuned = []
     for filename, entry in modules.items():
         run([dotnet, tools['tune'], entry['path'], tuned_dir / filename, '--ref-dir', extracted,
-             '--ref-dir', stock_romfs, '--ref-dir', root / 'tmod/flat_libs'], 'tune-' + filename.removesuffix('.dll'))
+             '--ref-dir', stock_romfs, '--ref-dir', flat_libs], 'tune-' + filename.removesuffix('.dll'))
         data = (tuned_dir / filename).read_bytes()
         if data != entry['path'].read_bytes():
             repack(filename, data)
@@ -205,7 +196,7 @@ def main():
         run([dotnet, tools['on'], '--lower-mod-detours', inventory,
              '--hooks-in', il_output / 'TerrariaHooks.dll', '--tml-in', il_output / 'tModLoader.dll',
              '--detour-in', il_output / 'MonoMod.RuntimeDetour.dll', '--mods-dir', extracted,
-             '--ref-dir', stock_romfs, '--ref-dir', root / 'tmod/flat_libs'], f'detours-{round_number}')
+             '--ref-dir', stock_romfs, '--ref-dir', flat_libs], f'detours-{round_number}')
         for filename, entry in modules.items():
             if sha(entry['path']) != before[filename]:
                 repack(filename, entry['path'].read_bytes())
@@ -219,7 +210,8 @@ def main():
     combined = out / 'combined'
     run([dotnet, tools['on'], il_output / 'TerrariaHooks.dll', combined / 'TerrariaHooks.dll',
          il_output / 'tModLoader.dll', combined / 'tModLoader.dll', '--inventory', inventory,
-         '--detour-in', il_output / 'MonoMod.RuntimeDetour.dll'], 'lower-on-hooks')
+         '--detour-in', il_output / 'MonoMod.RuntimeDetour.dll', '--ref-dir', release, '--ref-dir', flat_libs],
+        'lower-on-hooks')
     for filename, entry in modules.items():
         exact, _ = extract_tmod_member(packages[entry['owner']]['staged'], entry['member'])
         if exact != entry['path'].read_bytes():
@@ -237,13 +229,13 @@ def main():
     if not replacements['MonoMod.RuntimeDetour.dll']:
         raise ValueError('No runtime detour payload copies in the baseline')
     for filename in replacements:
-        source = combined / filename
-        if not source.exists():
-            source = baseline / 'input' / filename
+        # The patched System.Reflection.Metadata comes from tmod-runtime; the others are lowered here.
+        source = combined / filename if filename != 'System.Reflection.Metadata.dll' else args.tmod_runtime / filename
         shutil.copy2(source, inputs / filename)
     shutil.copy2(combined / 'tModLoader.dll', inputs / 'tModLoader.dll')
     (inputs / 'modset.json').write_text(json.dumps(config, indent=2) + '\n')
-    receipt = {'variant': args.variant, 'base': args.base, 'script_sha256': sha(__file__),
+    receipt = {'variant': out.name, 'base': str(args.base_dir.resolve()), 'config': str(args.config.resolve()),
+               'script_sha256': sha(__file__),
                'interpret_hooks': args.interpret_hooks,
                'game': {'path': str(game), 'sha256': sha(game)},
                'hooks': {'path': str(hooks), 'sha256': sha(hooks)},
@@ -256,10 +248,10 @@ def main():
                                              'original_sha256': entry['original_sha256'],
                                              'final_sha256': sha(entry['path'])}
                                   for filename, entry in modules.items()},
-               'tool_sources': source_hashes, 'commands': commands}
+               'tools': {name: str(path) for name, path in tools.items()}, 'tool_digests': tool_digests,
+               'commands': commands}
     (out / 'preparation.json').write_text(json.dumps(receipt, indent=2) + '\n')
-    print(f'PASS prepared {args.variant}: {len(packages)} packages, {len(modules)} exact mod/library assemblies', flush=True)
-    print(f'Next: TMOD_VARIANT={args.variant} python3 scripts/tmod/build_tmod_modset_nro.py', flush=True)
+    print(f'PASS prepared {out.name}: {len(packages)} packages, {len(modules)} exact mod/library assemblies', flush=True)
 
 
 if __name__ == '__main__':

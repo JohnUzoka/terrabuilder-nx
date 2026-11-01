@@ -1,0 +1,34 @@
+{
+  "aot_replacements": [],
+  "replacements": {
+    "System.Reflection.Metadata.dll": [
+      "System.Reflection.Metadata.dll"
+    ],
+    "TerrariaHooks.dll": [
+      "TerrariaHooks.dll",
+      "Libraries/TerrariaHooks/0.0.0.0/TerrariaHooks.dll"
+    ],
+    "MonoMod.RuntimeDetour.dll": [
+      "Libraries/monomod.runtimedetour/25.3.2/lib/net8.0/MonoMod.RuntimeDetour.dll",
+      "MonoMod.RuntimeDetour.dll"
+    ]
+  },
+  "native": {
+    "libnx_heap_permille": 625,
+    "nv_transfermem_mb": 64,
+    "repo_nx_input": true,
+    "real_audio": true
+  },
+  "llvm_modules": [
+    "tModLoader.dll",
+    "FNA.dll",
+    "System.Text.RegularExpressions.dll",
+    "System.Collections.Concurrent.dll"
+  ],
+  "extra_aot": [
+    "ReLogic.dll",
+    "System.Linq.dll",
+    "System.Text.RegularExpressions.dll",
+    "System.Collections.Concurrent.dll"
+  ]
+}

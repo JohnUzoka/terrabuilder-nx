@@ -10,6 +10,12 @@ void nx_profiler_stop(void);
 // that thread; profiler builds also register pthread-created Mono threads.
 // Mesa declares it weak, so builds without the profiler still link.
 void nx_profiler_add_thread(uint32_t thread_handle);
+// A registered thread must call this before it moves itself to the sampler's core (2) with
+// svcSetThreadCoreMask, and nx_profiler_add_thread after. The move waits for the new core while
+// holding the thread's activity lock; Ryujinx takes that lock in svcSetThreadActivity without
+// giving up the core, so a sampler pausing the thread then would block it forever. Returns once
+// no sample of the thread is in progress. Callers declare it weak, like nx_profiler_add_thread.
+void nx_profiler_remove_thread(uint32_t thread_handle);
 
 // Scans a copied stack (8-byte words, leaf first) for return addresses: values inside
 // [code_start, code_end) whose preceding instruction is BL or BLR. code_copy gives read access to

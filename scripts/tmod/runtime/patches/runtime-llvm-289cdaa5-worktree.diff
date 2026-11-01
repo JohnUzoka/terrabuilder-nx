@@ -1,0 +1,93 @@
+diff --git a/src/libraries/System.Net.Sockets/src/System/Net/Sockets/SocketAsyncEngine.Libnx.cs b/src/libraries/System.Net.Sockets/src/System/Net/Sockets/SocketAsyncEngine.Libnx.cs
+index d1183838137..8d473d66bef 100644
+--- a/src/libraries/System.Net.Sockets/src/System/Net/Sockets/SocketAsyncEngine.Libnx.cs
++++ b/src/libraries/System.Net.Sockets/src/System/Net/Sockets/SocketAsyncEngine.Libnx.cs
+@@ -19,11 +19,16 @@ internal sealed unsafe class SocketAsyncEngine : IThreadPoolWorkItem
+             1024;
+ #endif
+ 
++        // System.Console is referenced only in Debug (see System.Net.Sockets.csproj).
++#if DEBUG
+         private static bool Logging;
++#endif
+         private static void Log(string str)
+         {
++#if DEBUG
+             if (Logging)
+                 Console.WriteLine(str);
++#endif
+         }
+ 
+         // Socket continuations are dispatched to the ThreadPool from the event thread.
+diff --git a/src/mono/mono/metadata/sgen-client-mono.h b/src/mono/mono/metadata/sgen-client-mono.h
+index f20831112ec..45f0f07cc38 100644
+--- a/src/mono/mono/metadata/sgen-client-mono.h
++++ b/src/mono/mono/metadata/sgen-client-mono.h
+@@ -696,8 +696,11 @@ sgen_client_binary_protocol_ephemeron_ref (gpointer list, gpointer key, gpointer
+  * We can only use a critical region in the managed allocator if the JIT supports OP_ATOMIC_STORE_I4.
+  *
+  * TODO: Query the JIT instead of this ifdef hack.
++ *
++ * Under full cooperative suspend a RUNNING thread is never interrupted, and the
++ * allocator fast path has no safepoint, so the flag is never observed set.
+  */
+-#if defined (TARGET_X86) || defined (TARGET_AMD64) || (defined (TARGET_ARM) && defined (HAVE_ARMV7)) || defined (TARGET_ARM64) || defined (TARGET_RISCV)
++#if !defined (ENABLE_COOP_SUSPEND) && (defined (TARGET_X86) || defined (TARGET_AMD64) || (defined (TARGET_ARM) && defined (HAVE_ARMV7)) || defined (TARGET_ARM64) || defined (TARGET_RISCV))
+ #define MANAGED_ALLOCATOR_CAN_USE_CRITICAL_REGION
+ #endif
+ #endif
+diff --git a/src/mono/mono/mini/mini-llvm.c b/src/mono/mono/mini/mini-llvm.c
+index 8cc8c986381..0a4bd79dc9d 100644
+--- a/src/mono/mono/mini/mini-llvm.c
++++ b/src/mono/mono/mini/mini-llvm.c
+@@ -7687,6 +7687,16 @@ MONO_RESTORE_WARNING
+ 			break;
+ 		}
+ 		case OP_MEMORY_BARRIER: {
++#ifdef TARGET_ARM64
++			/*
++			 * The managed allocator's release barrier only has to order the vtable/length
++			 * stores before the store that publishes the object, so store-store is enough.
++			 */
++			if (cfg->method->wrapper_type == MONO_WRAPPER_ALLOC && ins->backend.memory_barrier_kind == MONO_MEMORY_BARRIER_REL) {
++				mono_llvm_inline_asm (builder, LLVMFunctionType0 (LLVMVoidType (), FALSE), "dmb ishst", "~{memory}", LLVM_ASM_SIDE_EFFECT, NULL, 0, "");
++				break;
++			}
++#endif
+ 			mono_llvm_build_fence (builder, (BarrierKind) ins->backend.memory_barrier_kind);
+ 			break;
+ 		}
+diff --git a/src/mono/mono/mini/mini-runtime.c b/src/mono/mono/mini/mini-runtime.c
+index 50179046edb..4c14f0dcd00 100644
+--- a/src/mono/mono/mini/mini-runtime.c
++++ b/src/mono/mono/mini/mini-runtime.c
+@@ -1511,6 +1511,7 @@ mono_resolve_patch_target_ext (MonoMemoryManager *mem_manager, MonoMethod *metho
+ 	case MONO_PATCH_INFO_SWITCH: {
+ #ifndef MONO_ARCH_NO_CODEMAN
+ 		gpointer *jump_table;
++		gboolean code_allocated = TRUE;
+ 		int i;
+ 
+ 		if (method && method->dynamic) {
+@@ -1520,16 +1521,19 @@ mono_resolve_patch_target_ext (MonoMemoryManager *mem_manager, MonoMethod *metho
+ 			MonoMemoryManager *method_mem_manager = method ? m_method_get_mem_manager (method) : mem_manager;
+ 			if (mono_aot_only) {
+ 				jump_table = (void **)mono_mem_manager_alloc (method_mem_manager, sizeof (gpointer) * patch_info->data.table->table_size);
++				code_allocated = FALSE;
+ 			} else {
+ 				jump_table = (void **)mono_mem_manager_code_reserve (method_mem_manager, sizeof (gpointer) * patch_info->data.table->table_size);
+ 			}
+ 		}
+ 
+-		jump_table = (gpointer*)mono_codeman_enable_write_ex (jump_table, G_STRLOC);
++		if (code_allocated)
++			jump_table = (gpointer*)mono_codeman_enable_write_ex (jump_table, G_STRLOC);
+ 		for (i = 0; i < patch_info->data.table->table_size; i++) {
+ 			jump_table [i] = code + GPOINTER_TO_INT (patch_info->data.table->table [i]);
+ 		}
+-		jump_table = (gpointer*)mono_codeman_disable_write_ex (jump_table, G_STRLOC);
++		if (code_allocated)
++			jump_table = (gpointer*)mono_codeman_disable_write_ex (jump_table, G_STRLOC);
+ 
+ 		target = jump_table;
+ #else

@@ -1,0 +1,2824 @@
+{
+ "bytes": 324069947,
+ "component": "tmod-runtime",
+ "files": {
+  "System.Reflection.Metadata.dll": {
+   "bytes": 491008,
+   "exec": false,
+   "sha256": "82762d0817e7868bc9a6d1ba5d43f944d0ae6532493c7afd9659770d9d05aeb9",
+   "source": "scripts/tmod/metadata_io over framework/System.Reflection.Metadata.dll; equals LEGACY/tmod/tmod27/input/System.Reflection.Metadata.dll"
+  },
+  "THIRD_PARTY_NOTICES.md": {
+   "bytes": 2336,
+   "exec": false,
+   "sha256": "1624b0e8156d10ca94b9e6b4ca09e98112b569c1796f0ee6a6d5fb940d7b8d08",
+   "source": "repo scripts/tmod/runtime/THIRD_PARTY_NOTICES.md"
+  },
+  "aot-compiler/libc++.so.1": {
+   "source": "symlink; target equals LEGACY/runtime-llvm/artifacts/bin/mono/linux.x64.Debug/cross/linux-x64/libnx-arm64/libc++.so.1",
+   "symlink": "../../aot-compiler/libc++.so.1"
+  },
+  "aot-compiler/libc++abi.so.1": {
+   "source": "symlink; target equals LEGACY/runtime-llvm/artifacts/bin/mono/linux.x64.Debug/cross/linux-x64/libnx-arm64/libc++abi.so.1",
+   "symlink": "../../aot-compiler/libc++abi.so.1"
+  },
+  "aot-compiler/llc": {
+   "source": "symlink; target equals LEGACY/runtime-llvm/artifacts/bin/mono/linux.x64.Debug/cross/linux-x64/libnx-arm64/llc",
+   "symlink": "../../aot-compiler/llc"
+  },
+  "aot-compiler/mono-aot-cross": {
+   "bytes": 18564776,
+   "exec": true,
+   "sha256": "f5044b24580d3f138d9a43146d6cbb241ee5472c1e4901413543b9d5e1f9154e",
+   "source": "LEGACY/runtime-llvm/artifacts/bin/mono/linux.x64.Debug/cross/linux-x64/libnx-arm64/mono-aot-cross"
+  },
+  "aot-compiler/opt": {
+   "source": "symlink; target equals LEGACY/runtime-llvm/artifacts/bin/mono/linux.x64.Debug/cross/linux-x64/libnx-arm64/opt",
+   "symlink": "../../aot-compiler/opt"
+  },
+  "corelib-aot/System.Private.CoreLib.dll-llvm.o": {
+   "bytes": 79343816,
+   "exec": false,
+   "sha256": "f5c41c6aa831e3bb1f92b6242ba28954ee1db5605b88f0ef98e5c17918244e02",
+   "source": "LEGACY/tmod/corelib/pools-llvm-v72/System.Private.CoreLib.dll-llvm.o"
+  },
+  "corelib-aot/System.Private.CoreLib.dll.o": {
+   "bytes": 48235296,
+   "exec": false,
+   "sha256": "f13677723ce8225946ec8e2c03adf886bd4702db407a9cae779392ac4fab796d",
+   "source": "LEGACY/tmod/corelib/pools-llvm-v72/System.Private.CoreLib.dll.o"
+  },
+  "corelib-aot/manifest.json": {
+   "bytes": 1452,
+   "exec": false,
+   "sha256": "8825504e73540701bd9d76525231b67bb0e2991e42431624575cbdbeb61d16e3",
+   "source": "generated from LEGACY/tmod/corelib/pools-llvm-v72/manifest.json"
+  },
+  "corelib/System.Private.CoreLib.dll": {
+   "bytes": 4787712,
+   "exec": false,
+   "sha256": "c29bc7f8d4ee3d7620dfbaa61a7ecfd19e8dcba572b41d8f95c28b3ee9009df8",
+   "source": "LEGACY/runtime-source/artifacts/bin/mono/libnx.arm64.Release/System.Private.CoreLib.dll"
+  },
+  "framework-aot/System.Collections.Concurrent.dll-llvm.o": {
+   "bytes": 6925312,
+   "exec": false,
+   "sha256": "5a1fc18e42c4687b7e8fd05feb4865594f02581d86bbcf79a4fb3bf1e5915b39",
+   "source": "LEGACY/tmod/tmodcli-ddcb095edfa5/aot/System.Collections.Concurrent.dll-llvm.o"
+  },
+  "framework-aot/System.Collections.Concurrent.dll.o": {
+   "bytes": 1921096,
+   "exec": false,
+   "sha256": "42128131f82ee67a31c306226585cc064bf971b4cc9f923593807454f81d4ff2",
+   "source": "LEGACY/tmod/tmodcli-ddcb095edfa5/aot/System.Collections.Concurrent.dll.o"
+  },
+  "framework-aot/System.Linq.dll.o": {
+   "bytes": 34888128,
+   "exec": false,
+   "sha256": "84453ccccfe097c6f2d2939ab37f45912dde87e22138c4b1df68080c69845d20",
+   "source": "LEGACY/tmod/tmodcli-ddcb095edfa5/aot/System.Linq.dll.o"
+  },
+  "framework-aot/System.Text.RegularExpressions.dll-llvm.o": {
+   "bytes": 18687024,
+   "exec": false,
+   "sha256": "33d4f66283356f5af7a71e3e0705ceafc25c96b03f984c5041645716a1b05475",
+   "source": "LEGACY/tmod/tmodcli-ddcb095edfa5/aot/System.Text.RegularExpressions.dll-llvm.o"
+  },
+  "framework-aot/System.Text.RegularExpressions.dll.o": {
+   "bytes": 4769640,
+   "exec": false,
+   "sha256": "b5a5a04557bee676ba2c3f77d91068a95d002d81d16d81a158d2bfe565381afa",
+   "source": "LEGACY/tmod/tmodcli-ddcb095edfa5/aot/System.Text.RegularExpressions.dll.o"
+  },
+  "framework-aot/framework-aot.json": {
+   "bytes": 1795,
+   "exec": false,
+   "sha256": "f8072457e0dd5e9f63fa0ead9ed6e0fab1d381b24306f4d8f6538f2a71cf9d94",
+   "source": "generated from LEGACY/tmod/tmodcli-ddcb095edfa5/manifest.json"
+  },
+  "framework-aot/logs/aot-System.Collections.Concurrent.dll.log": {
+   "bytes": 1531,
+   "exec": false,
+   "sha256": "3909c563c9496517ff78fd77bce85277834df7ea849bd332c21af6bbb43cfddb",
+   "source": "LEGACY/tmod/tmodcli-ddcb095edfa5/aot-System.Collections.Concurrent.dll.log"
+  },
+  "framework-aot/logs/aot-System.Text.RegularExpressions.dll.log": {
+   "bytes": 1544,
+   "exec": false,
+   "sha256": "52f1a6d1666f11f694faacd8ff23cda279c817310420bced5543d699c4993eeb",
+   "source": "LEGACY/tmod/tmodcli-ddcb095edfa5/aot-System.Text.RegularExpressions.dll.log"
+  },
+  "framework/Microsoft.CSharp.dll": {
+   "bytes": 297472,
+   "exec": false,
+   "sha256": "5e51c7f8787d8c0f648f6a7aec5143ea2639792d90758f7c8fd3772398b8d3c1",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/Microsoft.CSharp.dll"
+  },
+  "framework/Microsoft.CSharp.pdb": {
+   "bytes": 126664,
+   "exec": false,
+   "sha256": "e9a92bb6f93afd3e657423c1b819e7bd6772c5365ef49d6b867c32349e811cd5",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/Microsoft.CSharp.pdb"
+  },
+  "framework/Microsoft.CSharp.xml": {
+   "bytes": 18050,
+   "exec": false,
+   "sha256": "b712d12c5de74926122a368dc92329ab3215555e44bcb46f2daef146ec0986ac",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/Microsoft.CSharp.xml"
+  },
+  "framework/Microsoft.VisualBasic.Core.dll": {
+   "bytes": 419840,
+   "exec": false,
+   "sha256": "dcd4f8ec8bc71b4ff079ba9669a2b63cf948c2a7273eacce37b6b84ee46447ca",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/Microsoft.VisualBasic.Core.dll"
+  },
+  "framework/Microsoft.VisualBasic.Core.pdb": {
+   "bytes": 193172,
+   "exec": false,
+   "sha256": "cc312c4e51198ff2a93066694496abe5c5080fe5258d67f9597eef7a8e13b2cd",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/Microsoft.VisualBasic.Core.pdb"
+  },
+  "framework/Microsoft.VisualBasic.dll": {
+   "bytes": 7168,
+   "exec": false,
+   "sha256": "90c1e5931be4db46775db0fb0cc9f260684855b20a8661e697b7fcb19fbbf4af",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/Microsoft.VisualBasic.dll"
+  },
+  "framework/Microsoft.VisualBasic.pdb": {
+   "bytes": 1432,
+   "exec": false,
+   "sha256": "d922623173d90369df118633eddb3b670ebbc3f05de134658ba94774b8111e00",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/Microsoft.VisualBasic.pdb"
+  },
+  "framework/Microsoft.Win32.Primitives.dll": {
+   "bytes": 5120,
+   "exec": false,
+   "sha256": "8fd50fec28f5da699ac019a912c0fedfe4423d2d5eab58f23e8aa4f8ce154d07",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/Microsoft.Win32.Primitives.dll"
+  },
+  "framework/Microsoft.Win32.Primitives.pdb": {
+   "bytes": 944,
+   "exec": false,
+   "sha256": "e2e0abb89452c744ce11d750482501531235aff72d2c51c6932fe91c27df8eed",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/Microsoft.Win32.Primitives.pdb"
+  },
+  "framework/Microsoft.Win32.Primitives.xml": {
+   "bytes": 4229,
+   "exec": false,
+   "sha256": "1fa658fa646f6cb221f0839b84386b569b68c920756c266357c427e024b0c735",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/Microsoft.Win32.Primitives.xml"
+  },
+  "framework/Microsoft.Win32.Registry.dll": {
+   "bytes": 23040,
+   "exec": false,
+   "sha256": "56733a0a00ce6d472207add3a3b999774657b84c45dd3a29e6e4a8b8acc0f015",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/Microsoft.Win32.Registry.dll"
+  },
+  "framework/Microsoft.Win32.Registry.pdb": {
+   "bytes": 5520,
+   "exec": false,
+   "sha256": "91347e4e9da04d335570be7214a83476c8254fa71d55f35735b7f762e09e2af9",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/Microsoft.Win32.Registry.pdb"
+  },
+  "framework/Microsoft.Win32.Registry.xml": {
+   "bytes": 94557,
+   "exec": false,
+   "sha256": "89933a5c924e60e3f7993707e8bcd37120a59d080620c0749e11e958283434a0",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/Microsoft.Win32.Registry.xml"
+  },
+  "framework/System.AppContext.dll": {
+   "bytes": 5120,
+   "exec": false,
+   "sha256": "abb6569e6bfc1b5def2a0414057846f0d866dd75cb2ed876cbce072f5675d696",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.AppContext.dll"
+  },
+  "framework/System.AppContext.pdb": {
+   "bytes": 1364,
+   "exec": false,
+   "sha256": "02ab79b8e41a08f6a9fdfce1d787b60f6864374725e22696156500b992322d66",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.AppContext.pdb"
+  },
+  "framework/System.Buffers.dll": {
+   "bytes": 5120,
+   "exec": false,
+   "sha256": "e9d7d4956a02ec1d9703b0fac8ea3133594e63ba725e3d18c1f98bcb99e6bf87",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Buffers.dll"
+  },
+  "framework/System.Buffers.pdb": {
+   "bytes": 1352,
+   "exec": false,
+   "sha256": "deee94efa849ca27eb48be0c8944b4c0ffefc9fd27b193d1e431c5b84b7cca79",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Buffers.pdb"
+  },
+  "framework/System.Collections.Concurrent.dll": {
+   "bytes": 79360,
+   "exec": false,
+   "sha256": "f5b1c1ca2163ce93d888529dfd96f1d7a9aea18a387286dda7059cd02dd7e8f2",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Collections.Concurrent.dll"
+  },
+  "framework/System.Collections.Concurrent.pdb": {
+   "bytes": 28988,
+   "exec": false,
+   "sha256": "e480644d9259ee05e62e72fbee212035a39744e2a9da3aade78952653e380931",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Collections.Concurrent.pdb"
+  },
+  "framework/System.Collections.Concurrent.xml": {
+   "bytes": 148407,
+   "exec": false,
+   "sha256": "ce45b401b96d640e245f5d081e63a9a878390ac08990e4534730063b65ca9f7a",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Collections.Concurrent.xml"
+  },
+  "framework/System.Collections.Immutable.dll": {
+   "bytes": 244736,
+   "exec": false,
+   "sha256": "cfe4b270c819ef6787e8d7f28a9f7a143f62b68a0e8995a849f60d97fb4fd24a",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Collections.Immutable.dll"
+  },
+  "framework/System.Collections.Immutable.pdb": {
+   "bytes": 111044,
+   "exec": false,
+   "sha256": "d68d31abbc1e059afc1d01e889eba08b3e9b422f61b5efae06d77df958a6a11e",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Collections.Immutable.pdb"
+  },
+  "framework/System.Collections.Immutable.xml": {
+   "bytes": 541348,
+   "exec": false,
+   "sha256": "d43af3ae33085a5f6d3ebbcaa9e894bad84ebf285a88b552b03a01b1ef28c378",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Collections.Immutable.xml"
+  },
+  "framework/System.Collections.NonGeneric.dll": {
+   "bytes": 37376,
+   "exec": false,
+   "sha256": "c1fb62ec0542b2e18f3dd199430ed0ac96b641e2eeb5fcffa3d7e62bc5cb8bea",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Collections.NonGeneric.dll"
+  },
+  "framework/System.Collections.NonGeneric.pdb": {
+   "bytes": 14800,
+   "exec": false,
+   "sha256": "c34088dbaeeaa1aec5885183f844358fe47f5d36c5703c1dbfe6ab0c1ea12abc",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Collections.NonGeneric.pdb"
+  },
+  "framework/System.Collections.NonGeneric.xml": {
+   "bytes": 82969,
+   "exec": false,
+   "sha256": "c95cc9164ffc9a11951d361030533620d3335e205379bd3b711289fb6fd1ab2d",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Collections.NonGeneric.xml"
+  },
+  "framework/System.Collections.Specialized.dll": {
+   "bytes": 37888,
+   "exec": false,
+   "sha256": "7c4917c5dedc8bb6d8a5da803e7ffaeeb26770e825b4cef681e6c4738ae07e52",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Collections.Specialized.dll"
+  },
+  "framework/System.Collections.Specialized.pdb": {
+   "bytes": 15728,
+   "exec": false,
+   "sha256": "930f5f649c0f01a8b0f3d67e04a14355e5d3a198759616753487ef364ed2fc0a",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Collections.Specialized.pdb"
+  },
+  "framework/System.Collections.Specialized.xml": {
+   "bytes": 122052,
+   "exec": false,
+   "sha256": "db1b1abf0b679c40710df328d06b3a5f66e4aaeaada7d40aca99512b19381cf5",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Collections.Specialized.xml"
+  },
+  "framework/System.Collections.dll": {
+   "bytes": 116224,
+   "exec": false,
+   "sha256": "a95190a7509eb7f3c9d8bb131319ade39ed50a0f51b6c766261faa71f4025481",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Collections.dll"
+  },
+  "framework/System.Collections.pdb": {
+   "bytes": 50168,
+   "exec": false,
+   "sha256": "5c3d23a0c135301e24ee18df090236e898827892c8cccd5eb9013e34e056a064",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Collections.pdb"
+  },
+  "framework/System.Collections.xml": {
+   "bytes": 474913,
+   "exec": false,
+   "sha256": "3bbb469f4c3f9148c536e2defb58d7afbc05b970b508ee7eb11921d0942db1eb",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Collections.xml"
+  },
+  "framework/System.ComponentModel.Annotations.dll": {
+   "bytes": 92160,
+   "exec": false,
+   "sha256": "a1b84b7875c947463afd496a0018d7a0b13ae50b9de435bc96e37357df71ffcd",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.ComponentModel.Annotations.dll"
+  },
+  "framework/System.ComponentModel.Annotations.pdb": {
+   "bytes": 26984,
+   "exec": false,
+   "sha256": "7726801385c30578e1b0d332591305353a5e19af4acdd863cae14c4dcd8fc4e9",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.ComponentModel.Annotations.pdb"
+  },
+  "framework/System.ComponentModel.Annotations.xml": {
+   "bytes": 111870,
+   "exec": false,
+   "sha256": "8e706c58ad726646c2c63ebd3b913c6dcd2b91804080a2c50f6c0849fb253321",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.ComponentModel.Annotations.xml"
+  },
+  "framework/System.ComponentModel.DataAnnotations.dll": {
+   "bytes": 6656,
+   "exec": false,
+   "sha256": "4d16d19a75c0f36f0867cca75ad36fa99ed6bfab41cd183150583662cc0caa99",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.ComponentModel.DataAnnotations.dll"
+  },
+  "framework/System.ComponentModel.DataAnnotations.pdb": {
+   "bytes": 1488,
+   "exec": false,
+   "sha256": "d5225d599c0e22c3b62bc2b1759ec44f8d8ae4c27b58307d7296ccbf36b90a8f",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.ComponentModel.DataAnnotations.pdb"
+  },
+  "framework/System.ComponentModel.EventBasedAsync.dll": {
+   "bytes": 16384,
+   "exec": false,
+   "sha256": "3950402ac3533d69ac5a5d2eda57614aea7f033daeb24f0497700ccfcb91a6c8",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.ComponentModel.EventBasedAsync.dll"
+  },
+  "framework/System.ComponentModel.EventBasedAsync.pdb": {
+   "bytes": 4712,
+   "exec": false,
+   "sha256": "a1492399daabac0a0f995af4548783a829d8c56ba39034f74d7ea2b682423724",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.ComponentModel.EventBasedAsync.pdb"
+  },
+  "framework/System.ComponentModel.EventBasedAsync.xml": {
+   "bytes": 19646,
+   "exec": false,
+   "sha256": "02adfa65ab856ba7a575868b8de72bfa33fb6357e1d830f9868d824989cc7623",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.ComponentModel.EventBasedAsync.xml"
+  },
+  "framework/System.ComponentModel.Primitives.dll": {
+   "bytes": 31744,
+   "exec": false,
+   "sha256": "268abe182396bd4c95ec2e48c5f5af0a986e7f1a6919fe119182e2bc4a5051b7",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.ComponentModel.Primitives.dll"
+  },
+  "framework/System.ComponentModel.Primitives.pdb": {
+   "bytes": 11128,
+   "exec": false,
+   "sha256": "055db28772a9d64f01d33adad44e0ae8b43f0660f4c3011a7f5df77a46ca7b22",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.ComponentModel.Primitives.pdb"
+  },
+  "framework/System.ComponentModel.Primitives.xml": {
+   "bytes": 80000,
+   "exec": false,
+   "sha256": "095d7c0673559bf16adceed2d497b29565a6b812e190197ffca91e4344d53ade",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.ComponentModel.Primitives.xml"
+  },
+  "framework/System.ComponentModel.TypeConverter.dll": {
+   "bytes": 305152,
+   "exec": false,
+   "sha256": "40f73e46ea03cff950cce935960dded720fd8599082aa3be6e93de1e46b02aac",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.ComponentModel.TypeConverter.dll"
+  },
+  "framework/System.ComponentModel.TypeConverter.pdb": {
+   "bytes": 127040,
+   "exec": false,
+   "sha256": "161b42db297d4a8ef9b1c93381487d1582835d03adf8ad987b3933aebd097c94",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.ComponentModel.TypeConverter.pdb"
+  },
+  "framework/System.ComponentModel.TypeConverter.xml": {
+   "bytes": 792452,
+   "exec": false,
+   "sha256": "a4a8782414bd9baabf4d7e992cc38565dca1283e45890bd9dc65f1856cbdaf15",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.ComponentModel.TypeConverter.xml"
+  },
+  "framework/System.ComponentModel.dll": {
+   "bytes": 6144,
+   "exec": false,
+   "sha256": "1ab786e804f72dc0fa2ca2e0b4171f67657b8ccbaab2bd8c1e52b11d3c3c5d7f",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.ComponentModel.dll"
+  },
+  "framework/System.ComponentModel.pdb": {
+   "bytes": 1376,
+   "exec": false,
+   "sha256": "19eefcd6b13a3a978e8204a9f78067257c48b01e46e4d183d95de14c3b41ead3",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.ComponentModel.pdb"
+  },
+  "framework/System.ComponentModel.xml": {
+   "bytes": 4003,
+   "exec": false,
+   "sha256": "05914c2a98265e0191d160f7ef57511203aada87a7da9bee91de8503900f9ba4",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.ComponentModel.xml"
+  },
+  "framework/System.Configuration.dll": {
+   "bytes": 9216,
+   "exec": false,
+   "sha256": "80c69e82621e7cd1e6ca9b973d14348630ed6f7b5931f71b2df94b2764d1433e",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Configuration.dll"
+  },
+  "framework/System.Configuration.pdb": {
+   "bytes": 1504,
+   "exec": false,
+   "sha256": "de65ab10a26a23b8a04eda1c24b83a47309848cac30918bfe2cdd48d4b4c5f4f",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Configuration.pdb"
+  },
+  "framework/System.Console.dll": {
+   "bytes": 48640,
+   "exec": false,
+   "sha256": "24b7a57d607903f16be9d37df7f10b88f6417c00d2bb9537428650296b79b9c1",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Console.dll"
+  },
+  "framework/System.Console.pdb": {
+   "bytes": 15324,
+   "exec": false,
+   "sha256": "b0cc32d94ccffa09986b9e5c4fc0efb878974b387cee4c3a57d93a1c343fdb52",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Console.pdb"
+  },
+  "framework/System.Console.xml": {
+   "bytes": 79864,
+   "exec": false,
+   "sha256": "508e5d381c1af109d490fa6e03d512f76eb8eedbd2e9b3f434063be302fec678",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Console.xml"
+  },
+  "framework/System.Core.dll": {
+   "bytes": 12800,
+   "exec": false,
+   "sha256": "83879467c22d9544b5603ed9e112e1681b9093cc505b46b1ca90012ab1de1fe6",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Core.dll"
+  },
+  "framework/System.Core.pdb": {
+   "bytes": 2048,
+   "exec": false,
+   "sha256": "e4c1c589dc0ef8c3faf3eca0f270218e4f0532866391f6cf7e2ff3806d08c4b8",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Core.pdb"
+  },
+  "framework/System.Data.Common.dll": {
+   "bytes": 1006080,
+   "exec": false,
+   "sha256": "49588c98439a360f41a1883b2003d1d5b3c4e3c0c394ebc1a8e8d6b4a5ea41a1",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Data.Common.dll"
+  },
+  "framework/System.Data.Common.pdb": {
+   "bytes": 461956,
+   "exec": false,
+   "sha256": "87a312f8860113a50cae206e28b485d50d2d66ebb259c7ade5201e0e80a32bd7",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Data.Common.pdb"
+  },
+  "framework/System.Data.Common.xml": {
+   "bytes": 1441129,
+   "exec": false,
+   "sha256": "605282a6615027d5022324d116e7f74f8b38934a706cdfa1228de6e0afd60f22",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Data.Common.xml"
+  },
+  "framework/System.Data.DataSetExtensions.dll": {
+   "bytes": 5120,
+   "exec": false,
+   "sha256": "41a2a6e3ee705ebcbc21ef283ddbcf0b2d0ce229460c2249f9dc21dd09caaf8b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Data.DataSetExtensions.dll"
+  },
+  "framework/System.Data.DataSetExtensions.pdb": {
+   "bytes": 1448,
+   "exec": false,
+   "sha256": "1ce4f47b2754f60edd27a54c9fec712d24ac8d173e0881b9c0ef734cb99cfd7c",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Data.DataSetExtensions.pdb"
+  },
+  "framework/System.Data.dll": {
+   "bytes": 14336,
+   "exec": false,
+   "sha256": "fe4d873b61aa9258751241baa88e6eaeaef96984ebb58166a7259d2fc31cc620",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Data.dll"
+  },
+  "framework/System.Data.pdb": {
+   "bytes": 1712,
+   "exec": false,
+   "sha256": "cfb318a8ee47dcbbcb064f99cbbe9e0f4988fbd456707e8d91bc13c658b76e70",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Data.pdb"
+  },
+  "framework/System.Diagnostics.Contracts.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "c131a39e3bc74dd4206c5bc72fbfa28d9200f0a999bb276d8f793b1e341df236",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.Contracts.dll"
+  },
+  "framework/System.Diagnostics.Contracts.pdb": {
+   "bytes": 944,
+   "exec": false,
+   "sha256": "4ce4251ed1f244edec6631f3ede9614a5381467d371f2ca1afc5acdca46a4a03",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.Contracts.pdb"
+  },
+  "framework/System.Diagnostics.Contracts.xml": {
+   "bytes": 27963,
+   "exec": false,
+   "sha256": "61f547d73b704523a08bbab7438db9599c038e9274beb88ce7ed83cb5a920949",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.Contracts.xml"
+  },
+  "framework/System.Diagnostics.Debug.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "a79a20cf0432a13b2cd0572a388b7f00b1a118632cf2576dc5fcb6a222dc1c25",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.Debug.dll"
+  },
+  "framework/System.Diagnostics.Debug.pdb": {
+   "bytes": 1384,
+   "exec": false,
+   "sha256": "b690c977436b459c4f2872efe934eeb642d62ae18d8b59dcc1da2cb374df7e58",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.Debug.pdb"
+  },
+  "framework/System.Diagnostics.DiagnosticSource.dll": {
+   "bytes": 174080,
+   "exec": false,
+   "sha256": "b507f4e7b085ead5a56413214653498cfeef564fc7ff7b74e6b0d6fe9abcb28d",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.DiagnosticSource.dll"
+  },
+  "framework/System.Diagnostics.DiagnosticSource.pdb": {
+   "bytes": 60504,
+   "exec": false,
+   "sha256": "2d8de40f5dcd90eab6c4e8c236c4d6d7d040381e0152e548e21cb10a0c81d02d",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.DiagnosticSource.pdb"
+  },
+  "framework/System.Diagnostics.DiagnosticSource.xml": {
+   "bytes": 174755,
+   "exec": false,
+   "sha256": "fc90972eef73776451ff6210ea340278e0278dcd440bba487d9a9b51dba62352",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.DiagnosticSource.xml"
+  },
+  "framework/System.Diagnostics.FileVersionInfo.dll": {
+   "bytes": 12288,
+   "exec": false,
+   "sha256": "f06da765081624009100b3fc32164016a8a3c33aa66a3dc3e3bf64dadc91a475",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.FileVersionInfo.dll"
+  },
+  "framework/System.Diagnostics.FileVersionInfo.pdb": {
+   "bytes": 3340,
+   "exec": false,
+   "sha256": "1135eb0281e6355fc1b22ccb350cba20b4cbcd14c69b5345795e7f0283c83839",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.FileVersionInfo.pdb"
+  },
+  "framework/System.Diagnostics.FileVersionInfo.xml": {
+   "bytes": 11460,
+   "exec": false,
+   "sha256": "95bff425d032c50733f94fa457d2cc3f16476334ac8b74396c368782363a3599",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.FileVersionInfo.xml"
+  },
+  "framework/System.Diagnostics.Process.dll": {
+   "bytes": 46592,
+   "exec": false,
+   "sha256": "e74ace95765be8501fd4bdc6481e0f5799e7f686db2eb9717be34385d201d6ed",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.Process.dll"
+  },
+  "framework/System.Diagnostics.Process.pdb": {
+   "bytes": 10900,
+   "exec": false,
+   "sha256": "14e8061f41955e034215669eabf345fc18211c9ba623e03322deea264a855884",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.Process.pdb"
+  },
+  "framework/System.Diagnostics.Process.xml": {
+   "bytes": 109031,
+   "exec": false,
+   "sha256": "ba8958bafcabeb2d0bfd124136368e0167674c2344620f81e567bf289fc8a89a",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.Process.xml"
+  },
+  "framework/System.Diagnostics.StackTrace.dll": {
+   "bytes": 15872,
+   "exec": false,
+   "sha256": "a6312bb90eeb0801d35fbbc4be5bf4de41f42b5e93658bdd718ff940dfc13ecf",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.StackTrace.dll"
+  },
+  "framework/System.Diagnostics.StackTrace.pdb": {
+   "bytes": 3728,
+   "exec": false,
+   "sha256": "ad9c4e4e313238f1993ea52bc8b393c26234a6319c6038408f0e45f0bbd16621",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.StackTrace.pdb"
+  },
+  "framework/System.Diagnostics.StackTrace.xml": {
+   "bytes": 61179,
+   "exec": false,
+   "sha256": "719f24adcb4bfde10267c4e1c35b5b6b9a307502cde7facf5f732b2aaa541708",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.StackTrace.xml"
+  },
+  "framework/System.Diagnostics.TextWriterTraceListener.dll": {
+   "bytes": 21504,
+   "exec": false,
+   "sha256": "becb340da2a6be9f6a3d6e744b19f92c378574fb77618e74f5b6f887d7c7bc19",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.TextWriterTraceListener.dll"
+  },
+  "framework/System.Diagnostics.TextWriterTraceListener.pdb": {
+   "bytes": 7596,
+   "exec": false,
+   "sha256": "53dc47cce8570d9d8750a53763811689ad3faeb912f92f33634f05f432678fe4",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.TextWriterTraceListener.pdb"
+  },
+  "framework/System.Diagnostics.TextWriterTraceListener.xml": {
+   "bytes": 25541,
+   "exec": false,
+   "sha256": "61ccd380fc2784a8a6938e9c74741f96672d2a900cb76a9be5e8e231481f780d",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.TextWriterTraceListener.xml"
+  },
+  "framework/System.Diagnostics.Tools.dll": {
+   "bytes": 5120,
+   "exec": false,
+   "sha256": "b2f2f4f357317396083e2cf28f137ffa756b2bc818b9f37ed2f73223fbf8461f",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.Tools.dll"
+  },
+  "framework/System.Diagnostics.Tools.pdb": {
+   "bytes": 1384,
+   "exec": false,
+   "sha256": "c0e65372c5b9ee5a0e83c19393d5e464d06569942759e0ea1d4d6e5d5dd08651",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.Tools.pdb"
+  },
+  "framework/System.Diagnostics.TraceSource.dll": {
+   "bytes": 48640,
+   "exec": false,
+   "sha256": "f51c65125ab6c2b1d61ac5d02953d5616a8a2276adc1ec075e8c4a19f162309e",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.TraceSource.dll"
+  },
+  "framework/System.Diagnostics.TraceSource.pdb": {
+   "bytes": 21468,
+   "exec": false,
+   "sha256": "72a2d0e97e44241a31398c40f9406276a8dd1cbb5f828d4cbde63acaab58b911",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.TraceSource.pdb"
+  },
+  "framework/System.Diagnostics.TraceSource.xml": {
+   "bytes": 89668,
+   "exec": false,
+   "sha256": "e71b343d44babffc1a625ed2a0ebe37820af66bbddf881f427a61516e7db8f10",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.TraceSource.xml"
+  },
+  "framework/System.Diagnostics.Tracing.dll": {
+   "bytes": 6144,
+   "exec": false,
+   "sha256": "43f9c90e5ba4e73387a4303bf9e3afe3195c5bf60f25b75c10dab1d23a85d88b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.Tracing.dll"
+  },
+  "framework/System.Diagnostics.Tracing.pdb": {
+   "bytes": 944,
+   "exec": false,
+   "sha256": "9be3cf9831bc0ffb6120bef011437df0be2abe30279202db032888883edf7f3c",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.Tracing.pdb"
+  },
+  "framework/System.Diagnostics.Tracing.xml": {
+   "bytes": 78743,
+   "exec": false,
+   "sha256": "b4249522de5a335b48cd23ee47f4521fa258f1983324bfc905211be18454a679",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Diagnostics.Tracing.xml"
+  },
+  "framework/System.Drawing.Primitives.dll": {
+   "bytes": 54272,
+   "exec": false,
+   "sha256": "52ea6e223cc917e21b133531f2936688e7d00680a01ac014dee69543b47cba68",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Drawing.Primitives.dll"
+  },
+  "framework/System.Drawing.Primitives.pdb": {
+   "bytes": 17940,
+   "exec": false,
+   "sha256": "3d6cac4c38adba5678a2785190f9ad16c679cc2c19ba0a1f305621e6806fdfdc",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Drawing.Primitives.pdb"
+  },
+  "framework/System.Drawing.Primitives.xml": {
+   "bytes": 174882,
+   "exec": false,
+   "sha256": "6a6270a819b3e817c1f76e8a63882b08059471ce71b7c25c146463c12ccf187e",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Drawing.Primitives.xml"
+  },
+  "framework/System.Drawing.dll": {
+   "bytes": 10240,
+   "exec": false,
+   "sha256": "d7c75e167f3c4bede0a34a11936d3528f33a5b60fae2139df6d1c098ff58b99a",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Drawing.dll"
+  },
+  "framework/System.Drawing.pdb": {
+   "bytes": 1660,
+   "exec": false,
+   "sha256": "8df3ce01061f7ac33d5c9aaac596412b05d698bf9e19bfcc25c76089f1c80e1b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Drawing.pdb"
+  },
+  "framework/System.Dynamic.Runtime.dll": {
+   "bytes": 6144,
+   "exec": false,
+   "sha256": "6429c35df461bd345495828db14caa4f7edec9b7f8aafb865563f7c20ba96181",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Dynamic.Runtime.dll"
+  },
+  "framework/System.Dynamic.Runtime.pdb": {
+   "bytes": 1432,
+   "exec": false,
+   "sha256": "0f4c5db7ff1a244df77e5ec28f19ec782b35616afe12ec00e6ac579c9987889b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Dynamic.Runtime.pdb"
+  },
+  "framework/System.Formats.Asn1.dll": {
+   "bytes": 86016,
+   "exec": false,
+   "sha256": "d9a650b6f66e9298f7668afd389d4a86943e3726f854963587c8bc7858e8dd94",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Formats.Asn1.dll"
+  },
+  "framework/System.Formats.Asn1.pdb": {
+   "bytes": 32216,
+   "exec": false,
+   "sha256": "0514a72f29b7a8a67c2f0ed0991d62902b7265e3f249dc5f8de84fc716d1d4f5",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Formats.Asn1.pdb"
+  },
+  "framework/System.Formats.Asn1.xml": {
+   "bytes": 239052,
+   "exec": false,
+   "sha256": "d7115cce3f250ce251d39f33c7d9610002723673216e450f9fa872ea03455c9b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Formats.Asn1.xml"
+  },
+  "framework/System.Formats.Tar.dll": {
+   "bytes": 28160,
+   "exec": false,
+   "sha256": "15c8462e7de004f0b9dcaa23be7a35d927856c65a5ba75fd2b947ef46fc5a066",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Formats.Tar.dll"
+  },
+  "framework/System.Formats.Tar.pdb": {
+   "bytes": 5900,
+   "exec": false,
+   "sha256": "ee38dfdc6fe6811b2cd0487e44e799192d6347e5f41dd38a9c7f052b8384ebcc",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Formats.Tar.pdb"
+  },
+  "framework/System.Formats.Tar.xml": {
+   "bytes": 53231,
+   "exec": false,
+   "sha256": "e9e8c8ff29bacac05349b45381c30a6582a75328a244738839e138ddca25eb4a",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Formats.Tar.xml"
+  },
+  "framework/System.Globalization.Calendars.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "11004ee86e23d09f45dfcbfc255f33a3ae7f222894f99f4e400c28b747f6e9c6",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Globalization.Calendars.dll"
+  },
+  "framework/System.Globalization.Calendars.pdb": {
+   "bytes": 1404,
+   "exec": false,
+   "sha256": "49146909cc255cd81ab91f3f22f089534b7c305d0d825f2e86fe10311dacbe8b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Globalization.Calendars.pdb"
+  },
+  "framework/System.Globalization.Extensions.dll": {
+   "bytes": 5120,
+   "exec": false,
+   "sha256": "5433feccda822e5efb7297b0eedf6a126cea85825929fb86340f9c9aa8020977",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Globalization.Extensions.dll"
+  },
+  "framework/System.Globalization.Extensions.pdb": {
+   "bytes": 1408,
+   "exec": false,
+   "sha256": "dd5398edae20cbde59280f6510cf32a29b32c73179cb9abcf620efd674d2ca45",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Globalization.Extensions.pdb"
+  },
+  "framework/System.Globalization.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "0048491ab09fe2b45e0c3dd5192ee64bbed0d6c37002c7988b38874654db7a8c",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Globalization.dll"
+  },
+  "framework/System.Globalization.pdb": {
+   "bytes": 1372,
+   "exec": false,
+   "sha256": "beea12714baff380f37a4dea4faea7d2a0ad740cf28a19b297c209093cdfa2c1",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Globalization.pdb"
+  },
+  "framework/System.IO.Compression.Brotli.dll": {
+   "bytes": 17920,
+   "exec": false,
+   "sha256": "e0020f8416e9d6b8a649d83dca32f445e38f0cc08662d251c5e080b1b780412b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.Compression.Brotli.dll"
+  },
+  "framework/System.IO.Compression.Brotli.pdb": {
+   "bytes": 4360,
+   "exec": false,
+   "sha256": "d6eb107914c9d84c2f6790f33861b887e511daa9ee06457ce665c6730272ea9a",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.Compression.Brotli.pdb"
+  },
+  "framework/System.IO.Compression.Brotli.xml": {
+   "bytes": 32450,
+   "exec": false,
+   "sha256": "191f819a395fd4047c8563d24740812342cecbf2b6392ae0b0fa034e3a5b140b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.Compression.Brotli.xml"
+  },
+  "framework/System.IO.Compression.FileSystem.dll": {
+   "bytes": 5120,
+   "exec": false,
+   "sha256": "07a5701b57deaf98a83b7bd5e0e9f7ef262600e15c721cb23a8f7718ec65b68a",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.Compression.FileSystem.dll"
+  },
+  "framework/System.IO.Compression.FileSystem.pdb": {
+   "bytes": 1468,
+   "exec": false,
+   "sha256": "b5a4304fac8ab1efd41fe5bbd39154b7682199b734d98ee16cb469dd96858372",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.Compression.FileSystem.pdb"
+  },
+  "framework/System.IO.Compression.ZipFile.dll": {
+   "bytes": 27648,
+   "exec": false,
+   "sha256": "65491118ca47890ee30bb44fc83d3291496f49074c697a557d87b275a5ec6871",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.Compression.ZipFile.dll"
+  },
+  "framework/System.IO.Compression.ZipFile.pdb": {
+   "bytes": 8152,
+   "exec": false,
+   "sha256": "5de4931e01628bf2380d5069eb36e8021cbf322d2a576e99589007a850b33285",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.Compression.ZipFile.pdb"
+  },
+  "framework/System.IO.Compression.ZipFile.xml": {
+   "bytes": 66607,
+   "exec": false,
+   "sha256": "67fcd4e3df0d3fc84be2d9c37add29c284000b67914591b3359854cd231b5dea",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.Compression.ZipFile.xml"
+  },
+  "framework/System.IO.Compression.dll": {
+   "bytes": 99840,
+   "exec": false,
+   "sha256": "51d9d3168809e4ca5222857149fd0503e24864e5f4c6a3fc4cd97c57ffde061c",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.Compression.dll"
+  },
+  "framework/System.IO.Compression.pdb": {
+   "bytes": 38392,
+   "exec": false,
+   "sha256": "9e588314ca87f9f701a62c43b430d54204d103cc8c862429e08be09c2a490bb2",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.Compression.pdb"
+  },
+  "framework/System.IO.Compression.xml": {
+   "bytes": 92540,
+   "exec": false,
+   "sha256": "94edca2eef93f7ea74c7cad610e300571e6b15986353ed7a8007dcda80f85cea",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.Compression.xml"
+  },
+  "framework/System.IO.FileSystem.AccessControl.dll": {
+   "bytes": 22016,
+   "exec": false,
+   "sha256": "bb476ec33968697e466f884165a7116fa652608ec42350a311777aacfab90730",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.FileSystem.AccessControl.dll"
+  },
+  "framework/System.IO.FileSystem.AccessControl.pdb": {
+   "bytes": 5076,
+   "exec": false,
+   "sha256": "6b8219beb39741f12e9e7d5a1da87b3c1f2c74b11293bf1e7862186b3c95f1b2",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.FileSystem.AccessControl.pdb"
+  },
+  "framework/System.IO.FileSystem.AccessControl.xml": {
+   "bytes": 65015,
+   "exec": false,
+   "sha256": "4ff1efbc5451992f7957549ccd62180b98b18918f8b75ef10fd7f40f4ab80cb1",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.FileSystem.AccessControl.xml"
+  },
+  "framework/System.IO.FileSystem.DriveInfo.dll": {
+   "bytes": 13824,
+   "exec": false,
+   "sha256": "83f29c9c16c6dccaf570138c81fff0719894db09c3923f622f49e010d834aa13",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.FileSystem.DriveInfo.dll"
+  },
+  "framework/System.IO.FileSystem.DriveInfo.pdb": {
+   "bytes": 3172,
+   "exec": false,
+   "sha256": "d856a113e02036645254b160b36c13253f0663801766dce17c078f477de8aa78",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.FileSystem.DriveInfo.pdb"
+  },
+  "framework/System.IO.FileSystem.DriveInfo.xml": {
+   "bytes": 9690,
+   "exec": false,
+   "sha256": "d9aa6ceeb09aa5a6a8b859a67b9a713626002db856eb9cd43c13e64b325d7272",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.FileSystem.DriveInfo.xml"
+  },
+  "framework/System.IO.FileSystem.Primitives.dll": {
+   "bytes": 5120,
+   "exec": false,
+   "sha256": "9822ee71d9c9421e8120d458ebff46467bebeacc5f10739ba592acb6baf518ed",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.FileSystem.Primitives.dll"
+  },
+  "framework/System.IO.FileSystem.Primitives.pdb": {
+   "bytes": 1408,
+   "exec": false,
+   "sha256": "4d28c92a8e161b0c44a3704fbfeb12ea6c7bf7bdc80907617daa47008c6f0b94",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.FileSystem.Primitives.pdb"
+  },
+  "framework/System.IO.FileSystem.Watcher.dll": {
+   "bytes": 23040,
+   "exec": false,
+   "sha256": "51ca45445f9c82fb08755364725755a98c9028866033389802dc201110cf93d4",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.FileSystem.Watcher.dll"
+  },
+  "framework/System.IO.FileSystem.Watcher.pdb": {
+   "bytes": 5272,
+   "exec": false,
+   "sha256": "bb4c6d57c4ded7d2e15763cb2b0d3cdda55d113422eff1955fe6822f2337edb4",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.FileSystem.Watcher.pdb"
+  },
+  "framework/System.IO.FileSystem.Watcher.xml": {
+   "bytes": 22664,
+   "exec": false,
+   "sha256": "b5011a042d75579f658bb77ea887cf1092320c0443b2c749fe9d03740fd4c3b4",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.FileSystem.Watcher.xml"
+  },
+  "framework/System.IO.FileSystem.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "4db67fc541a9f7c1c17363ba101e3035eb2dd1f456151ced5a99e424e50442af",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.FileSystem.dll"
+  },
+  "framework/System.IO.FileSystem.pdb": {
+   "bytes": 1372,
+   "exec": false,
+   "sha256": "415ebc6b2352cb2f4c2a4082aab68713ef1b2b41bee86a124e290ca62053aa50",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.FileSystem.pdb"
+  },
+  "framework/System.IO.IsolatedStorage.dll": {
+   "bytes": 25088,
+   "exec": false,
+   "sha256": "93c6465ae3a2f46583b8f51e9834b5361e42ed3c30e06e25ba0f14f5ed0cc595",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.IsolatedStorage.dll"
+  },
+  "framework/System.IO.IsolatedStorage.pdb": {
+   "bytes": 6496,
+   "exec": false,
+   "sha256": "26974c70280305cda4ac91532a39226406c4fede3bc5db92c8ac3d4fe3c3763b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.IsolatedStorage.pdb"
+  },
+  "framework/System.IO.IsolatedStorage.xml": {
+   "bytes": 91910,
+   "exec": false,
+   "sha256": "da90c99e9b6baf0b63ce5e5183065e477afd42496f1419a68c7555a69e7e9629",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.IsolatedStorage.xml"
+  },
+  "framework/System.IO.MemoryMappedFiles.dll": {
+   "bytes": 22528,
+   "exec": false,
+   "sha256": "de4ee795f97c94b1791edd44caf43343bfc6f42fe193071688fd5a95f0d0dfb1",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.MemoryMappedFiles.dll"
+  },
+  "framework/System.IO.MemoryMappedFiles.pdb": {
+   "bytes": 4616,
+   "exec": false,
+   "sha256": "4c277fa19cdc86119661b51a91064a399c12a37ad1b200f5c8008466805e2e2f",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.MemoryMappedFiles.pdb"
+  },
+  "framework/System.IO.MemoryMappedFiles.xml": {
+   "bytes": 48005,
+   "exec": false,
+   "sha256": "117c9472eb9cc3d737b49c0cfc3b63f967db43fcadd03f957145b1b3429f98bb",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.MemoryMappedFiles.xml"
+  },
+  "framework/System.IO.Pipelines.dll": {
+   "bytes": 68096,
+   "exec": false,
+   "sha256": "8317dcd063337c1cf2bc72f2b32e1f4f9d37fa3a4edef794d69a7a0e16d5468a",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.Pipelines.dll"
+  },
+  "framework/System.IO.Pipelines.pdb": {
+   "bytes": 25116,
+   "exec": false,
+   "sha256": "f5be3cb134b9554525cfb612cc90502024cfcfa1d7ddf08aac83e3a36bb1487c",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.Pipelines.pdb"
+  },
+  "framework/System.IO.Pipelines.xml": {
+   "bytes": 41108,
+   "exec": false,
+   "sha256": "286d0c502d68a000453f6be39347ae6c4cc63f7a2c73b1b941c2e25be365e9ab",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.Pipelines.xml"
+  },
+  "framework/System.IO.Pipes.AccessControl.dll": {
+   "bytes": 13312,
+   "exec": false,
+   "sha256": "50945fc02c7dd65a3e2c188a7ec10a800e4f948e16d0585db5f34cba8e3e44cc",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.Pipes.AccessControl.dll"
+  },
+  "framework/System.IO.Pipes.AccessControl.pdb": {
+   "bytes": 3520,
+   "exec": false,
+   "sha256": "9b787bd7acac902fcf437e090b9874238963e5ecff880f7a45321ce3fb754193",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.Pipes.AccessControl.pdb"
+  },
+  "framework/System.IO.Pipes.AccessControl.xml": {
+   "bytes": 23844,
+   "exec": false,
+   "sha256": "10d54a171c29838c613c7c33b76db9cff539114fe919f9712fe1954b22629913",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.Pipes.AccessControl.xml"
+  },
+  "framework/System.IO.Pipes.dll": {
+   "bytes": 32256,
+   "exec": false,
+   "sha256": "9ff6480c52c1c8652a969e7ab629e2bf798c8d49afcbd91b6d4073b25bbd696b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.Pipes.dll"
+  },
+  "framework/System.IO.Pipes.pdb": {
+   "bytes": 7120,
+   "exec": false,
+   "sha256": "ea1dc256547cff268b4a097032acbb06c11ce9f5eaf3ff58d86d8f1d2fa2bfa6",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.Pipes.pdb"
+  },
+  "framework/System.IO.Pipes.xml": {
+   "bytes": 92664,
+   "exec": false,
+   "sha256": "d3dd2e6c9cce67eca0e56df7962ecc93f8dba55bccdeaf88c5cbe0c6233ef104",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.Pipes.xml"
+  },
+  "framework/System.IO.UnmanagedMemoryStream.dll": {
+   "bytes": 5120,
+   "exec": false,
+   "sha256": "671c54d7f5c196a8c12bfbf3ebcf4cf0a1e13a26755ab35e2950efcf199907d1",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.UnmanagedMemoryStream.dll"
+  },
+  "framework/System.IO.UnmanagedMemoryStream.pdb": {
+   "bytes": 1468,
+   "exec": false,
+   "sha256": "f5738c6be89d126aa5dedf4bb43540a54f576407c6e49963db32480197bf0abe",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.UnmanagedMemoryStream.pdb"
+  },
+  "framework/System.IO.dll": {
+   "bytes": 5120,
+   "exec": false,
+   "sha256": "181267ddf2ab7690091a71cc433b2562d78043995eec1451791972eeb7004c73",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.dll"
+  },
+  "framework/System.IO.pdb": {
+   "bytes": 1336,
+   "exec": false,
+   "sha256": "680d76025dd1ffb7f17caa4ee2fafb9b20440f05b89cc0924656bf24d0fd934e",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.IO.pdb"
+  },
+  "framework/System.Linq.Expressions.dll": {
+   "bytes": 565248,
+   "exec": false,
+   "sha256": "f41d8368d4a23e231f5105ac491ae1ea9f2b2763a5cb3d18c4c0cc448951bfa9",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Linq.Expressions.dll"
+  },
+  "framework/System.Linq.Expressions.pdb": {
+   "bytes": 262772,
+   "exec": false,
+   "sha256": "adf07efb282215c23582b46a5a8278c1f9681a2fad8723fdf071d98274c656fb",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Linq.Expressions.pdb"
+  },
+  "framework/System.Linq.Expressions.xml": {
+   "bytes": 684190,
+   "exec": false,
+   "sha256": "139b8c977c3f8a727ce9c4d978a51cd7bb43c27731b897786f11511aa26f66f7",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Linq.Expressions.xml"
+  },
+  "framework/System.Linq.Parallel.dll": {
+   "bytes": 212992,
+   "exec": false,
+   "sha256": "33341e04501a158c3ecc203400c935aa7a297d879a35c17eef9a1bb4f5b2fffc",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Linq.Parallel.dll"
+  },
+  "framework/System.Linq.Parallel.pdb": {
+   "bytes": 91680,
+   "exec": false,
+   "sha256": "6a58b408b65eece1a7e2c963b59a56c9fc57cb5b6b1f3a74a2e0f5145853c5cd",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Linq.Parallel.pdb"
+  },
+  "framework/System.Linq.Parallel.xml": {
+   "bytes": 270901,
+   "exec": false,
+   "sha256": "95bb8dead546a915c9c7439a78df0d87c52d98ac8d1acdfed499cccd78517ac5",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Linq.Parallel.xml"
+  },
+  "framework/System.Linq.Queryable.dll": {
+   "bytes": 66048,
+   "exec": false,
+   "sha256": "232461320171e0beb66820a63d6ebdabba21fab8712adbde52645b76516213f6",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Linq.Queryable.dll"
+  },
+  "framework/System.Linq.Queryable.pdb": {
+   "bytes": 13404,
+   "exec": false,
+   "sha256": "fa6f86ca0b226b8e642ce12269720a272d8e773d0249eda5e664cc4fa43a78cb",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Linq.Queryable.pdb"
+  },
+  "framework/System.Linq.Queryable.xml": {
+   "bytes": 169644,
+   "exec": false,
+   "sha256": "64e29ed2f478a2f07fa2056ee98d0a95623a485266b3506a84ff71f09f280bcb",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Linq.Queryable.xml"
+  },
+  "framework/System.Linq.dll": {
+   "bytes": 171520,
+   "exec": false,
+   "sha256": "ebd05bcd044c194a91cfb4ccd1e1a6305b7f95ea323bbf159cff57e426a62fc2",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Linq.dll"
+  },
+  "framework/System.Linq.pdb": {
+   "bytes": 74304,
+   "exec": false,
+   "sha256": "c11985fbd8f0615e70a8c7609852f68b1befa81198dca5f9a776461eb5499013",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Linq.pdb"
+  },
+  "framework/System.Linq.xml": {
+   "bytes": 222242,
+   "exec": false,
+   "sha256": "a05cb47817b2d3c5027e1639575671f7febde458e5ac73ff7425613ad855969d",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Linq.xml"
+  },
+  "framework/System.Memory.dll": {
+   "bytes": 45056,
+   "exec": false,
+   "sha256": "57d6afe5f3636560f750151e4154528e5c3462b6034d8f2cdb08cf329e1588d5",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Memory.dll"
+  },
+  "framework/System.Memory.pdb": {
+   "bytes": 19400,
+   "exec": false,
+   "sha256": "4fd9cd0c21c9e6ea52a9600297bbcaeb91eaa600eab427c9ab6a3c96edac0d19",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Memory.pdb"
+  },
+  "framework/System.Memory.xml": {
+   "bytes": 342404,
+   "exec": false,
+   "sha256": "e9bb2dc7d918dcc2fcb31dc905001882755ab0b0e11ba8ed405457fb43f093dd",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Memory.xml"
+  },
+  "framework/System.Net.Http.Json.dll": {
+   "bytes": 46080,
+   "exec": false,
+   "sha256": "4fa9e1cf0929dabc4182f70b2bf57e6cfd423e2c555ff7773a77092e53b6042f",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.Http.Json.dll"
+  },
+  "framework/System.Net.Http.Json.pdb": {
+   "bytes": 10264,
+   "exec": false,
+   "sha256": "4ea9a047161d805d23bc4814f558b4b1f9ec986b9f48e2f62f9d1a636de20d0b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.Http.Json.pdb"
+  },
+  "framework/System.Net.Http.Json.xml": {
+   "bytes": 71073,
+   "exec": false,
+   "sha256": "070988161138d7a186d086d3e660bab24cc231f5f3e96b7a309c2a791d32680a",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.Http.Json.xml"
+  },
+  "framework/System.Net.Http.dll": {
+   "bytes": 653312,
+   "exec": false,
+   "sha256": "d0991652d4293ee57ce36e1f1154894cb042b2546832a1fae6f8c59b4c3bcec9",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.Http.dll"
+  },
+  "framework/System.Net.Http.pdb": {
+   "bytes": 220172,
+   "exec": false,
+   "sha256": "df4693e0bbd9749a1ecf8ff91285b7747b131c139b302d9ad43b499871857e43",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.Http.pdb"
+  },
+  "framework/System.Net.Http.xml": {
+   "bytes": 325557,
+   "exec": false,
+   "sha256": "8309828bb9d5f5858c623b4d497d797e64d7694a14578377c52b869b7e9847c1",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.Http.xml"
+  },
+  "framework/System.Net.HttpListener.dll": {
+   "bytes": 46080,
+   "exec": false,
+   "sha256": "ed05258e90d1b2d9a7ec8c23fc3eb5fb3636412a5f1d5d00a3204cf34f894d11",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.HttpListener.dll"
+  },
+  "framework/System.Net.HttpListener.pdb": {
+   "bytes": 10140,
+   "exec": false,
+   "sha256": "d1a869f652fac0c92eab50937aba3491c97c1d1274d64cc91640d47df2fed9d9",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.HttpListener.pdb"
+  },
+  "framework/System.Net.HttpListener.xml": {
+   "bytes": 64665,
+   "exec": false,
+   "sha256": "d5f1472b59bffb44d28d504aa979f8c3ac26d4083aa49500feb1188a4acd08d4",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.HttpListener.xml"
+  },
+  "framework/System.Net.Mail.dll": {
+   "bytes": 48640,
+   "exec": false,
+   "sha256": "e188e795689bdde3714fa8f352943e67442e724f8508efe1590526b1dbb5cba4",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.Mail.dll"
+  },
+  "framework/System.Net.Mail.pdb": {
+   "bytes": 12392,
+   "exec": false,
+   "sha256": "9cd3b14f1809d95250ca807a275f8bf2b63ccab42030c05d39832d3c278dc9c2",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.Mail.pdb"
+  },
+  "framework/System.Net.Mail.xml": {
+   "bytes": 136580,
+   "exec": false,
+   "sha256": "8f19723866a8fe942b0090075ad2d70b1e5bed8e205cbcf77ba541448a784b43",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.Mail.xml"
+  },
+  "framework/System.Net.NameResolution.dll": {
+   "bytes": 41472,
+   "exec": false,
+   "sha256": "49385d8178b36032c7ab6b84f1339361e78d71b8b17a65f4193571ca87fabe29",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.NameResolution.dll"
+  },
+  "framework/System.Net.NameResolution.pdb": {
+   "bytes": 12348,
+   "exec": false,
+   "sha256": "1b6faa6daf540792903d87bcd7360838f86b0ee04a988feafbfeb5168340b861",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.NameResolution.pdb"
+  },
+  "framework/System.Net.NameResolution.xml": {
+   "bytes": 26150,
+   "exec": false,
+   "sha256": "903462eff8eafcb2470e983870ae874691b031dc2da0e95696bcd89c92f296af",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.NameResolution.xml"
+  },
+  "framework/System.Net.NetworkInformation.dll": {
+   "bytes": 32256,
+   "exec": false,
+   "sha256": "e31a80687ad4069b64ab8797ecaf2b4059e9d532677edc75c84bf2beeeafa67e",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.NetworkInformation.dll"
+  },
+  "framework/System.Net.NetworkInformation.pdb": {
+   "bytes": 7148,
+   "exec": false,
+   "sha256": "924504bb6b936ca14ce399737b58781f5e00e777a474818a53471479f90a90a2",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.NetworkInformation.pdb"
+  },
+  "framework/System.Net.NetworkInformation.xml": {
+   "bytes": 142745,
+   "exec": false,
+   "sha256": "a25487b9a380d92e0e2f638a1a6f634f79170512734a2b3abfc59881b0f1ed38",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.NetworkInformation.xml"
+  },
+  "framework/System.Net.Ping.dll": {
+   "bytes": 17920,
+   "exec": false,
+   "sha256": "fbc32da605cbea0b2c3a2b1228af3dbfc5474d00ba0c2b462f05002c12630f0b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.Ping.dll"
+  },
+  "framework/System.Net.Ping.pdb": {
+   "bytes": 4748,
+   "exec": false,
+   "sha256": "313ebe4f23b9f31aa595e774befd731b6a38edfd5273147419093a07efd391bf",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.Ping.pdb"
+  },
+  "framework/System.Net.Ping.xml": {
+   "bytes": 76915,
+   "exec": false,
+   "sha256": "221bd34c79940f800f92716a9551a93467dfcbd02df22393ea9a60d2fbef053a",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.Ping.xml"
+  },
+  "framework/System.Net.Primitives.dll": {
+   "bytes": 96768,
+   "exec": false,
+   "sha256": "dc1448fd2697fafd96f9e678995afc5bff1652e7aecccf88af9a230467fe95ce",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.Primitives.dll"
+  },
+  "framework/System.Net.Primitives.pdb": {
+   "bytes": 36444,
+   "exec": false,
+   "sha256": "38b00c164b84df5f35b9d124d2407aefb7b7a51629a5be23980e3af0b98f69bf",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.Primitives.pdb"
+  },
+  "framework/System.Net.Primitives.xml": {
+   "bytes": 172228,
+   "exec": false,
+   "sha256": "5c8cc8c6d4b6bf7e226ee95147b329da7ac7bdcd92afcb5170286bf14bb19947",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.Primitives.xml"
+  },
+  "framework/System.Net.Quic.dll": {
+   "bytes": 28672,
+   "exec": false,
+   "sha256": "850e948ce864a6a07626fc702156f92246670d83db0f012bd3f33b15a5db008b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.Quic.dll"
+  },
+  "framework/System.Net.Quic.pdb": {
+   "bytes": 7664,
+   "exec": false,
+   "sha256": "9ab4302307add59f581b430d9f3b1f87f16aaa625fa908092ef422c91fabeb18",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.Quic.pdb"
+  },
+  "framework/System.Net.Quic.xml": {
+   "bytes": 41503,
+   "exec": false,
+   "sha256": "ed76696abbc528bff478ca929fbd21ec8400c2a3ec0d9a8b2e7d6253de38aec6",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.Quic.xml"
+  },
+  "framework/System.Net.Requests.dll": {
+   "bytes": 55808,
+   "exec": false,
+   "sha256": "9accc43c65664ec4ce43b2ec0817b6e6a9330215175bce9e1128a563a9ceecc1",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.Requests.dll"
+  },
+  "framework/System.Net.Requests.pdb": {
+   "bytes": 17044,
+   "exec": false,
+   "sha256": "0d6687cdc979d952c1a658f4da223d02ed542c480d394a1ad4ead50ac029446a",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.Requests.pdb"
+  },
+  "framework/System.Net.Requests.xml": {
+   "bytes": 199062,
+   "exec": false,
+   "sha256": "19df07fcb71427ef05a7557d306ed190b765100a1df1483c2b200e53cde86816",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.Requests.xml"
+  },
+  "framework/System.Net.Security.dll": {
+   "bytes": 317440,
+   "exec": false,
+   "sha256": "298b3b9e64600c76894c6e80937eceeb237517414c2a5173bd1cb1371f1f41b9",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.Security.dll"
+  },
+  "framework/System.Net.Security.pdb": {
+   "bytes": 119084,
+   "exec": false,
+   "sha256": "30865a0e12418be51b46a7d63debe51ad6e06d492ee0be4928f3486eaca5f3c5",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.Security.pdb"
+  },
+  "framework/System.Net.Security.xml": {
+   "bytes": 303863,
+   "exec": false,
+   "sha256": "43d566215e8bd29d4998818b183a185b56ce58ff52c6be14d6c27ff171f464ba",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.Security.xml"
+  },
+  "framework/System.Net.ServicePoint.dll": {
+   "bytes": 5120,
+   "exec": false,
+   "sha256": "5195523b802f11ae2fd2abf6be8eca2d2b3580190d860a5f3600a2136548b6cf",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.ServicePoint.dll"
+  },
+  "framework/System.Net.ServicePoint.pdb": {
+   "bytes": 1432,
+   "exec": false,
+   "sha256": "efe9e8e7acc017a217039039be9436a558da6790b1d75f3e1f93112b9a1cacab",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.ServicePoint.pdb"
+  },
+  "framework/System.Net.Sockets.dll": {
+   "bytes": 225792,
+   "exec": false,
+   "sha256": "90bc6959769b0a413d54446cbd5d1a9e15f79fbaff0861ffb11a180f9508046e",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.Sockets.dll"
+  },
+  "framework/System.Net.Sockets.pdb": {
+   "bytes": 86624,
+   "exec": false,
+   "sha256": "8516453c3c49d15a97b3a395440646f7979a3a377e591cbe5c7a8ff126d1605d",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.Sockets.pdb"
+  },
+  "framework/System.Net.Sockets.xml": {
+   "bytes": 490095,
+   "exec": false,
+   "sha256": "40cc5c8610c7e62d8b6979209bab072c8f1d8d90caadb80ca0148ab5cd8e2cae",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.Sockets.xml"
+  },
+  "framework/System.Net.WebClient.dll": {
+   "bytes": 60416,
+   "exec": false,
+   "sha256": "8bb1269044e1e545d5a46773eb8e83e212b59209891ad55cfa1e475473e3d28a",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.WebClient.dll"
+  },
+  "framework/System.Net.WebClient.pdb": {
+   "bytes": 19300,
+   "exec": false,
+   "sha256": "a6ed97f7aa36b89aa22089d15aed4004a0222619724649d083c83a3d6f86d1b6",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.WebClient.pdb"
+  },
+  "framework/System.Net.WebClient.xml": {
+   "bytes": 116592,
+   "exec": false,
+   "sha256": "ffe14f68d549b8210a5fe2e9f68a1b5b64a26e7f7bbb8328d2167ed48bf29769",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.WebClient.xml"
+  },
+  "framework/System.Net.WebHeaderCollection.dll": {
+   "bytes": 23040,
+   "exec": false,
+   "sha256": "463d161399c4bcf6234233e9882bb6be102eea0f975b2423c66125cae001702b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.WebHeaderCollection.dll"
+  },
+  "framework/System.Net.WebHeaderCollection.pdb": {
+   "bytes": 5844,
+   "exec": false,
+   "sha256": "87306316d20ff0c983aa69d87df9f18105780b2bb9c6d1f56f679e64356009b0",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.WebHeaderCollection.pdb"
+  },
+  "framework/System.Net.WebHeaderCollection.xml": {
+   "bytes": 34662,
+   "exec": false,
+   "sha256": "c4e14fb80cecb71d570a70ca363bee672e11fee74675882b90338a74b72969de",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.WebHeaderCollection.xml"
+  },
+  "framework/System.Net.WebProxy.dll": {
+   "bytes": 13312,
+   "exec": false,
+   "sha256": "7011bbf464da02a1b7ee56771f57e34d44e00baa32eac32c761e8c3239bf0165",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.WebProxy.dll"
+  },
+  "framework/System.Net.WebProxy.pdb": {
+   "bytes": 4044,
+   "exec": false,
+   "sha256": "01cf9bb77d497518a44306a216dc344300386f4b3ac66db08105836578e90dee",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.WebProxy.pdb"
+  },
+  "framework/System.Net.WebProxy.xml": {
+   "bytes": 13184,
+   "exec": false,
+   "sha256": "d0d27e2e4a4c07ba04f8dd87f33d448d8e1ed8d1b2d0fe678b912105b9794271",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.WebProxy.xml"
+  },
+  "framework/System.Net.WebSockets.Client.dll": {
+   "bytes": 41472,
+   "exec": false,
+   "sha256": "b2cb2da845b8cd015128dbabdfba43705e336c20833059ecc7daea56b639255e",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.WebSockets.Client.dll"
+  },
+  "framework/System.Net.WebSockets.Client.pdb": {
+   "bytes": 9708,
+   "exec": false,
+   "sha256": "67cb78c97a8234044d3f48e62b7eac3860132e0f28c78be811a56f7aa7eb7899",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.WebSockets.Client.pdb"
+  },
+  "framework/System.Net.WebSockets.Client.xml": {
+   "bytes": 18390,
+   "exec": false,
+   "sha256": "871746486454daf125812f038071a9b78024e4855105c07028ec26708f4dee52",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.WebSockets.Client.xml"
+  },
+  "framework/System.Net.WebSockets.dll": {
+   "bytes": 30208,
+   "exec": false,
+   "sha256": "f55d1097ed7a851ecdf01c5572ffbc9ca6b3b9d40ac82590caca19df21941c92",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.WebSockets.dll"
+  },
+  "framework/System.Net.WebSockets.pdb": {
+   "bytes": 5880,
+   "exec": false,
+   "sha256": "d0e490bc5894a9fd042c439df7da434f802c6c1c33527629f1eaa1f24fee18b5",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.WebSockets.pdb"
+  },
+  "framework/System.Net.WebSockets.xml": {
+   "bytes": 41184,
+   "exec": false,
+   "sha256": "3737110ced09ad68704c7552011d07ec906b59a34e9574816358d8bd31f24d8c",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.WebSockets.xml"
+  },
+  "framework/System.Net.dll": {
+   "bytes": 6656,
+   "exec": false,
+   "sha256": "d762141b2a61cca37687a645f94b5a16cfeaefec2a4a3c1627d3ea245d78bdfa",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.dll"
+  },
+  "framework/System.Net.pdb": {
+   "bytes": 1720,
+   "exec": false,
+   "sha256": "0c2dcf9fad796c7528aec3f3651d88889c2c9eba9a7e9dfaa042ad62f455d799",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Net.pdb"
+  },
+  "framework/System.Numerics.Vectors.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "8208e42aec679683eecb4d4fccc32ed436aaeb6e063c03a6829dfc8c2652a8f8",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Numerics.Vectors.dll"
+  },
+  "framework/System.Numerics.Vectors.pdb": {
+   "bytes": 944,
+   "exec": false,
+   "sha256": "04dd1318fab290a2904a3d9baa894a43b6ffa28cbdd4eb572424e21083051bc6",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Numerics.Vectors.pdb"
+  },
+  "framework/System.Numerics.Vectors.xml": {
+   "bytes": 327537,
+   "exec": false,
+   "sha256": "e1710cdd93baf224f4e82e23d41bbd8a6a5aa9e2d104bdd4350a12d350703890",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Numerics.Vectors.xml"
+  },
+  "framework/System.Numerics.dll": {
+   "bytes": 5120,
+   "exec": false,
+   "sha256": "cbc5be2440455865c2687407dc39859abb487de69ace80fc1bcddb39e5df51cd",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Numerics.dll"
+  },
+  "framework/System.Numerics.pdb": {
+   "bytes": 1464,
+   "exec": false,
+   "sha256": "6b2a8bd66b7921407ffa038a6d09d0b9942102d42d7e0c2ab4847429eb79b110",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Numerics.pdb"
+  },
+  "framework/System.ObjectModel.dll": {
+   "bytes": 31232,
+   "exec": false,
+   "sha256": "d62bb6b68ea8f6fc37ef1cbde03c6c5e4a9664eb21d0868a6ac4a110c351aa79",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.ObjectModel.dll"
+  },
+  "framework/System.ObjectModel.pdb": {
+   "bytes": 9592,
+   "exec": false,
+   "sha256": "f18294fe87089740c52b2c58d45cdeefb8fbfb98919fe2989d225735a4721b72",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.ObjectModel.pdb"
+  },
+  "framework/System.ObjectModel.xml": {
+   "bytes": 46913,
+   "exec": false,
+   "sha256": "ff72104821a874526f059ee423b8c0c7027e8cb74ffe675c13643d23738211e1",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.ObjectModel.xml"
+  },
+  "framework/System.Private.DataContractSerialization.dll": {
+   "bytes": 841728,
+   "exec": false,
+   "sha256": "9630d488014d67b84e2be379f074587631d166dd409995a332140575fbf2ea49",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Private.DataContractSerialization.dll"
+  },
+  "framework/System.Private.DataContractSerialization.pdb": {
+   "bytes": 343244,
+   "exec": false,
+   "sha256": "8712e7a68125d1db52c94cec053936c91d4104852563e14a44e99a55f97d34cc",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Private.DataContractSerialization.pdb"
+  },
+  "framework/System.Private.DataContractSerialization.xml": {
+   "bytes": 131323,
+   "exec": false,
+   "sha256": "c0f3965040e2d387dac4a033a4a3f06a8d3227a7a0bac9ca89865c301228bd01",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Private.DataContractSerialization.xml"
+  },
+  "framework/System.Private.Uri.dll": {
+   "bytes": 92672,
+   "exec": false,
+   "sha256": "10fb87a26201bae8478227fa5ae9858c3ebf7cb4b2ea2b2b5b84772a5969a3f2",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Private.Uri.dll"
+  },
+  "framework/System.Private.Uri.pdb": {
+   "bytes": 36164,
+   "exec": false,
+   "sha256": "f9a406618c2c86c3556638367de52cc152b0fba9e446cb0585b37a065b7540df",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Private.Uri.pdb"
+  },
+  "framework/System.Private.Uri.xml": {
+   "bytes": 19690,
+   "exec": false,
+   "sha256": "629eb900dbc01dba8827c2941d77d6a30a3f2fdd7c39be373d8ed4e3ee6fe783",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Private.Uri.xml"
+  },
+  "framework/System.Private.Xml.Linq.dll": {
+   "bytes": 143360,
+   "exec": false,
+   "sha256": "a032a28abce69e54a12b2c71f2e3fad97eb50abbef40c8631acfc3c84c22bfd5",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Private.Xml.Linq.dll"
+  },
+  "framework/System.Private.Xml.Linq.pdb": {
+   "bytes": 57824,
+   "exec": false,
+   "sha256": "73a4c92aee5613875aeadd6e0a1c0304add9f5f65e0f8b84fd97ab498c60179f",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Private.Xml.Linq.pdb"
+  },
+  "framework/System.Private.Xml.Linq.xml": {
+   "bytes": 249795,
+   "exec": false,
+   "sha256": "6867a8b63f473d459f5b7f709b08490bb8a2a157eb7b753241c9a67624692353",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Private.Xml.Linq.xml"
+  },
+  "framework/System.Private.Xml.dll": {
+   "bytes": 3089408,
+   "exec": false,
+   "sha256": "9e994dbe96d58200b514b513e42a2ea960363949ac24d96722df695ac17e27d5",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Private.Xml.dll"
+  },
+  "framework/System.Private.Xml.pdb": {
+   "bytes": 1243264,
+   "exec": false,
+   "sha256": "119dcd5c7b107fc97345b6ceeff1463dc25baea27fc9441c4854ef9f99ebbcea",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Private.Xml.pdb"
+  },
+  "framework/System.Private.Xml.xml": {
+   "bytes": 838910,
+   "exec": false,
+   "sha256": "d9d52708d754de2b28bbf4501ad29c8d4299e4937639e534f0530717d4c10913",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Private.Xml.xml"
+  },
+  "framework/System.Reflection.DispatchProxy.dll": {
+   "bytes": 28160,
+   "exec": false,
+   "sha256": "b004fc61d710dfcb9bdcbb40925bd6849bb9b2fdebbb99582af02af26e5eb169",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Reflection.DispatchProxy.dll"
+  },
+  "framework/System.Reflection.DispatchProxy.pdb": {
+   "bytes": 7332,
+   "exec": false,
+   "sha256": "d3186c4291cd0d61dc6d113db937b129abfde745997045900c97cce082281dfb",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Reflection.DispatchProxy.pdb"
+  },
+  "framework/System.Reflection.DispatchProxy.xml": {
+   "bytes": 2616,
+   "exec": false,
+   "sha256": "95ed470759641e1fd2ec3198576879497aaeb4df0f7bda21f038ccd3c8b7857b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Reflection.DispatchProxy.xml"
+  },
+  "framework/System.Reflection.Emit.ILGeneration.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "19daf0f05739dc1365b5f231884dc3e4959d78c558e664f9adf640e6f830d392",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Reflection.Emit.ILGeneration.dll"
+  },
+  "framework/System.Reflection.Emit.ILGeneration.pdb": {
+   "bytes": 944,
+   "exec": false,
+   "sha256": "b26fce8fc1515a163ecfb37d9b7f9f05e4d738096465e20b5332f1906b180daa",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Reflection.Emit.ILGeneration.pdb"
+  },
+  "framework/System.Reflection.Emit.ILGeneration.xml": {
+   "bytes": 62895,
+   "exec": false,
+   "sha256": "9042704eb0cb2815f76ba57f3f84ced591fb4326167cea32891a908f61f28751",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Reflection.Emit.ILGeneration.xml"
+  },
+  "framework/System.Reflection.Emit.Lightweight.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "a3c952cfc561da673bbcc5a9f1cad2972511df96884f7b407bea4df4fbe66248",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Reflection.Emit.Lightweight.dll"
+  },
+  "framework/System.Reflection.Emit.Lightweight.pdb": {
+   "bytes": 944,
+   "exec": false,
+   "sha256": "c9ee5da156887c5477ea79f9e12b0bb4fee4d499e60814de7b64403da73a9428",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Reflection.Emit.Lightweight.pdb"
+  },
+  "framework/System.Reflection.Emit.Lightweight.xml": {
+   "bytes": 42505,
+   "exec": false,
+   "sha256": "a152e42a82531bebe4c0cccd16926d1729c7ff154479544bdd58237faf66027d",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Reflection.Emit.Lightweight.xml"
+  },
+  "framework/System.Reflection.Emit.dll": {
+   "bytes": 119808,
+   "exec": false,
+   "sha256": "9554ca688858cd670ded20da67a1514d90f888db203bbdb93514fd5493591c88",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Reflection.Emit.dll"
+  },
+  "framework/System.Reflection.Emit.pdb": {
+   "bytes": 43388,
+   "exec": false,
+   "sha256": "36b729d476ea81d58854246fdc188434f31036e0b4679ce96d78cac4d159eb49",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Reflection.Emit.pdb"
+  },
+  "framework/System.Reflection.Emit.xml": {
+   "bytes": 373380,
+   "exec": false,
+   "sha256": "f4b5c24ca8f2d752e6239c47f5c9e35e70150063337970071909bb9e6260165c",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Reflection.Emit.xml"
+  },
+  "framework/System.Reflection.Extensions.dll": {
+   "bytes": 5120,
+   "exec": false,
+   "sha256": "35a8201d107db32e750d57aba272f4a6fb5356dc1b5941d2548b581304dc9222",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Reflection.Extensions.dll"
+  },
+  "framework/System.Reflection.Extensions.pdb": {
+   "bytes": 1396,
+   "exec": false,
+   "sha256": "f1acdd087fe58152394acfc02fbb4f0687b1ce337d192c5f2d2eca5f22d1c020",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Reflection.Extensions.pdb"
+  },
+  "framework/System.Reflection.Metadata.dll": {
+   "bytes": 491008,
+   "exec": false,
+   "sha256": "799b3f9ade6aba1a56e8f3c8c3085d1973c4c612671dee17091384fa238bb0af",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Reflection.Metadata.dll"
+  },
+  "framework/System.Reflection.Metadata.pdb": {
+   "bytes": 195156,
+   "exec": false,
+   "sha256": "36450546faf895ccbbe75a7035a6298d583edc058736ce84935af908aa3b7561",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Reflection.Metadata.pdb"
+  },
+  "framework/System.Reflection.Metadata.xml": {
+   "bytes": 670048,
+   "exec": false,
+   "sha256": "e2e04797ddf2cef9c834ca76ce84a7ef8fcd0845a7e06c17ba8d9233aa38d664",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Reflection.Metadata.xml"
+  },
+  "framework/System.Reflection.Primitives.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "49d5d376019122027282c9769296794be215c5e968da6af265169d74c0286d22",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Reflection.Primitives.dll"
+  },
+  "framework/System.Reflection.Primitives.pdb": {
+   "bytes": 944,
+   "exec": false,
+   "sha256": "063313c740f961621b38601a801330bf76d54f950b720f700790842536bc294e",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Reflection.Primitives.pdb"
+  },
+  "framework/System.Reflection.Primitives.xml": {
+   "bytes": 69057,
+   "exec": false,
+   "sha256": "de04be9d60b83d1f8a863972a9a93ed1bc7eb70cae902122fada223eed159b12",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Reflection.Primitives.xml"
+  },
+  "framework/System.Reflection.TypeExtensions.dll": {
+   "bytes": 13824,
+   "exec": false,
+   "sha256": "87b25cd1fe44e690dc6795471fc6660f8448ab637815c316cbafb48f6c811e57",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Reflection.TypeExtensions.dll"
+  },
+  "framework/System.Reflection.TypeExtensions.pdb": {
+   "bytes": 3564,
+   "exec": false,
+   "sha256": "9825ddff812ae30b6428a77f6a0b08c65f58a8cb83ad098c2cedf85cac080473",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Reflection.TypeExtensions.pdb"
+  },
+  "framework/System.Reflection.TypeExtensions.xml": {
+   "bytes": 10599,
+   "exec": false,
+   "sha256": "f478ecfbc025108225aa90703a0ce9d34aafb992cb1a384fc1667f1263a3ba53",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Reflection.TypeExtensions.xml"
+  },
+  "framework/System.Reflection.dll": {
+   "bytes": 6144,
+   "exec": false,
+   "sha256": "669128419c85210efff7265e83821140cfcfcfcd12b71b874898876adf52d2cf",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Reflection.dll"
+  },
+  "framework/System.Reflection.pdb": {
+   "bytes": 1364,
+   "exec": false,
+   "sha256": "a8393be9f78748f4d37190caa41c5257ee0dfe59286ddf38fa6e93cf45ca3ff8",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Reflection.pdb"
+  },
+  "framework/System.Resources.Reader.dll": {
+   "bytes": 5120,
+   "exec": false,
+   "sha256": "08bb3bbb277dc5d0ff0f2c0686d718e4ce4b560605046e001aa45fa83aa0a68b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Resources.Reader.dll"
+  },
+  "framework/System.Resources.Reader.pdb": {
+   "bytes": 1384,
+   "exec": false,
+   "sha256": "a9515471c57875ae7c42cb65b725d1132a39f3b54c324752e5514da234533989",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Resources.Reader.pdb"
+  },
+  "framework/System.Resources.ResourceManager.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "6e17330f76bf3ad2bf78d49e7583c06a5362912599ac4f8e04716900af6a9b44",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Resources.ResourceManager.dll"
+  },
+  "framework/System.Resources.ResourceManager.pdb": {
+   "bytes": 1408,
+   "exec": false,
+   "sha256": "9af7e546e249afe6be135f266d384204bb4da926a7483adeb81c013279ace62e",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Resources.ResourceManager.pdb"
+  },
+  "framework/System.Resources.Writer.dll": {
+   "bytes": 16384,
+   "exec": false,
+   "sha256": "1f323967e74546423d5a9069ac9c3939309622d9f7faac1bd11c80656262709a",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Resources.Writer.dll"
+  },
+  "framework/System.Resources.Writer.pdb": {
+   "bytes": 5220,
+   "exec": false,
+   "sha256": "225868a99f1af0d4b79293444ec81e77335390d858b30f11f9e99cf636bb662b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Resources.Writer.pdb"
+  },
+  "framework/System.Resources.Writer.xml": {
+   "bytes": 11657,
+   "exec": false,
+   "sha256": "48ebb24760b6f97446ce634f065e0b715638e71d6aededb4450beee5d0e394a8",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Resources.Writer.xml"
+  },
+  "framework/System.Runtime.CompilerServices.Unsafe.dll": {
+   "bytes": 5120,
+   "exec": false,
+   "sha256": "827b68330b7846772e39ae69863ecbf3d94beadb4574d15899f0a85fb77a802a",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.CompilerServices.Unsafe.dll"
+  },
+  "framework/System.Runtime.CompilerServices.Unsafe.pdb": {
+   "bytes": 1428,
+   "exec": false,
+   "sha256": "444968c5d20481e2692190b63c11aebe49251121500140422134f7252ddb2d8a",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.CompilerServices.Unsafe.pdb"
+  },
+  "framework/System.Runtime.CompilerServices.VisualC.dll": {
+   "bytes": 7168,
+   "exec": false,
+   "sha256": "9eded8bdc78e6665c5c05c80506bee55616457ece12ff2ab7b0048b1612e2f22",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.CompilerServices.VisualC.dll"
+  },
+  "framework/System.Runtime.CompilerServices.VisualC.pdb": {
+   "bytes": 1680,
+   "exec": false,
+   "sha256": "a4e63565ccb45b868e57f7e42e5c67d3b48267dbeadf86205d6599be1877c802",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.CompilerServices.VisualC.pdb"
+  },
+  "framework/System.Runtime.CompilerServices.VisualC.xml": {
+   "bytes": 5687,
+   "exec": false,
+   "sha256": "9770fabdff04c17f767eb22e2cad3b5caad4be61e63e77173347699c61c5357e",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.CompilerServices.VisualC.xml"
+  },
+  "framework/System.Runtime.Extensions.dll": {
+   "bytes": 7680,
+   "exec": false,
+   "sha256": "df3b3d381eda710f663ae9b750bb97a5595b2c9acca815e31f07407a25c3bbf8",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.Extensions.dll"
+  },
+  "framework/System.Runtime.Extensions.pdb": {
+   "bytes": 1388,
+   "exec": false,
+   "sha256": "55d4c09602e392b559b3a868a826626af3d9365cd5be3650613e2bb66148658b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.Extensions.pdb"
+  },
+  "framework/System.Runtime.Handles.dll": {
+   "bytes": 5120,
+   "exec": false,
+   "sha256": "937b17ccb93905e3ceb989fc87f0dc381ddc6394bb80a3b279a6a1cd072c82a0",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.Handles.dll"
+  },
+  "framework/System.Runtime.Handles.pdb": {
+   "bytes": 1380,
+   "exec": false,
+   "sha256": "5d5d35be0f3af5d875d07c1aee8456084f7eaed85e275587c4fb2499268dd11d",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.Handles.pdb"
+  },
+  "framework/System.Runtime.InteropServices.JavaScript.dll": {
+   "bytes": 28160,
+   "exec": false,
+   "sha256": "2bc2b2884e92420da410828bb52189ead2c01153308d0d647f1413c64f3443b4",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.InteropServices.JavaScript.dll"
+  },
+  "framework/System.Runtime.InteropServices.JavaScript.pdb": {
+   "bytes": 8824,
+   "exec": false,
+   "sha256": "59ebedb9a9f6e9faf1847d4dc21a93e2f1ee15f6ee5a06e235ddb28ccad4ee9d",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.InteropServices.JavaScript.pdb"
+  },
+  "framework/System.Runtime.InteropServices.JavaScript.xml": {
+   "bytes": 17849,
+   "exec": false,
+   "sha256": "b770ad96806e0d27979e0ab1d536246bd46d0aa896524ea83e557c6c72b7cf05",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.InteropServices.JavaScript.xml"
+  },
+  "framework/System.Runtime.InteropServices.RuntimeInformation.dll": {
+   "bytes": 5120,
+   "exec": false,
+   "sha256": "770e736fef08ec5d7a4eefc5493587b4c4788308aa52eecf11b5a8a24b9aa35b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.InteropServices.RuntimeInformation.dll"
+  },
+  "framework/System.Runtime.InteropServices.RuntimeInformation.pdb": {
+   "bytes": 1460,
+   "exec": false,
+   "sha256": "69e27e8b6ada15860f5802b45cbd71997486b5f23e411047881ede50a6e7cc13",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.InteropServices.RuntimeInformation.pdb"
+  },
+  "framework/System.Runtime.InteropServices.dll": {
+   "bytes": 54272,
+   "exec": false,
+   "sha256": "350b240398b6b73bbf55f826cf494e45579ce9811d4d6d2a56ae4c806f4c3e32",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.InteropServices.dll"
+  },
+  "framework/System.Runtime.InteropServices.pdb": {
+   "bytes": 15168,
+   "exec": false,
+   "sha256": "291d881455787ddb2db27577b5dcd502244bc019579f842746ecb8d9797484d7",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.InteropServices.pdb"
+  },
+  "framework/System.Runtime.InteropServices.xml": {
+   "bytes": 711479,
+   "exec": false,
+   "sha256": "6f230572e3aebffe718c62f19aaaaa41cd3099b3d9a6f624ca5921a72ff7583e",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.InteropServices.xml"
+  },
+  "framework/System.Runtime.Intrinsics.dll": {
+   "bytes": 7168,
+   "exec": false,
+   "sha256": "15d3673797613b31e685c3e6210e6aa70fb1c0fa5cb2b202b89b39d46ad40834",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.Intrinsics.dll"
+  },
+  "framework/System.Runtime.Intrinsics.pdb": {
+   "bytes": 944,
+   "exec": false,
+   "sha256": "199bbb0ef9488285f25fd7d7f3469efb5baa0de57964d02783bd98261f20ce56",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.Intrinsics.pdb"
+  },
+  "framework/System.Runtime.Intrinsics.xml": {
+   "bytes": 3942362,
+   "exec": false,
+   "sha256": "46275b843465c3109eb025a017a69babe96df033f271b593fbae4a9b1816b602",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.Intrinsics.xml"
+  },
+  "framework/System.Runtime.Loader.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "a20e652ad389fe239a565303b3718974d73d61939a7d07aea27a9d8589e104ea",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.Loader.dll"
+  },
+  "framework/System.Runtime.Loader.pdb": {
+   "bytes": 944,
+   "exec": false,
+   "sha256": "87dba3f1fd97e57d15fa8644d3c1b655067f96c8de7a49dff06b6d947465eace",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.Loader.pdb"
+  },
+  "framework/System.Runtime.Loader.xml": {
+   "bytes": 23050,
+   "exec": false,
+   "sha256": "0b2f8354ed0c21be0d5cae4a124f4ec58a8299d1c2bc9958d67116ec6a1f52e3",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.Loader.xml"
+  },
+  "framework/System.Runtime.Numerics.dll": {
+   "bytes": 132608,
+   "exec": false,
+   "sha256": "14408e2c55edcb211d8de90abebcf8168065f51726f68e69e418d87435ac028e",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.Numerics.dll"
+  },
+  "framework/System.Runtime.Numerics.pdb": {
+   "bytes": 61684,
+   "exec": false,
+   "sha256": "3619221853619acab1a7b382530c5844e5579140690e8e70629a6d1d47e0a0f2",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.Numerics.pdb"
+  },
+  "framework/System.Runtime.Numerics.xml": {
+   "bytes": 178443,
+   "exec": false,
+   "sha256": "d86f0954f2112a6b2bcdceb1085492174010b65977f3335d2dc7d328954a8f9e",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.Numerics.xml"
+  },
+  "framework/System.Runtime.Serialization.Formatters.dll": {
+   "bytes": 55808,
+   "exec": false,
+   "sha256": "b928e7ecb3809408992cc5f7f81de83a2b59b714ab8e427449688a5240d7e2d1",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.Serialization.Formatters.dll"
+  },
+  "framework/System.Runtime.Serialization.Formatters.pdb": {
+   "bytes": 17872,
+   "exec": false,
+   "sha256": "0aa768cc2d6377a37219c43ab7053ca091922fb797afab92b9bea56bd7730a93",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.Serialization.Formatters.pdb"
+  },
+  "framework/System.Runtime.Serialization.Formatters.xml": {
+   "bytes": 68729,
+   "exec": false,
+   "sha256": "0a0fc0fb3c04276f7cebb020490a4a803b18e47a5bfb9475b9d2cf2b507e7f3c",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.Serialization.Formatters.xml"
+  },
+  "framework/System.Runtime.Serialization.Json.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "ffd1234eff3ae790edea2d3dda34752b1aa021da80a2536d49772a66bb6dfb84",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.Serialization.Json.dll"
+  },
+  "framework/System.Runtime.Serialization.Json.pdb": {
+   "bytes": 1008,
+   "exec": false,
+   "sha256": "6cdd31e16d739e888bf498e887dface111601b32881328d596d85abc4eb4b726",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.Serialization.Json.pdb"
+  },
+  "framework/System.Runtime.Serialization.Json.xml": {
+   "bytes": 40382,
+   "exec": false,
+   "sha256": "633e3af27134f79a8795b32d049db8870d750d6ab331d73c0a10a4431296615f",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.Serialization.Json.xml"
+  },
+  "framework/System.Runtime.Serialization.Primitives.dll": {
+   "bytes": 13312,
+   "exec": false,
+   "sha256": "5af76fbe436fcb53ace26d032ed4cd404e3e355b35e68cecee0d092fa729dfe2",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.Serialization.Primitives.dll"
+  },
+  "framework/System.Runtime.Serialization.Primitives.pdb": {
+   "bytes": 4284,
+   "exec": false,
+   "sha256": "49b24765a77767b7df6aeb94f68274c89292527db32b7160dc7f1bafa7cccdef",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.Serialization.Primitives.pdb"
+  },
+  "framework/System.Runtime.Serialization.Primitives.xml": {
+   "bytes": 21598,
+   "exec": false,
+   "sha256": "7e5c5cd9c6786d4cfdc74a6f7bd13ad84664f14fa400971c320be6f959679b08",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.Serialization.Primitives.xml"
+  },
+  "framework/System.Runtime.Serialization.Xml.dll": {
+   "bytes": 6656,
+   "exec": false,
+   "sha256": "30c20439b57f90a389ce3dbf60602d74c97482b75b97a9ec6a736370a4c51db5",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.Serialization.Xml.dll"
+  },
+  "framework/System.Runtime.Serialization.Xml.pdb": {
+   "bytes": 1076,
+   "exec": false,
+   "sha256": "b81a414e072b43e39d087557f7b8da2dd4e84b79e52cf8e285d25aafff8c9f16",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.Serialization.Xml.pdb"
+  },
+  "framework/System.Runtime.Serialization.Xml.xml": {
+   "bytes": 221924,
+   "exec": false,
+   "sha256": "50ce2f78c5906d82381fe2000c721bf762ea51e6c5fd3bb85e4a74fc77d91d93",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.Serialization.Xml.xml"
+  },
+  "framework/System.Runtime.Serialization.dll": {
+   "bytes": 6656,
+   "exec": false,
+   "sha256": "2da978fa8e0a49fd59eb51b57bdd34b0455accc46f52fd13eb7d5f4b8d82691d",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.Serialization.dll"
+  },
+  "framework/System.Runtime.Serialization.pdb": {
+   "bytes": 1660,
+   "exec": false,
+   "sha256": "9ee5089853872ed394abd7f13454228662a430e00727894f0925d658d361b17d",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.Serialization.pdb"
+  },
+  "framework/System.Runtime.dll": {
+   "bytes": 34304,
+   "exec": false,
+   "sha256": "31cefe66b7333fde1461a776f7352c698cb234f68884b04c0ca80b00c057a77b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.dll"
+  },
+  "framework/System.Runtime.pdb": {
+   "bytes": 992,
+   "exec": false,
+   "sha256": "d9be763801c2f9fcdfdfdef530fed54e107b86fb7e8295dfbc3d2b8bede5e487",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.pdb"
+  },
+  "framework/System.Runtime.xml": {
+   "bytes": 7658367,
+   "exec": false,
+   "sha256": "5613da49ae3ff6b32370b2e708652874abe487ec19f4f414c58e4dd8da20fc46",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Runtime.xml"
+  },
+  "framework/System.Security.AccessControl.dll": {
+   "bytes": 47616,
+   "exec": false,
+   "sha256": "47b33698c17d0e80a77597d6b729af05b964c44d161d0af1b5060c6dc9d6bf99",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.AccessControl.dll"
+  },
+  "framework/System.Security.AccessControl.pdb": {
+   "bytes": 13408,
+   "exec": false,
+   "sha256": "d770e1a44d33f17d116647a6f20bcad300469796a77e060a31593e07fb21ee0e",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.AccessControl.pdb"
+  },
+  "framework/System.Security.AccessControl.xml": {
+   "bytes": 231627,
+   "exec": false,
+   "sha256": "6b9d46cc4858d60bac87cd74e0aeb4d888f1022b9c1f66ca6de437ced3fc5848",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.AccessControl.xml"
+  },
+  "framework/System.Security.Claims.dll": {
+   "bytes": 43520,
+   "exec": false,
+   "sha256": "20b10b06555f5bb9cf95dd8f9c7038744f59eb0f198f5a55d38ac0a1cea54ab8",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.Claims.dll"
+  },
+  "framework/System.Security.Claims.pdb": {
+   "bytes": 11168,
+   "exec": false,
+   "sha256": "8ed5a65954f767683845ec143ff661dae07af34fdc7b37f9dde6fd425c061436",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.Claims.pdb"
+  },
+  "framework/System.Security.Claims.xml": {
+   "bytes": 65566,
+   "exec": false,
+   "sha256": "6a00a6d9e7bfbd0dc085138493e8f52c6ca185bc80206879aa8e71dcded57dec",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.Claims.xml"
+  },
+  "framework/System.Security.Cryptography.Algorithms.dll": {
+   "bytes": 7168,
+   "exec": false,
+   "sha256": "8002482faba261c41d1823b6bfb4b711a9291b514c14ba7b01d3dbec37e213ad",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.Cryptography.Algorithms.dll"
+  },
+  "framework/System.Security.Cryptography.Algorithms.pdb": {
+   "bytes": 1488,
+   "exec": false,
+   "sha256": "1c2c819c864722d7aa3c33b08e7d611844c4b776ce8773f4e67e179b28913c09",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.Cryptography.Algorithms.pdb"
+  },
+  "framework/System.Security.Cryptography.Cng.dll": {
+   "bytes": 6144,
+   "exec": false,
+   "sha256": "748423ce0e105f55e6259ba72b5b8fda0bfffd107023c62c882968dc31a53558",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.Cryptography.Cng.dll"
+  },
+  "framework/System.Security.Cryptography.Cng.pdb": {
+   "bytes": 1468,
+   "exec": false,
+   "sha256": "353d9f9468bafb7cd904a60754e188cb77489231c543052a018e6d7b6342c060",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.Cryptography.Cng.pdb"
+  },
+  "framework/System.Security.Cryptography.Csp.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "236de7ffdff80de88a79d0046a026d89449ebf6e287a15c98a9ba2ebd37f140b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.Cryptography.Csp.dll"
+  },
+  "framework/System.Security.Cryptography.Csp.pdb": {
+   "bytes": 1468,
+   "exec": false,
+   "sha256": "8f9d8fff727bfcedd9cf0aa56b24d76a49fb4a594c3097ba30d26171d0b3c870",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.Cryptography.Csp.pdb"
+  },
+  "framework/System.Security.Cryptography.Encoding.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "cc94f63910218bd59845ff98ed1fc5baa3e8d57768069ff7af2f4d58adf39017",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.Cryptography.Encoding.dll"
+  },
+  "framework/System.Security.Cryptography.Encoding.pdb": {
+   "bytes": 1484,
+   "exec": false,
+   "sha256": "f2db466c9de50956826167d09d94e9d80bf6d38669e0ff1bcb32398c63115aa2",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.Cryptography.Encoding.pdb"
+  },
+  "framework/System.Security.Cryptography.OpenSsl.dll": {
+   "bytes": 5120,
+   "exec": false,
+   "sha256": "29011cb29414a47cf29445b078e80fa74ed358f12df477d501fc83ef0bb7bd9d",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.Cryptography.OpenSsl.dll"
+  },
+  "framework/System.Security.Cryptography.OpenSsl.pdb": {
+   "bytes": 1480,
+   "exec": false,
+   "sha256": "a25b1e312bffa0e62fdcf89af9195f1117dbb3e143de989ea114480399951f8a",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.Cryptography.OpenSsl.pdb"
+  },
+  "framework/System.Security.Cryptography.Primitives.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "ec55a074b0cd8c011747edf1424817af5ad3c9a49c7590445d239d30793aa01d",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.Cryptography.Primitives.dll"
+  },
+  "framework/System.Security.Cryptography.Primitives.pdb": {
+   "bytes": 1488,
+   "exec": false,
+   "sha256": "563ef996240510c7b9dd611faa148a25bd78071cfe5c677b9e20d4de96328389",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.Cryptography.Primitives.pdb"
+  },
+  "framework/System.Security.Cryptography.X509Certificates.dll": {
+   "bytes": 6656,
+   "exec": false,
+   "sha256": "94793615acbfc8a04833f7257b1b61072ec9998bbfbb011e7249e41df75e5c77",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.Cryptography.X509Certificates.dll"
+  },
+  "framework/System.Security.Cryptography.X509Certificates.pdb": {
+   "bytes": 1508,
+   "exec": false,
+   "sha256": "0a3f83dd04391208c55bed279f1174319f63efd96e04f1496c0cf6de5de52fc0",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.Cryptography.X509Certificates.pdb"
+  },
+  "framework/System.Security.Cryptography.dll": {
+   "bytes": 516096,
+   "exec": false,
+   "sha256": "febbafc8b11836ecab1e74f8dbc1c221a0698f8f66756cdaf293aabe14e93e8a",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.Cryptography.dll"
+  },
+  "framework/System.Security.Cryptography.pdb": {
+   "bytes": 230736,
+   "exec": false,
+   "sha256": "02cd59a42ec842f8fd143bd93ba40c8ce8aa690b870703b04b2121f95736264d",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.Cryptography.pdb"
+  },
+  "framework/System.Security.Cryptography.xml": {
+   "bytes": 1630951,
+   "exec": false,
+   "sha256": "6dd27d7e452b3edfef17081860880dbfb9ba86d9fb696252f5bb0ea623cda10d",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.Cryptography.xml"
+  },
+  "framework/System.Security.Principal.Windows.dll": {
+   "bytes": 27648,
+   "exec": false,
+   "sha256": "7f9d303ba0a691d7131cb00432b0618f23d276b86d23f0dc2c81b9017d8b6ef5",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.Principal.Windows.dll"
+  },
+  "framework/System.Security.Principal.Windows.pdb": {
+   "bytes": 6160,
+   "exec": false,
+   "sha256": "0f48baeeba4747fb90691ff93b83532606f5be43230681b98fc84dba0a9a8318",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.Principal.Windows.pdb"
+  },
+  "framework/System.Security.Principal.Windows.xml": {
+   "bytes": 91022,
+   "exec": false,
+   "sha256": "fd8d26d4dd73481a0be08a89c4986b7af80c050c8d493c1d7d9708fc64c398fa",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.Principal.Windows.xml"
+  },
+  "framework/System.Security.Principal.dll": {
+   "bytes": 5120,
+   "exec": false,
+   "sha256": "d2be7278b749186683ae59b9fc22b1864b315d0e0b710850ce69683abdc7375f",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.Principal.dll"
+  },
+  "framework/System.Security.Principal.pdb": {
+   "bytes": 1388,
+   "exec": false,
+   "sha256": "d6a933afcab42f61e3db1bfa13b6d2179f478a82916b831e732ee951a2f0db75",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.Principal.pdb"
+  },
+  "framework/System.Security.SecureString.dll": {
+   "bytes": 5120,
+   "exec": false,
+   "sha256": "25ed25ef21fdd1e7c524ed7e73bdfa7dcc26c9d70585d154de24b4a5eed6f6de",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.SecureString.dll"
+  },
+  "framework/System.Security.SecureString.pdb": {
+   "bytes": 1460,
+   "exec": false,
+   "sha256": "afc97dbade317d6685a7a1574d3dac9875f6d5bc09610a697b5a3e0742236542",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.SecureString.pdb"
+  },
+  "framework/System.Security.dll": {
+   "bytes": 7680,
+   "exec": false,
+   "sha256": "e5e9f1e3f0143d188b9ae11b974206bc07e639a8bc8825afa424cfca84ced9b8",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.dll"
+  },
+  "framework/System.Security.pdb": {
+   "bytes": 1672,
+   "exec": false,
+   "sha256": "c75ffe8739593d6a1709ea049abfc099474c1b0f86e7cc6193f9b96bde46e49a",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Security.pdb"
+  },
+  "framework/System.ServiceModel.Web.dll": {
+   "bytes": 6656,
+   "exec": false,
+   "sha256": "5cbf4c5472bd1df3eac8303c595c148ff5fdfa5e1ee830d201dc03091e3fd583",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.ServiceModel.Web.dll"
+  },
+  "framework/System.ServiceModel.Web.pdb": {
+   "bytes": 1508,
+   "exec": false,
+   "sha256": "ec2beffbfb7d9b82fdf59a0fc09705a696171da3051805fd40d7790e0b880b6a",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.ServiceModel.Web.pdb"
+  },
+  "framework/System.ServiceProcess.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "b807569224a4ae77bec488d5324f9a5b99561f3a8e902a7a9d256a0113b1dddc",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.ServiceProcess.dll"
+  },
+  "framework/System.ServiceProcess.pdb": {
+   "bytes": 1504,
+   "exec": false,
+   "sha256": "87b4c23566cfb8d05142e5b46e2c74602e177cb80c3c11bd05960fc2eca8bcad",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.ServiceProcess.pdb"
+  },
+  "framework/System.Text.Encoding.CodePages.dll": {
+   "bytes": 730624,
+   "exec": false,
+   "sha256": "46f7f9f9cb4ba5ae3f5b655ad7c159c836d5953d94a3fb09bc1dd762fadf41c9",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Text.Encoding.CodePages.dll"
+  },
+  "framework/System.Text.Encoding.CodePages.pdb": {
+   "bytes": 36312,
+   "exec": false,
+   "sha256": "3ca49b139022ecf02c5da4a3b718a154ed5cafe63e7f1a814b8e6c44e39eb13c",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Text.Encoding.CodePages.pdb"
+  },
+  "framework/System.Text.Encoding.CodePages.xml": {
+   "bytes": 2075,
+   "exec": false,
+   "sha256": "2aa6e789fa4827267fcf178cadc9f1eb9772e45fb6d8a1fa631343e221b2c5bc",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Text.Encoding.CodePages.xml"
+  },
+  "framework/System.Text.Encoding.Extensions.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "227d93dacfde973bcf210c9ef6ec1b8dbd78081db7d268919db539f9c0e4c1eb",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Text.Encoding.Extensions.dll"
+  },
+  "framework/System.Text.Encoding.Extensions.pdb": {
+   "bytes": 944,
+   "exec": false,
+   "sha256": "33e8aefe08506bd5ab80fac6e9af647121497a9c644dff2e4cf229d368292bf2",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Text.Encoding.Extensions.pdb"
+  },
+  "framework/System.Text.Encoding.Extensions.xml": {
+   "bytes": 121741,
+   "exec": false,
+   "sha256": "aba24117e66f11015760528001028b32d08a7205699ecbd3b541c4f3309e3730",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Text.Encoding.Extensions.xml"
+  },
+  "framework/System.Text.Encoding.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "c7ba8a9bb5bd6d5e39d31bcf70f013888f8bae074b1452c61300105b177e5bfd",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Text.Encoding.dll"
+  },
+  "framework/System.Text.Encoding.pdb": {
+   "bytes": 1372,
+   "exec": false,
+   "sha256": "4a4b8cdcc3cce70916e2eeb49fe5421eb3720436453c6965a64d42f486d36288",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Text.Encoding.pdb"
+  },
+  "framework/System.Text.Encodings.Web.dll": {
+   "bytes": 59904,
+   "exec": false,
+   "sha256": "cb50658b70ff0a5b253060cb091dddfe7186349e9dff38a5bbc5be9f60dd5998",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Text.Encodings.Web.dll"
+  },
+  "framework/System.Text.Encodings.Web.pdb": {
+   "bytes": 22188,
+   "exec": false,
+   "sha256": "ba94ed7cf6c0eee6dbf64b5b452bae17a572fc27a76c3d34eae3d788728ec897",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Text.Encodings.Web.pdb"
+  },
+  "framework/System.Text.Encodings.Web.xml": {
+   "bytes": 63180,
+   "exec": false,
+   "sha256": "73004b34f6fdadfc8188c6d330993c09ae774014f9dd84865117e0e31e6e0d2c",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Text.Encodings.Web.xml"
+  },
+  "framework/System.Text.Json.dll": {
+   "bytes": 607232,
+   "exec": false,
+   "sha256": "b74945e0f54ab99ef45dce8f01a903d9b983f59f80b899c965da6055a65ee4e7",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Text.Json.dll"
+  },
+  "framework/System.Text.Json.pdb": {
+   "bytes": 254140,
+   "exec": false,
+   "sha256": "1f8b84753a196ecb59fc037adc92479f589ef365fb6096daef72aae83231c93b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Text.Json.pdb"
+  },
+  "framework/System.Text.Json.xml": {
+   "bytes": 570449,
+   "exec": false,
+   "sha256": "4239b6dcca32c2034d7e25a51991aaca95bc402aa5c494dd4c39163006d2de1e",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Text.Json.xml"
+  },
+  "framework/System.Text.RegularExpressions.dll": {
+   "bytes": 358912,
+   "exec": false,
+   "sha256": "443a031203a9b7a518ebae286bab2c9e7948ad293af7e278c43a32365af16771",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Text.RegularExpressions.dll"
+  },
+  "framework/System.Text.RegularExpressions.pdb": {
+   "bytes": 125436,
+   "exec": false,
+   "sha256": "54d7b5027f393a0b0a5d79a5ed222faf0bc555723b4c4ce41a0a80922fa83ec5",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Text.RegularExpressions.pdb"
+  },
+  "framework/System.Text.RegularExpressions.xml": {
+   "bytes": 181455,
+   "exec": false,
+   "sha256": "2601f83f861c74cca6d773c59ffa48c3a88fb41f64a5170b429bc1b32bd452e0",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Text.RegularExpressions.xml"
+  },
+  "framework/System.Threading.Channels.dll": {
+   "bytes": 46592,
+   "exec": false,
+   "sha256": "f9442cf91f4fa5082b021b19185925cdae249079facc7a1fb79a4b141a85f457",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Threading.Channels.dll"
+  },
+  "framework/System.Threading.Channels.pdb": {
+   "bytes": 16488,
+   "exec": false,
+   "sha256": "a8f3dee9501f3bfdde7fd6ee7970d3967b4652f8917489be8cc9156f822541bf",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Threading.Channels.pdb"
+  },
+  "framework/System.Threading.Channels.xml": {
+   "bytes": 20517,
+   "exec": false,
+   "sha256": "45688400b4e628d6935de35c6ee20e6d9b7cdfc1f9316bcfe18c56bf557d64a3",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Threading.Channels.xml"
+  },
+  "framework/System.Threading.Overlapped.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "814c1bd882b820925bcc42943556633871db5226a22e532bda85e02d6724ff5b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Threading.Overlapped.dll"
+  },
+  "framework/System.Threading.Overlapped.pdb": {
+   "bytes": 944,
+   "exec": false,
+   "sha256": "e1482773751f208beb4d9cb7d25681ccfa7d65531e390078c741aafdff9e6895",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Threading.Overlapped.pdb"
+  },
+  "framework/System.Threading.Overlapped.xml": {
+   "bytes": 22818,
+   "exec": false,
+   "sha256": "31f3a826bd7df74a6450da87076b152e991a67c9b109895fd4f9d6caeec561f8",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Threading.Overlapped.xml"
+  },
+  "framework/System.Threading.Tasks.Dataflow.dll": {
+   "bytes": 175104,
+   "exec": false,
+   "sha256": "925828eff8cebb3b5342b0b2f8c30bb872b843a7a03e43ecea68b56f1b9eb0d8",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Threading.Tasks.Dataflow.dll"
+  },
+  "framework/System.Threading.Tasks.Dataflow.pdb": {
+   "bytes": 63644,
+   "exec": false,
+   "sha256": "cf44bf28f184ff0bfc69ea0e8cfd92428a02c33a90140e71dc41c713a0ff6ddc",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Threading.Tasks.Dataflow.pdb"
+  },
+  "framework/System.Threading.Tasks.Dataflow.xml": {
+   "bytes": 202749,
+   "exec": false,
+   "sha256": "548fc3272b0788be8fe1b245b9cd3480671f310d9e8d3bb6836c423931802a07",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Threading.Tasks.Dataflow.xml"
+  },
+  "framework/System.Threading.Tasks.Extensions.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "1fc2981aad98654e8cc598903ad3773babdeb10fb81b90a34d6d156c5e1f6797",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Threading.Tasks.Extensions.dll"
+  },
+  "framework/System.Threading.Tasks.Extensions.pdb": {
+   "bytes": 1412,
+   "exec": false,
+   "sha256": "b178c6bcacf3940a4e7df89e5183f06f46e3ebe1234e61e1bfcaf642ffca0764",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Threading.Tasks.Extensions.pdb"
+  },
+  "framework/System.Threading.Tasks.Parallel.dll": {
+   "bytes": 51200,
+   "exec": false,
+   "sha256": "49b76b28006b0035d13427e41de766a5f77071f3587081717ead3344b29c623a",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Threading.Tasks.Parallel.dll"
+  },
+  "framework/System.Threading.Tasks.Parallel.pdb": {
+   "bytes": 14140,
+   "exec": false,
+   "sha256": "4f5da52b16affa748e515fe8b27ee3bf7773c318453ac7a6692bfc86d6c5dc35",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Threading.Tasks.Parallel.pdb"
+  },
+  "framework/System.Threading.Tasks.Parallel.xml": {
+   "bytes": 75131,
+   "exec": false,
+   "sha256": "74d003938f6307153e1c94063d402be1962cec44f3da05d9056a9d9b0f9a2e86",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Threading.Tasks.Parallel.xml"
+  },
+  "framework/System.Threading.Tasks.dll": {
+   "bytes": 6144,
+   "exec": false,
+   "sha256": "a51584e49cd6afd1fdb53ca9840d4860108e4c612e1af03512ffaa322045868a",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Threading.Tasks.dll"
+  },
+  "framework/System.Threading.Tasks.pdb": {
+   "bytes": 1380,
+   "exec": false,
+   "sha256": "d1964fd3d9060c0c8821f836e03b45b5a4aef09cf770135687862f73c8fab236",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Threading.Tasks.pdb"
+  },
+  "framework/System.Threading.Thread.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "b67e3d6efe04d23c60545721ce7a878d6984dda1f73cf688d700290b5acedc5c",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Threading.Thread.dll"
+  },
+  "framework/System.Threading.Thread.pdb": {
+   "bytes": 944,
+   "exec": false,
+   "sha256": "adfce3ac92e99f3fa84d5a078d1e626a9da3b86c3332cea42d9768ff5596c865",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Threading.Thread.pdb"
+  },
+  "framework/System.Threading.Thread.xml": {
+   "bytes": 58913,
+   "exec": false,
+   "sha256": "b8b4305d35285f0eadad5c2e3d614f2a71d4484b05d0a6b51172cadb46b587c4",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Threading.Thread.xml"
+  },
+  "framework/System.Threading.ThreadPool.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "355f1dae2d4498b2a88566b798998b8d0f9bce9cbde0f276607f1015af7b6edc",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Threading.ThreadPool.dll"
+  },
+  "framework/System.Threading.ThreadPool.pdb": {
+   "bytes": 944,
+   "exec": false,
+   "sha256": "33e8aefe08506bd5ab80fac6e9af647121497a9c644dff2e4cf229d368292bf2",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Threading.ThreadPool.pdb"
+  },
+  "framework/System.Threading.ThreadPool.xml": {
+   "bytes": 29900,
+   "exec": false,
+   "sha256": "791e266b98145bd3e6fe177adc8e9818b5dd485b913213d36ba45e1f29abac69",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Threading.ThreadPool.xml"
+  },
+  "framework/System.Threading.Timer.dll": {
+   "bytes": 5120,
+   "exec": false,
+   "sha256": "e17ee4dc41f8b8cde9bc1d999947eadb923b566b4fea3ddaabad193b536ce171",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Threading.Timer.dll"
+  },
+  "framework/System.Threading.Timer.pdb": {
+   "bytes": 1380,
+   "exec": false,
+   "sha256": "eedd70ba5a517025a7315be4e59778e797b8ce16e4482b18418540a50fd267dd",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Threading.Timer.pdb"
+  },
+  "framework/System.Threading.dll": {
+   "bytes": 34816,
+   "exec": false,
+   "sha256": "b31586bdfcd3601bd4cec1a80ae68ad8cbbdd9c4d932ef1624850fc295302474",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Threading.dll"
+  },
+  "framework/System.Threading.pdb": {
+   "bytes": 11240,
+   "exec": false,
+   "sha256": "efff98bdc1b73125f3cfa83e6938140b7f7a089ffe805787f5d553f66abba35c",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Threading.pdb"
+  },
+  "framework/System.Threading.xml": {
+   "bytes": 261504,
+   "exec": false,
+   "sha256": "0411405957f747080e10afabb629b24a79fa3462709167f8bb618976dfcbf9b4",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Threading.xml"
+  },
+  "framework/System.Transactions.Local.dll": {
+   "bytes": 165376,
+   "exec": false,
+   "sha256": "7742d97f6679a3b6cd864cbd8299e6b768248cd590d17b7467487ac43dafbe0d",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Transactions.Local.dll"
+  },
+  "framework/System.Transactions.Local.pdb": {
+   "bytes": 55876,
+   "exec": false,
+   "sha256": "f8cacc011938214f473d2003be79218b07b356394ff0ab31499369b06c3765dd",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Transactions.Local.pdb"
+  },
+  "framework/System.Transactions.Local.xml": {
+   "bytes": 77940,
+   "exec": false,
+   "sha256": "6dcb5e89df95a0986d36f254379bd4cd4ea36fd3aa1d3e248abcb66514a75bb5",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Transactions.Local.xml"
+  },
+  "framework/System.Transactions.dll": {
+   "bytes": 6144,
+   "exec": false,
+   "sha256": "d8f4011f462209b091d3f6999c9585abf165336564c6b9a3f213bbfd5f9a52bf",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Transactions.dll"
+  },
+  "framework/System.Transactions.pdb": {
+   "bytes": 1484,
+   "exec": false,
+   "sha256": "e250490a69d7a9c192759bdc215ef6d9a9e4864b76ea70923aa5881158762a38",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Transactions.pdb"
+  },
+  "framework/System.ValueTuple.dll": {
+   "bytes": 5120,
+   "exec": false,
+   "sha256": "505050e92430ba91b636b135b737fc9ef2977617b68152232b4026e0dd092abf",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.ValueTuple.dll"
+  },
+  "framework/System.ValueTuple.pdb": {
+   "bytes": 1364,
+   "exec": false,
+   "sha256": "fb4d0a2392d385351a3d70ec7e0ab127a561e317bfb959d4b6847b1be5e2d57c",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.ValueTuple.pdb"
+  },
+  "framework/System.Web.HttpUtility.dll": {
+   "bytes": 19968,
+   "exec": false,
+   "sha256": "e3c05464749def0766bae8e9c45c4398e6c83ffa7f29b5c3fac946c5405e09e2",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Web.HttpUtility.dll"
+  },
+  "framework/System.Web.HttpUtility.pdb": {
+   "bytes": 8148,
+   "exec": false,
+   "sha256": "5b330b56767c9d334d205c8193a11eee2bf4898c944d1c22f8b89c02f15bc004",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Web.HttpUtility.pdb"
+  },
+  "framework/System.Web.HttpUtility.xml": {
+   "bytes": 14645,
+   "exec": false,
+   "sha256": "797835159c86a4ccf7047b208983d4469867fa60809a4eb12feb2d6387a08b14",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Web.HttpUtility.xml"
+  },
+  "framework/System.Web.dll": {
+   "bytes": 4608,
+   "exec": false,
+   "sha256": "3f5c9f828d567b72669b41f14ed91cb74640b37aa3ddd94f06da557891c09e7f",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Web.dll"
+  },
+  "framework/System.Web.pdb": {
+   "bytes": 1392,
+   "exec": false,
+   "sha256": "807e081060d8fb4d8f8093a3455d25bc5f7f28a7325fe5f9942c76556ede3f47",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Web.pdb"
+  },
+  "framework/System.Windows.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "ae73ef53a05768e5f802cbbb3464c7b3fa22519182c1eb816e297a40020a1edf",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Windows.dll"
+  },
+  "framework/System.Windows.pdb": {
+   "bytes": 1404,
+   "exec": false,
+   "sha256": "d079a676ddd3ff945fc8715926d77b1d8b23ac98b301f81903fc3e75271ff20b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Windows.pdb"
+  },
+  "framework/System.Xml.Linq.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "d9f3faf2e565cb009b438b9b5c4d43dba5d8ac7ebe0d677db78448816d1d2c3b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Xml.Linq.dll"
+  },
+  "framework/System.Xml.Linq.pdb": {
+   "bytes": 1464,
+   "exec": false,
+   "sha256": "3328e48c6a2ec1d2e4d555359b0dcb58da9c618143502585f3678784b6248869",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Xml.Linq.pdb"
+  },
+  "framework/System.Xml.ReaderWriter.dll": {
+   "bytes": 11776,
+   "exec": false,
+   "sha256": "b2a5bae8b75498e54d89c8598e53b11f64d4f0c44817e5c86b6d2b7f66532d6d",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Xml.ReaderWriter.dll"
+  },
+  "framework/System.Xml.ReaderWriter.pdb": {
+   "bytes": 984,
+   "exec": false,
+   "sha256": "2d657e7e9c0c4f3cb26ec894556b3d3b6e47e51996108d97f428b132e53a71bb",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Xml.ReaderWriter.pdb"
+  },
+  "framework/System.Xml.ReaderWriter.xml": {
+   "bytes": 1095745,
+   "exec": false,
+   "sha256": "867393b6923d04dd3c24203a17adcf90346fefeba569fe0986b2421ea9f9ec4e",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Xml.ReaderWriter.xml"
+  },
+  "framework/System.Xml.Serialization.dll": {
+   "bytes": 6144,
+   "exec": false,
+   "sha256": "7b36bef969f8bca1bbc2e5122a65a1c00641bc71e027283148b998e1bacf478e",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Xml.Serialization.dll"
+  },
+  "framework/System.Xml.Serialization.pdb": {
+   "bytes": 1496,
+   "exec": false,
+   "sha256": "0e97ebfd96d503e2b30e6b688aa886c276a83a486e01ceb3c472d943fa170f80",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Xml.Serialization.pdb"
+  },
+  "framework/System.Xml.XDocument.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "86c55253387eb5cf15ae77a766db4b56254583ac3cace78e8db090fcec588172",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Xml.XDocument.dll"
+  },
+  "framework/System.Xml.XDocument.pdb": {
+   "bytes": 1040,
+   "exec": false,
+   "sha256": "aa58f7f7898438560e2849cc24c4920d2952995c4a03400d631b1b91ff0cb537",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Xml.XDocument.pdb"
+  },
+  "framework/System.Xml.XDocument.xml": {
+   "bytes": 188147,
+   "exec": false,
+   "sha256": "2453042f2b22fe392ad98f07c869b094c4b9d7a4aa9f7d40e251dda349007eda",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Xml.XDocument.xml"
+  },
+  "framework/System.Xml.XPath.XDocument.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "53e5860ff3637b6c7d803694e36255102b990d24bd66f76789110ec5726170f0",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Xml.XPath.XDocument.dll"
+  },
+  "framework/System.Xml.XPath.XDocument.pdb": {
+   "bytes": 1404,
+   "exec": false,
+   "sha256": "b51246982a70bdf535841957cec35901f1cd16bef1b10cf29923e710afe42760",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Xml.XPath.XDocument.pdb"
+  },
+  "framework/System.Xml.XPath.XDocument.xml": {
+   "bytes": 6570,
+   "exec": false,
+   "sha256": "32c8f5d9205424080d010b2e87d8b0166ef68e63cd963bbdbacd626f3901d6e3",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Xml.XPath.XDocument.xml"
+  },
+  "framework/System.Xml.XPath.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "83867907fa649e92d46ce8673cc7609b5c47cf93d0f6f951770c9c1731a405b8",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Xml.XPath.dll"
+  },
+  "framework/System.Xml.XPath.pdb": {
+   "bytes": 984,
+   "exec": false,
+   "sha256": "e5662e1d4b42bea8e1480f56c5a3ad723d37a8575925822806607d85a5b903e9",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Xml.XPath.pdb"
+  },
+  "framework/System.Xml.XPath.xml": {
+   "bytes": 8348,
+   "exec": false,
+   "sha256": "7cdd0f0366082eac989e89d95d5a0c3c38a9c7a00e67cb2836c65394f93a58f2",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Xml.XPath.xml"
+  },
+  "framework/System.Xml.XmlDocument.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "574a97c999d3e3f7531eddea67dc5df4629a22e54a1614163446b6aa749908ab",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Xml.XmlDocument.dll"
+  },
+  "framework/System.Xml.XmlDocument.pdb": {
+   "bytes": 1432,
+   "exec": false,
+   "sha256": "88b5ac15eab35de6cc4d00f24426395ddf119cb08d30ad29badd022ca784cf53",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Xml.XmlDocument.pdb"
+  },
+  "framework/System.Xml.XmlSerializer.dll": {
+   "bytes": 7680,
+   "exec": false,
+   "sha256": "a51dfd1b815541e52837766d5a5dcac6838bafd1feb66e9eb3c4e60fa140a263",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Xml.XmlSerializer.dll"
+  },
+  "framework/System.Xml.XmlSerializer.pdb": {
+   "bytes": 984,
+   "exec": false,
+   "sha256": "e9b9ff6ad75906527db8117b79ca5223e08f56d8c0d5847fb9e20a9a0f47cb2b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Xml.XmlSerializer.pdb"
+  },
+  "framework/System.Xml.XmlSerializer.xml": {
+   "bytes": 265304,
+   "exec": false,
+   "sha256": "31275579ac0dbbad473dbdab75474eadda8832abfc50d813f75dc916a6aa14fd",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Xml.XmlSerializer.xml"
+  },
+  "framework/System.Xml.dll": {
+   "bytes": 12800,
+   "exec": false,
+   "sha256": "88e858f9e684c5f806a7f375e936ac794ea7e1aeb87d3f97ab8a556785ad9d4c",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Xml.dll"
+  },
+  "framework/System.Xml.pdb": {
+   "bytes": 1496,
+   "exec": false,
+   "sha256": "8aa1c3a7959233b9ed4b67ac09538dad4ef80a9074c0f5f762b6dd636b68d763",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.Xml.pdb"
+  },
+  "framework/System.dll": {
+   "bytes": 39424,
+   "exec": false,
+   "sha256": "df2d9d4ac6d58b037ec9dc1b5fee65c621be8c006a4b12a4fe5b2ee1bd7c850b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.dll"
+  },
+  "framework/System.pdb": {
+   "bytes": 4092,
+   "exec": false,
+   "sha256": "a87093a17208e9c3df58dba4c117be8224a7256e9b34fb1fbf2c4db1b062635d",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/System.pdb"
+  },
+  "framework/WindowsBase.dll": {
+   "bytes": 5632,
+   "exec": false,
+   "sha256": "e765219c9a9ddb3c32975f70aff9b9432bf480aa663e8e8808a4f2a58751d7c6",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/WindowsBase.dll"
+  },
+  "framework/WindowsBase.pdb": {
+   "bytes": 1500,
+   "exec": false,
+   "sha256": "8f11baee393848a5f1849a35ed1bc24fdf2b5e22dd5b35c0ac79e7816eae4e10",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/WindowsBase.pdb"
+  },
+  "framework/mscorlib.dll": {
+   "bytes": 49152,
+   "exec": false,
+   "sha256": "f96d78dce460e54ba11bb1b8826a65d6c3bd1a51336b9470b5fae8e030365c5b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/mscorlib.dll"
+  },
+  "framework/mscorlib.pdb": {
+   "bytes": 2952,
+   "exec": false,
+   "sha256": "a7bd18e5e6894c083e5368f97aac3e7d77f5ec4354eb0f5f85e049d45e476f8b",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/mscorlib.pdb"
+  },
+  "framework/netstandard.dll": {
+   "bytes": 90112,
+   "exec": false,
+   "sha256": "34038ebbef1c73897f266aa463dd8a13428806ec1ce2778a9aebe7c28578ae17",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/netstandard.dll"
+  },
+  "framework/netstandard.pdb": {
+   "bytes": 5860,
+   "exec": false,
+   "sha256": "a835bde585e4cdf9ad3105b11caf700b70819bd7332aa1b357464544f31280bf",
+   "source": "LEGACY/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64/netstandard.pdb"
+  },
+  "lib/libSystem.Native.a": {
+   "bytes": 762320,
+   "exec": false,
+   "sha256": "4eb483f56cedbd0d01257eb751a593829feb4e29c3957eab9a4c4fdeb034f97b",
+   "source": "LEGACY/tmod/save-exit/files/libSystem.Native.a"
+  },
+  "lib/libmono-component-debugger-static.a": {
+   "bytes": 2245200,
+   "exec": false,
+   "sha256": "a12bca9c82c08a3d02185d9e018856d77f19effe705db3b7bde806cc3c005eba",
+   "source": "LEGACY/runtime-source/artifacts/obj/mono/libnx.arm64.Release/out/lib/libmono-component-debugger-static.a"
+  },
+  "lib/libmono-component-diagnostics_tracing-stub-static.a": {
+   "bytes": 104604,
+   "exec": false,
+   "sha256": "6d3a7e03a6e60b534814a8d8f96266adc4aff2411067412af6a613eca8a7b83a",
+   "source": "LEGACY/runtime-source/artifacts/obj/mono/libnx.arm64.Release/out/lib/libmono-component-diagnostics_tracing-stub-static.a"
+  },
+  "lib/libmono-component-hot_reload-stub-static.a": {
+   "bytes": 107332,
+   "exec": false,
+   "sha256": "cb11bdc4922f0547f7806f2e1edd87a0f15ac02929ad55c5169cc06e7cef6b80",
+   "source": "LEGACY/runtime-source/artifacts/obj/mono/libnx.arm64.Release/out/lib/libmono-component-hot_reload-stub-static.a"
+  },
+  "lib/libmono-component-marshal-ilgen-static.a": {
+   "bytes": 343004,
+   "exec": false,
+   "sha256": "9b1f3bc12e5734cb1e0880960d8a04e8fdcc10c90db9261d48648982819554fa",
+   "source": "LEGACY/runtime-source/artifacts/obj/mono/libnx.arm64.Release/out/lib/libmono-component-marshal-ilgen-static.a"
+  },
+  "lib/libmonosgen-2.0.a": {
+   "bytes": 50399272,
+   "exec": false,
+   "sha256": "5c0ecd2997a0e6a8e9a147ee7752907a34810b1634692f5513c1bc39a955180a",
+   "source": "LEGACY/runtime-release/libmonosgen-2.0-release.a"
+  },
+  "licenses/LLVM-LICENSE.txt": {
+   "bytes": 15141,
+   "exec": false,
+   "sha256": "8d85c1057d742e597985c7d4e6320b015a9139385cff4cbae06ffc0ebe89afee",
+   "source": "repo licenses/LLVM-LICENSE.txt"
+  },
+  "licenses/dotnet-runtime-LICENSE.txt": {
+   "bytes": 1116,
+   "exec": false,
+   "sha256": "cfc21f5e8bd655ae997eec916138b707b1d290b83272c02a95c9f821b8c87310",
+   "source": "repo licenses/dotnet-runtime-LICENSE.txt"
+  },
+  "licenses/dotnet-runtime-THIRD-PARTY-NOTICES.TXT": {
+   "bytes": 74244,
+   "exec": false,
+   "sha256": "fa3e9d0a2c52476f04fe798d7dc4f6e7edb7b68a3d2f4d5f59a39bce957eedc8",
+   "source": "LEGACY/runtime-source/THIRD-PARTY-NOTICES.TXT"
+  }
+ }
+}

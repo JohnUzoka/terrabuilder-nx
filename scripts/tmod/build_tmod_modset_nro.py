@@ -1,18 +1,18 @@
-"""Build one pinned mod set on tmod09, with exact .tmod DLLs compiled into the NRO.
+"""Build one pinned mod set, with exact .tmod DLLs compiled into the NRO.
 
-Run in monobuild:local with the same mounts as build_tmod_nxfix_nro.py.
-TMOD_VARIANT names a fresh /build/tmod/<variant> with input/modset.json:
+Run in monobuild-llvm:local with the CLI's mounts: the work directory at /build, this repo at
+/work and the toolchain (with its tmod-runtime component) at /toolchain. TMOD_BASE is the base
+stage (romfs/, flat_libs/, native/{icon.jpg,tmodloader.nacp}, manifest.json); TMOD_VARIANT names
+a fresh /build/tmod/<variant> with input/modset.json:
   {"mod": "BossCursor", "label": "Boss Cursor", "aot_replacements": [],
    "replacements": {"System.Reflection.Metadata.dll": ["System.Reflection.Metadata.dll"]}}
-input also contains tModLoader.dll, <mod>.tmod and all replacement DLLs.
-Optional keys: "runtime": {"git_commit", "libmonosgen_sha256"} declares a runtime other than
-tmod09's (runtime-release/ must match it; component hashes are then recorded, not checked);
-"corelib": <name> uses /build/tmod/corelib/<name> (build_tmod_corelib_aot.py,
-enlarged trampoline pools; tmod09's CoreLib object otherwise), and "llvm_modules": [compiled
-DLL names] compiles those through Mono's LLVM backend (run in monobuild-llvm:local).
+input also contains tModLoader.dll, FNA.dll, <mod>.tmod and all replacement DLLs.
+The CoreLib object is the base manifest's (tmod-runtime/corelib-aot: enlarged trampoline pools).
+"llvm_modules": [compiled DLL names] compiles those through Mono's LLVM backend (the tmod-runtime
+mono-aot-cross). A compiled framework DLL whose bytes, LLVM use and inline limit match a
+tmod-runtime/framework-aot record reuses that object instead of compiling.
 "aot_inline_limits": {"tModLoader.dll": 60} sets MONO_INLINELIMIT while compiling those DLLs:
 the IL size below which Mono inlines a callee (defaults: 30 under LLVM AOT, 20 without).
-Reused objects must have been compiled with the same limit.
 "native": {"libnx_heap_permille": 625, "gc_stats": true} swaps the fork's 50/50 heap.o for
 launcher/heap_split.c at that libnx share and enables the 5 s NX_GC memory log; "mesa_guard": true
 (needs libnx_heap_permille) links launcher/mesa_guard.c, which moves Mesa's nouveau_mm caches onto
@@ -35,10 +35,10 @@ import shlex
 import shutil
 import subprocess
 
-from tmod_file import extract_tmod_member
+from tmod_file import extract_tmod_member, loader_version_problem
 
 ROOT = Path('/build')
-BASE = ROOT / 'tmod/tmod09'
+BASE = Path(os.environ['TMOD_BASE'])
 VARIANT = os.environ['TMOD_VARIANT']
 assert Path(VARIANT).name == VARIANT and VARIANT.startswith('tmod')
 OUT = ROOT / 'tmod' / VARIANT
@@ -46,8 +46,13 @@ INPUT = OUT / 'input'
 AOT = OUT / 'aot'
 NATIVE = OUT / 'native'
 ROMFS = OUT / 'romfs'
+SCRIPTS = Path(__file__).resolve().parent
+COMPILE_MAIN = '/work/scripts/native/compile_main.sh'
+SHARED_INCLUDE = '-I/work/native/shared'
+TMOD_RUNTIME = Path('/toolchain/tmod-runtime')
 CROSS = '/mono-nx/dotnet_runtime/artifacts/bin/mono/linux.x64.Debug/cross/linux-x64/libnx-arm64/mono-aot-cross'
-LLVM_DIR = ROOT / 'runtime-llvm/artifacts/bin/mono/linux.x64.Debug/cross/linux-x64/libnx-arm64'
+# The tModLoader mono-aot-cross has an empty RUNPATH: it finds libc++ through LD_LIBRARY_PATH.
+LLVM_DIR = TMOD_RUNTIME / 'aot-compiler'
 env = dict(os.environ, PATH='/opt/devkitpro/devkitA64/bin:' + os.environ['PATH'], TOPDIR=str(NATIVE))
 
 
@@ -92,14 +97,10 @@ skip_aot_modules = config.get('skip_aot_modules', [])
 assert len(skip_aot_modules) == len(set(skip_aot_modules))
 assert not skip_aot_modules, 'tModLoader.dll AOT is required for this launcher'
 
-corelib_name = config.get('corelib')
 llvm_modules = config.get('llvm_modules', [])
 assert len(llvm_modules) == len(set(llvm_modules))
-
-compile_fna = config.get('compile_fna', False) or ('FNA.dll' in llvm_modules) or ('FNA.dll' in extra_aot)
-reuse_base = config.get('reuse_base')
-reuse_modules = config.get('reuse_modules', [])
-assert len(reuse_modules) == len(set(reuse_modules))
+# The patched FNA (romfs:/ base directory, shared audio device) is always compiled with the set.
+assert config.get('compile_fna') or 'FNA.dll' in llvm_modules, 'FNA.dll must be compiled (compile_fna or llvm_modules)'
 aot_workers = int(config.get('aot_workers', 4))
 assert aot_workers >= 1
 aot_inline_limits = config.get('aot_inline_limits', {})
@@ -127,7 +128,7 @@ for m in all_mods:
     mbr = m + '.dll'
     assert mbr not in external_members, f'Duplicate assembly name: {mbr}'
     m_bytes, m_info = extract_tmod_member(pkg, mbr)
-    assert m_info['name'] == m and m_info['loader_version'] == '2026.7.3.0', m_info
+    assert m_info['name'] == m and not loader_version_problem(m_info['loader_version']), m_info
     m_input = INPUT / mbr
     if m_input.exists():
         assert m_input.read_bytes() == m_bytes, f'Provided DLL {mbr} differs from actual .tmod member'
@@ -152,8 +153,7 @@ for lib in mod_libraries:
     mod_bytes_by_name[filename] = lib_bytes
     external_members[filename] = {'mod': owner, 'member': mbr, 'package': pkg}
 
-if not (INPUT / 'FNA.dll').exists():
-    shutil.copy2(BASE / 'romfs/FNA.dll', INPUT / 'FNA.dll')
+assert (INPUT / 'FNA.dll').is_file(), 'input/FNA.dll (the shared-audio FNA) is required'
 
 for filename in extra_aot:
     assert Path(filename).name == filename and filename.endswith('.dll')
@@ -163,9 +163,7 @@ for filename in extra_aot:
         assert (BASE / 'romfs' / filename).is_file(), f'Extra AOT DLL missing from BASE romfs: {filename}'
         shutil.copy2(BASE / 'romfs' / filename, INPUT / filename)
 
-compiled = ['tModLoader.dll']
-if compile_fna:
-    compiled.append('FNA.dll')
+compiled = ['tModLoader.dll', 'FNA.dll']
 compiled.extend(aot_replacements)
 compiled.extend(extra_aot)
 compiled.extend(external_members.keys())
@@ -175,46 +173,32 @@ baseline = json.loads((BASE / 'manifest.json').read_text())
 binding_base = baseline['provenance_and_binding']
 AOT.mkdir()
 
-for name in ('System.Private.CoreLib', *(['FNA'] if not compile_fna else [])):
-    source = Path(binding_base[name]['aot_object'])
-    if name == 'System.Private.CoreLib' and corelib_name:
-        corelib = json.loads((ROOT / 'tmod/corelib' / corelib_name / 'manifest.json').read_text())
-        assert corelib['input_sha256'] == sha(BASE / 'romfs/mono/lib_net9.0/System.Private.CoreLib.dll')
-        source = Path(corelib['aot_object'])
-        assert sha(source) == corelib['aot_object_sha256']
-        if corelib['llvm']:
-            assert sha(corelib['llvm_object']) == corelib['llvm_object_sha256']
-            shutil.copy2(corelib['llvm_object'], AOT / (name + '.dll-llvm.o'))
-    else:
-        assert sha(source) == binding_base[name]['aot_object_sha256']
-    shutil.copy2(source, AOT / (name + '.dll.o'))
+corelib = binding_base['System.Private.CoreLib']
+assert corelib['compiler_input_sha256'] == sha(BASE / 'romfs/mono/lib_net9.0/System.Private.CoreLib.dll')
+for key, suffix in (('aot_object', '.dll.o'), ('llvm_object', '.dll-llvm.o')):
+    assert sha(corelib[key]) == corelib[key + '_sha256'], f'CoreLib {key} changed'
+    shutil.copy2(corelib[key], AOT / ('System.Private.CoreLib' + suffix))
 
-assert set(reuse_modules) <= set(compiled), 'reuse_modules must name compiled DLLs'
-if reuse_modules:
-    assert reuse_base, 'reuse_base required when reuse_modules specified'
-    reuse_manifest = json.loads((ROOT / 'tmod' / reuse_base / 'manifest.json').read_text())
-    reuse_bindings = reuse_manifest['provenance_and_binding']
-    for name in reuse_modules:
-        mod_key = name.removesuffix('.dll')
-        assert mod_key in reuse_bindings, f'Module {name} not found in {reuse_base} binding'
-        rec = reuse_bindings[mod_key]
-        assert rec['compiler_input_sha256'] == input_hashes[name], f'Input hash mismatch for reuse of {name}'
-        assert rec.get('aot_inline_limit') == aot_inline_limits.get(name), f'Inline limit mismatch for reuse of {name}'
-        src_obj = Path(rec['aot_object'])
-        assert sha(src_obj) == rec['aot_object_sha256'], f'AOT object hash mismatch for reuse of {name}'
-        shutil.copy2(src_obj, AOT / (name + '.o'))
-        if 'llvm_object' in rec:
-            src_llvm = Path(rec['llvm_object'])
-            assert sha(src_llvm) == rec['llvm_object_sha256'], f'LLVM object hash mismatch for reuse of {name}'
-            shutil.copy2(src_llvm, AOT / (name + '-llvm.o'))
-        reuse_log = ROOT / 'tmod' / reuse_base / f'aot-{name}.log'
-        if reuse_log.is_file():
-            shutil.copy2(reuse_log, OUT / f'aot-{name}.log')
-        print(f'PASS reuse aot-{name} from {reuse_base} (verified hash {rec["compiler_input_sha256"][:12]}...)', flush=True)
-paths = ['--path=/build/runtime-source/artifacts/bin/mono/libnx.arm64.Release',
+FRAMEWORK_AOT = TMOD_RUNTIME / 'framework-aot'
+framework_aot = json.loads((FRAMEWORK_AOT / 'framework-aot.json').read_text())['modules']
+reused = []
+for name in compiled:
+    rec = framework_aot.get(name.removesuffix('.dll'))
+    if (rec is None or rec['compiler_input_sha256'] != input_hashes[name] or name in aot_inline_limits
+            or ('llvm_object' in rec) != (name in llvm_modules)):
+        continue
+    for key, suffix in (('aot_object', '.o'), ('llvm_object', '-llvm.o')):
+        if key in rec:
+            assert sha(FRAMEWORK_AOT / rec[key]) == rec[key + '_sha256'], f'framework-aot {rec[key]} changed'
+            shutil.copy2(FRAMEWORK_AOT / rec[key], AOT / (name + suffix))
+    if 'log' in rec:
+        shutil.copy2(FRAMEWORK_AOT / rec['log'], OUT / f'aot-{name}.log')
+    reused.append(name)
+    print(f'PASS reuse aot-{name} from tmod-runtime/framework-aot (input {input_hashes[name][:12]}...)', flush=True)
+paths = ['--path=' + str(TMOD_RUNTIME / 'corelib'),
          '--path=' + str(INPUT),
-         '--path=/build/runtime-source/artifacts/bin/runtime/net9.0-libnx-Release-arm64',
-         '--path=/build/tmod/flat_libs']
+         '--path=' + str(TMOD_RUNTIME / 'framework'),
+         '--path=' + str(BASE / 'flat_libs')]
 
 
 assert set(llvm_modules) <= set(compiled), 'llvm_modules must name compiled DLLs'
@@ -247,15 +231,13 @@ def compile_one(name):
             raise RuntimeError(f'aot-{name} completed without producing {llvm_object.name}')
 
 
-to_compile = [name for name in compiled if name not in reuse_modules]
+to_compile = [name for name in compiled if name not in reused]
 if to_compile:
     with ThreadPoolExecutor(max_workers=max(1, min(aot_workers, len(to_compile)))) as pool:
         list(pool.map(compile_one, to_compile))
 assert all(sha(INPUT / name) == digest for name, digest in input_hashes.items()), 'AOT input changed'
 NATIVE.mkdir()
 modules = ['System.Private.CoreLib']
-if not compile_fna:
-    modules.append('FNA')
 for filename in compiled:
     modules.append(filename.removesuffix('.dll'))
 assert len(modules) == len(set(modules)), 'Duplicate module in registration'
@@ -269,7 +251,7 @@ if native_config.get('gc_stats'):
     main_defines.append('-DMONO_NX_GC_STATS=1')
 if native_config.get('profiler'):
     main_defines.append('-DMONO_NX_PROFILER=1')
-main_source = ROOT / 'tmod/launcher_build/main_tmod.c'
+main_source = SCRIPTS / 'launcher/main_tmod.c'
 if native_config.get('real_audio'):
     patched_main = NATIVE / 'main_tmod_real_audio.c'
     lines = main_source.read_text().splitlines(keepends=True)
@@ -291,8 +273,48 @@ if native_config.get('profiler'):
     patched_main = NATIVE / 'main_tmod_profiler.c'
     patched_main.write_text('void nx_profiler_start(void);\nvoid nx_profiler_stop(void);\n' + ''.join(lines))
     main_source = patched_main
-run([ROOT / 'release58/compile_main.sh', main_source, NATIVE / 'main_tmod.o',
-     *main_defines, '-I' + str(NATIVE)], 'compile-main', NATIVE)
+if 'libnx_heap_permille' in native_config:
+    # Without max-heap-size, SGen does not know where the fake-mmap region (heap_split.c) ends:
+    # it lets the heap grow a third past what survived the last major collection, which after
+    # world load lies beyond the region. Run 43 ran out of memory at its second autosave with
+    # about 390 MB collectable. A cap alone is not enough: in Ryujinx (v17j, cap 880 MB) the
+    # first autosave still failed, because the collection forced at the cap frees memory only
+    # after its lazy/concurrent sweep, after the allocation has already failed. So, unless
+    # /mono/gc_params.txt overrides it: cap the heap 160 MB below the region (the nursery,
+    # SGen internals and region overhead are not counted), start major collections 256 MB
+    # below the cap (soft-heap-limit), and sweep synchronously. v17k (same cap, these options
+    # with a 132 MB gap) saved without error, and run 44 loaded its world and saved four times.
+    # v18 narrowed the gap to 64 MB to cut the forced collections at each autosave; on hardware
+    # (runs 45 and 46, caps 976 and 968 MB) world loading then ran out of memory with only
+    # 500-620 MB in use. Below the soft limit majors are not forced and garbage piles up until a
+    # load burst reaches the cap; above it every major is forced, which is what kept run 44 safe.
+    main_text = main_source.read_text()
+    gc_open = '    FILE *f = fopen(GC_PARAMS_PATH, "r");\n    if (!f)\n        return;\n'
+    gc_function = 'static void apply_gc_params_file(void)\n'
+    if main_text.count(gc_open) != 1 or main_text.count(gc_function) != 1:
+        raise RuntimeError(f'expected one apply_gc_params_file opening /mono/gc_params.txt in {main_source}')
+    gc_default = (
+        'size_t mono_nx_mono_heap_bytes(void);\n'
+        '#define NX_GC_RESERVE_MB 160\n'
+        '#define NX_GC_SOFT_GAP_MB 256\n'
+        'static void nx_default_gc_params(void)\n'
+        '{\n'
+        '    size_t region_mb = mono_nx_mono_heap_bytes() >> 20;\n'
+        '    if (region_mb <= 2 * (NX_GC_RESERVE_MB + NX_GC_SOFT_GAP_MB))\n'
+        '        return;\n'
+        '    char value[128];\n'
+        '    snprintf(value, sizeof value, "max-heap-size=%zum,soft-heap-limit=%zum,no-lazy-sweep,no-concurrent-sweep",\n'
+        '        region_mb - NX_GC_RESERVE_MB, region_mb - NX_GC_RESERVE_MB - NX_GC_SOFT_GAP_MB);\n'
+        '    setenv("MONO_GC_PARAMS", value, 1);\n'
+        '    io_debugf("NX_GC params=%s (default for the %zu MB managed region)", value, region_mb);\n'
+        '}\n\n')
+    main_text = main_text.replace(gc_function, gc_default + gc_function).replace(
+        gc_open, '    FILE *f = fopen(GC_PARAMS_PATH, "r");\n    if (!f) {\n        nx_default_gc_params();\n        return;\n    }\n')
+    patched_main = NATIVE / 'main_tmod_gc.c'
+    patched_main.write_text(main_text)
+    main_source = patched_main
+run([COMPILE_MAIN, main_source, NATIVE / 'main_tmod.o',
+     *main_defines, '-I' + str(NATIVE), SHARED_INCLUDE], 'compile-main', NATIVE)
 object_overrides = {'main.o': NATIVE / 'main_tmod.o'}
 added_objects = {}
 extra_ldflags = []
@@ -310,20 +332,20 @@ if 'libnx_heap_permille' in native_config:
         heap_defines.append('-DMONO_NX_GUARD_PAGES=4')
     if nv_transfermem_mb:
         heap_defines.append('-DMONO_NX_NV_TRANSFERMEM_MB=%d' % nv_transfermem_mb)
-    run([ROOT / 'release58/compile_main.sh', Path(__file__).resolve().parent / 'launcher/heap_split.c',
-         NATIVE / 'heap_split.o', *heap_defines], 'compile-heap', NATIVE)
+    run([COMPILE_MAIN, SCRIPTS / 'launcher/heap_split.c',
+         NATIVE / 'heap_split.o', *heap_defines, SHARED_INCLUDE], 'compile-heap', NATIVE)
     object_overrides['heap.o'] = NATIVE / 'heap_split.o'
 if mesa_guard:
-    run([ROOT / 'release58/compile_main.sh', Path(__file__).resolve().parent / 'launcher/mesa_guard.c',
-         NATIVE / 'mesa_guard.o'], 'compile-mesa-guard', NATIVE)
+    run([COMPILE_MAIN, SCRIPTS / 'launcher/mesa_guard.c',
+         NATIVE / 'mesa_guard.o', SHARED_INCLUDE], 'compile-mesa-guard', NATIVE)
     added_objects['mesa_guard.o'] = NATIVE / 'mesa_guard.o'
     extra_ldflags.append('-Wl,' + ','.join('--wrap=nouveau_mm_' + name
                                           for name in ('create', 'allocate', 'free', 'free_work', 'destroy'))
                         + ',--wrap=nouveau_bo_new')
 if native_config.get('frame_stats'):
     frame_defines = [] if mesa_guard else ['-DMONO_NX_FRAME_STATS_BO_WRAP=1']
-    run([ROOT / 'release58/compile_main.sh', Path(__file__).resolve().parent / 'launcher/frame_stats.c',
-         NATIVE / 'frame_stats.o', *frame_defines], 'compile-frame-stats', NATIVE)
+    run([COMPILE_MAIN, SCRIPTS / 'launcher/frame_stats.c',
+         NATIVE / 'frame_stats.o', *frame_defines, SHARED_INCLUDE], 'compile-frame-stats', NATIVE)
     added_objects['frame_stats.o'] = NATIVE / 'frame_stats.o'
     extra_ldflags.append('-Wl,--wrap=SDL_GL_SwapWindow' + ('' if mesa_guard else ',--wrap=nouveau_bo_new')
                          + ',--wrap=FNA3D_DrawIndexedPrimitives,--wrap=FNA3D_DrawInstancedPrimitives'
@@ -336,8 +358,8 @@ if native_config.get('repo_nx_input'):
         '-D__SWITCH__', '-DMONO_NX_USE_AOT=1', '-DMONO_NX_GL_COMPAT=1', '-DMONO_NX_USE_ROMFS=1',
         '-DDLSHIM_SDL2=1', '-DDLSHIM_SDL2_IMAGE=1', '-DDLSHIM_OPENGL=1',
         '-DDLSHIM_FNA3D=1', '-DDLSHIM_FNA=1', '-DDLSHIM_STUBS=1', '-DDLSHIM_SDL3=1',
-        '-DU_DISABLE_RENAMING=1', '-DMONO_NX_SDL_BUTTON_WRAP=1',
-        '-I/build/aot42-windows', '-I/work/native/shared', '-I/mono-nx/native/shared',
+        '-DU_DISABLE_RENAMING=1', '-DMONO_NX_SDL_BUTTON_WRAP=1', '-DMONO_NX_SWKBD=1',
+        '-I/work/native/shared', '-I/mono-nx/native/shared',
         '-I/mono-nx/native/shared/third_party/ini', '-I' + mono_inc, '-I/mono-nx/icu/libnx/include',
         '-I/opt/devkitpro/libnx/include', '-I/opt/devkitpro/portlibs/switch/include',
         '-I/opt/devkitpro/portlibs/switch/include/SDL2', '-I/fna-install/include',
@@ -349,12 +371,14 @@ if native_config.get('repo_nx_input'):
     object_overrides['nx_input.o'] = NATIVE / 'nx_input.o'
     # tModLoader's FNA reads buttons straight from SDL; nx_input.c handles Plus+Minus there.
     extra_ldflags.append('-Wl,--wrap=SDL_GameControllerGetButton')
-launcher_config = config.get('launcher_objects')
-launcher_manifest = None
-if launcher_config:
-    assert set(launcher_config) <= {'manifest', 'override_objects', 'extra_objects'}, 'Unknown launcher_objects key'
-    launcher_manifest = json.loads(Path(launcher_config['manifest']).read_text())
-shutil.copy2(ROOT / 'hint52/native/aot-method-tables.ld', NATIVE / 'aot-method-tables.ld')
+    # The Switch keyboard for text boxes (MONO_NX_SWKBD) runs when an SDL_PollEvent drain
+    # ends. Debug and profiler builds already wrap SDL_PollEvent for frame timing.
+    if not any('--wrap=SDL_PollEvent' in flag for flag in config.get('extra_ldflags', [])):
+        extra_ldflags.append('-Wl,--wrap=SDL_PollEvent')
+launcher_config = config['launcher_objects']
+assert set(launcher_config) <= {'manifest', 'extra_objects'}, 'Unknown launcher_objects key'
+launcher_manifest = json.loads(Path(launcher_config['manifest']).read_text())
+shutil.copy2('/work/native/interpreter/aot-method-tables.ld', NATIVE / 'aot-method-tables.ld')
 sidecars = sorted(AOT.glob('*-llvm.o'))
 if sidecars:
     # Mono's LLVM output keeps absolute pointers in .rodata; a PIE NRO relocates them at load,
@@ -366,68 +390,31 @@ if sidecars:
                      '        *-llvm.o(.data .data.*)\n        *-llvm.o(.rodata .rodata.*)\n'
                      '    } :data\n}\nINSERT BEFORE .data.rel.ro;\n')
 recorded = {}
-for line in (ROOT / 'recovery46/link-arguments.txt').read_text().splitlines():
+for line in (SCRIPTS / 'launcher/link-arguments.txt').read_text().splitlines():
     key, value = line.split('=', 1)
     recorded[key] = shlex.split(value)
-if launcher_config:
-    launcher_records = launcher_manifest['objects']
-    override_names = launcher_config.get('override_objects')
-    if override_names is None:
-        override_names = [name for name in recorded['OBJECTS'] if name not in object_overrides and name in launcher_records]
-    for name in override_names:
-        assert name in recorded['OBJECTS'], f'launcher override is not a recorded object: {name}'
-        assert name not in object_overrides, f'launcher override conflicts with tmod object: {name}'
-        rec = launcher_records[name]
-        path = Path(rec['path'])
-        assert sha(path) == rec['sha256'], f'launcher object hash mismatch: {name}'
-        object_overrides[name] = path
-    for name in launcher_config.get('extra_objects', []):
-        assert name not in recorded['OBJECTS'], f'launcher extra is already in recorded objects: {name}'
-        assert name not in added_objects, f'launcher extra conflicts with tmod object: {name}'
-        rec = launcher_records[name]
-        path = Path(rec['path'])
-        assert sha(path) == rec['sha256'], f'launcher extra hash mismatch: {name}'
-        added_objects[name] = path
-objects_dir = ROOT / 'nochroma42/native/interpreter/build'
-assert set(object_overrides) <= set(recorded['OBJECTS'])
-drop_objects = set(config.get('drop_objects', ['dl_shim_openal.o']))
-drop_objects &= set(recorded['OBJECTS'])
-objects = [object_overrides.get(name, objects_dir / name) for name in recorded['OBJECTS'] if name not in drop_objects]
-objects += added_objects.values()
-release_lib = ROOT / 'runtime-source/artifacts/obj/mono/libnx.arm64.Release/out/lib'
-runtime = ROOT / 'runtime-release/libmonosgen-2.0-release.a'
-# "runtime": {"git_commit": ..., "libmonosgen_sha256": ...} deliberately replaces tmod09's runtime
-# (e.g. a runtime fix); without it the runtime must be exactly tmod09's.
-runtime_provenance = dict(baseline['runtime_provenance'])
-if 'runtime' in config:
-    runtime_provenance = {'git_commit': config['runtime']['git_commit'],
-                          'libmonosgen_sha256': config['runtime']['libmonosgen_sha256']}
-assert sha(runtime) == runtime_provenance['libmonosgen_sha256'], 'runtime archive differs from declared provenance'
-swap = {'/build/runtime-fix/libmonosgen-2.0.a': str(runtime)}
-for component in ('debugger', 'diagnostics_tracing-stub', 'hot_reload-stub', 'marshal-ilgen'):
-    name = f'libmono-component-{component}-static.a'
-    swap[f'/mono-nx/dotnet_runtime/artifacts/obj/mono/libnx.arm64.Debug/out/lib/{name}'] = str(release_lib / name)
-    key = 'libmono_component_' + component.replace('-', '_') + '_static_sha256'
-    if 'runtime' in config:
-        runtime_provenance[key] = sha(release_lib / name)
-# "native_swaps": {recorded LIBS path: {"path": replacement archive, "sha256": ...}}, e.g. a
-# System.Native archive with libnx filesystem fixes.
-native_swaps = config.get('native_swaps', {})
-for recorded_path, replacement in native_swaps.items():
-    assert recorded_path in recorded['LIBS'], ('not a recorded link library', recorded_path)
-    assert sha(replacement['path']) == replacement['sha256'], ('native swap changed', replacement['path'])
-    swap[recorded_path] = replacement['path']
-libraries = []
-drop_libs = set(config.get('drop_libs', ['-lopenal']))
+# Every launcher object comes from the launcher stage, except the ones compiled above.
+launcher_records = launcher_manifest['objects']
+for name in recorded['OBJECTS']:
+    if name in object_overrides:
+        continue
+    rec = launcher_records[name]
+    assert sha(rec['path']) == rec['sha256'], f'launcher object hash mismatch: {name}'
+    object_overrides[name] = Path(rec['path'])
+for name in launcher_config.get('extra_objects', []):
+    assert name not in recorded['OBJECTS'], f'launcher extra is already in recorded objects: {name}'
+    assert name not in added_objects, f'launcher extra conflicts with tmod object: {name}'
+    rec = launcher_records[name]
+    assert sha(rec['path']) == rec['sha256'], f'launcher extra hash mismatch: {name}'
+    added_objects[name] = Path(rec['path'])
+objects = [object_overrides[name] for name in recorded['OBJECTS']] + list(added_objects.values())
+# The tmod-runtime archives on the link line must be the ones the base stage recorded.
+runtime_provenance = baseline['runtime_provenance']
 for value in recorded['LIBS']:
-    if value in drop_libs:
-        continue
-    if value.startswith('/build/aot42-windows/') and value.endswith('.o'):
-        if not libraries or libraries[-1] is not None:
-            libraries.append(None)
-        continue
-    libraries.append(swap.get(value, value))
-index = libraries.index(None)
+    if value.startswith(str(TMOD_RUNTIME / 'lib') + '/'):
+        assert sha(value) == runtime_provenance['libraries'][Path(value).name], f'{value} differs from the base record'
+libraries = list(recorded['LIBS'])
+index = libraries.index('@AOT@')
 aot_objects = sorted(str(AOT / (name + '.dll.o')) for name in modules)
 for sidecar in sidecars:
     # Each sidecar directly follows its module object; the verifier maps tables by name order.
@@ -450,8 +437,7 @@ shutil.copytree(BASE / 'romfs', ROMFS)
 for path in ROMFS.rglob('*'):
     path.chmod(path.stat().st_mode | 0o200)
 shutil.copy2(INPUT / 'tModLoader.dll', ROMFS / 'tModLoader.dll')
-if compile_fna:
-    shutil.copy2(INPUT / 'FNA.dll', ROMFS / 'FNA.dll')
+shutil.copy2(INPUT / 'FNA.dll', ROMFS / 'FNA.dll')
 for filename in extra_aot:
     shutil.copy2(INPUT / filename, ROMFS / filename)
 for filename, destinations in replacements.items():
@@ -475,7 +461,7 @@ for mbr, ext_info in external_members.items():
     extracted.parent.mkdir(parents=True, exist_ok=True)
     extracted.write_bytes(shipped_bytes)
 
-nacp = bytearray((BASE / 'native/candidate/tmodloader.nacp').read_bytes())
+nacp = bytearray((BASE / 'native/tmodloader.nacp').read_bytes())
 title = f'tModLoader NX {VARIANT[4:]} ({config["label"]})'.encode()
 assert len(title) < 0x200
 for language in range(16):
@@ -483,17 +469,12 @@ for language in range(16):
 (candidate / 'tmodloader.nacp').write_bytes(nacp)
 run(['/opt/devkitpro/tools/bin/elf2nro', candidate / 'tmodloader.elf', candidate / 'tmodloader.nro',
      '--nacp=' + str(candidate / 'tmodloader.nacp'), '--romfsdir=' + str(ROMFS),
-     '--icon=' + str(ROOT / 'tmod/tmod02/native/icon.jpg')], 'package-candidate', NATIVE)
+     '--icon=' + str(BASE / 'native/icon.jpg')], 'package-candidate', NATIVE)
 
-binding = {}
-for name in ('System.Private.CoreLib', *(['FNA'] if not compile_fna else [])):
-    payload = ROMFS / ('FNA.dll' if name == 'FNA' else 'mono/lib_net9.0/System.Private.CoreLib.dll')
-    object_path = AOT / (name + '.dll.o')
-    binding[name] = dict(binding_base[name], aot_object=str(object_path), aot_object_sha256=sha(object_path),
-                         romfs_payload_dll=str(payload), romfs_payload_sha256=sha(payload))
-    sidecar = AOT / (name + '.dll-llvm.o')
-    if sidecar.exists():
-        binding[name].update(llvm_object=str(sidecar), llvm_object_sha256=sha(sidecar))
+payload = ROMFS / 'mono/lib_net9.0/System.Private.CoreLib.dll'
+binding = {'System.Private.CoreLib': dict(
+    corelib, aot_object=str(AOT / 'System.Private.CoreLib.dll.o'), llvm_object=str(AOT / 'System.Private.CoreLib.dll-llvm.o'),
+    romfs_payload_dll=str(payload), romfs_payload_sha256=sha(payload))}
 for filename in compiled:
     name = filename.removesuffix('.dll')
     record = {'compiler_input_dll': str(INPUT / filename), 'compiler_input_sha256': input_hashes[filename],
@@ -502,6 +483,8 @@ for filename in compiled:
         record.update(llvm_object=str(AOT / (filename + '-llvm.o')), llvm_object_sha256=sha(AOT / (filename + '-llvm.o')))
     if filename in aot_inline_limits:
         record['aot_inline_limit'] = aot_inline_limits[filename]
+    if filename in reused:
+        record['reused_from'] = 'tmod-runtime/framework-aot'
     if filename in external_members:
         ext_info = external_members[filename]
         extracted_path = OUT / 'extracted' / filename
@@ -518,13 +501,11 @@ if mod:
     deliverables['sd_mod'] = {'path': str(staged_packages[mod]), 'sha256': sha(staged_packages[mod])}
 if additional_mods:
     deliverables['sd_mods'] = {m: {'path': str(p), 'sha256': sha(p)} for m, p in staged_packages.items()}
-manifest = {'candidate': VARIANT, 'content': baseline['content'], 'runtime_provenance': runtime_provenance,
+manifest = {'candidate': VARIANT, 'base': str(BASE), 'content': baseline['content'], 'runtime_provenance': runtime_provenance,
             'provenance_and_binding': binding, 'modset': dict(config, package=mod_info_by_name[mod] if mod else None), 'reference_inputs': input_hashes,
             'managed_replacements': {name: {'sha256': input_hashes[name], 'destinations': paths}
                                      for name, paths in replacements.items()},
             'launcher_objects': {name: {'path': str(path), 'sha256': sha(path)} for name, path in {**object_overrides, **added_objects}.items()},
-            'final_deliverables': deliverables}
-if launcher_manifest:
-    manifest['launcher_manifest'] = launcher_manifest
+            'final_deliverables': deliverables, 'launcher_manifest': launcher_manifest}
 (OUT / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
 print('PASS fixed modset:', json.dumps(manifest['final_deliverables']), flush=True)

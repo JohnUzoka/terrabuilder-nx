@@ -1,0 +1,43 @@
+*** Begin Patch
+*** Update File: Common/Systems/MagicUI.cs
+@@
+-		StorageGUI.curMouse = Mouse.GetState();
++		StorageGUI.curMouse = Mouse.GetState(); CraftingInput.Update();
+*** Update File: UI/Specific/UICraftButton.cs
+@@
+-			if (StorageGUI.curMouse.LeftButton == ButtonState.Pressed) {
++			if (CraftingInput.LeftHeld) {
+-				if (StorageGUI.oldMouse.LeftButton == ButtonState.Released)
++				if (!CraftingInput.LeftHeldLastUpdate)
+*** Update File: UI/Specific/UICraftAmountAdjustment.cs
+@@
+-			if (StorageGUI.MouseClicked) {
++			if (CraftingInput.LeftClicked) {
+*** Add File: Common/Systems/CraftingInput.cs
++using Microsoft.Xna.Framework.Input;
++using Terraria;
++
++namespace MagicStorage.Common.Systems;
++
++/// <summary>
++/// Left-button state for the crafting buttons. <see cref="StorageGUI.curMouse"/> is the raw <see cref="Mouse.GetState"/>,
++/// which only a physical mouse (or touch mapped to the mouse) drives; gamepad clicks reach the game through
++/// PlayerInput's MouseLeft trigger, i.e. <see cref="Main.mouseLeft"/>. A button counts as held when either source holds it,
++/// so mouse input behaves exactly as before.
++/// </summary>
++internal static class CraftingInput {
++	private static bool leftHeld, leftHeldLastUpdate;
++
++	/// <summary>Called once per <see cref="MagicUI.UpdateUI"/>, right after <see cref="StorageGUI.curMouse"/> is polled.</summary>
++	public static void Update() {
++		leftHeldLastUpdate = leftHeld;
++		leftHeld = StorageGUI.curMouse.LeftButton == ButtonState.Pressed || Main.mouseLeft;
++	}
++
++	public static bool LeftHeld => leftHeld;
++
++	public static bool LeftHeldLastUpdate => leftHeldLastUpdate;
++
++	public static bool LeftClicked => leftHeld && !leftHeldLastUpdate;
++}
+*** End Patch

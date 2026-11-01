@@ -1,0 +1,10 @@
+*** Begin Patch
+*** Update File: MagicStorage.csproj
+@@
+-      <HintPath>..\references\1.4.4\SerousCommonLib.dll</HintPath>
++      <HintPath>SerousCommonLib.dll</HintPath>
+*** Update File: Common/Systems/SecuritySystem.cs
+@@
+-		public ref struct AccessContext : IDisposable {
++		public ref struct AccessContext {
+*** End Patch

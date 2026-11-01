@@ -42,8 +42,40 @@ COMPONENTS: dict[str, tuple[str, ...]] = {
     "notices": ("THIRD_PARTY_NOTICES.md",),
 }
 
+# Optional component directory -> files it cannot be used without. A toolchain may lack an
+# optional component; when the directory exists, the manifest records and verifies it like a
+# required one, and builds that need it check `Toolchain.has`.
+OPTIONAL_COMPONENTS: dict[str, tuple[str, ...]] = {
+    # The runtime tModLoader builds were validated on (scripts/tmod/runtime/README.md). Its
+    # aot-compiler/ holds the tModLoader mono-aot-cross; opt, llc and the libc++ libraries in it
+    # are symlinks to the identical files in the aot-compiler component.
+    "tmod-runtime": (
+        "lib/libmonosgen-2.0.a",
+        *(f"lib/libmono-component-{name}-static.a" for name in RUNTIME_COMPONENT_LIBS),
+        "lib/libSystem.Native.a",
+        "framework/System.Runtime.dll",
+        "corelib/System.Private.CoreLib.dll",
+        "aot-compiler/mono-aot-cross",
+        "aot-compiler/opt",
+        "aot-compiler/llc",
+        "aot-compiler/libc++.so.1",
+        "aot-compiler/libc++abi.so.1",
+        "corelib-aot/manifest.json",
+        "framework-aot/framework-aot.json",
+        "System.Reflection.Metadata.dll",
+        "THIRD_PARTY_NOTICES.md",
+    ),
+}
+
 # Container paths the launcher sources, link line and scripts are written against.
 ALIASES = {"sdk": "/mono-nx", "mono-nx-native": "/mono-nx/native", "native-deps": "/fna-install"}
+# A component mounted inside another one's mount (mono-nx-native at /mono-nx/native) makes the
+# container runtime create that mount point in the host directory (sdk/native). It belongs to no
+# component, so scans skip it while it is empty.
+MOUNT_POINTS = {f"{outer}{inner_path[len(outer_path):]}"
+                for outer, outer_path in ALIASES.items()
+                for inner, inner_path in ALIASES.items()
+                if inner != outer and inner_path.startswith(outer_path + "/")}
 
 # Relative to the toolchain root; read from the SD card before RomFS is mounted.
 ICU_DATA = "sdk/icu/libnx/share/icu/77.1/icudt77l.dat"
@@ -75,7 +107,9 @@ def scan(root: Path, component: str, *, hashes: bool = True) -> tuple[dict[str, 
         here = Path(dirpath)
         names = sorted(filenames) + [d for d in dirnames if (here / d).is_symlink()]
         if not names and not dirnames:
-            empty.append(here.relative_to(root).as_posix())
+            rel_dir = here.relative_to(root).as_posix()
+            if rel_dir not in MOUNT_POINTS:
+                empty.append(rel_dir)
         for name in names:
             path = here / name
             rel = path.relative_to(root).as_posix()
@@ -111,21 +145,24 @@ def component_digest(component: str, files: dict[str, dict], empty_dirs: list[st
 
 
 def write_manifest(root: Path, origin: str, provenance: dict, lock_sha256: str | None = None) -> dict:
+    """Record every required component and each optional component whose directory exists."""
     files: dict[str, dict] = {}
     empty: list[str] = []
     components = {}
-    missing = [f"{name}/{rel}" for name, required in COMPONENTS.items() for rel in required
+    present = {**COMPONENTS, **{name: required for name, required in OPTIONAL_COMPONENTS.items()
+                                if (root / name).is_dir()}}
+    missing = [f"{name}/{rel}" for name, required in present.items() for rel in required
                if not (root / name / rel).is_file()]
     if missing:
         raise ToolchainError(root, ["missing " + rel for rel in missing])
-    for name in COMPONENTS:
+    for name in present:
         part, part_empty = scan(root, name)
         files.update(part)
         empty.extend(part_empty)
         regular = [e for e in part.values() if "symlink" not in e]
         components[name] = {"files": len(part), "bytes": sum(e["bytes"] for e in regular),
                             "digest": component_digest(name, part, part_empty)}
-    extra = sorted(p.name for p in root.iterdir() if p.name != MANIFEST and p.name not in COMPONENTS)
+    extra = sorted(p.name for p in root.iterdir() if p.name != MANIFEST and p.name not in present)
     if extra:
         raise ToolchainError(root, ["unexpected top-level entry " + name for name in extra])
     manifest = {
@@ -155,6 +192,10 @@ class Toolchain:
     def digests(self, *components: str) -> str:
         return "".join(f"{name}={self.digest(name)};" for name in components)
 
+    def has(self, component: str) -> bool:
+        """Whether the manifest records `component` (always true for required components)."""
+        return component in self.manifest["components"]
+
     def path(self, rel: str) -> Path:
         return self.root / rel
 
@@ -178,11 +219,24 @@ def _read_manifest(root: Path) -> dict:
     return manifest
 
 
+def _recorded_components(root: Path, manifest: dict) -> tuple[list[str], list[str]]:
+    """(components to check, problems): every required component plus each recorded optional one.
+    An optional component directory the manifest does not record is unexpected."""
+    recorded = manifest.get("components", {})
+    problems = [f"component {name} missing from manifest" for name in COMPONENTS if name not in recorded]
+    problems += [f"unknown component {name} in manifest" for name in recorded
+                 if name not in COMPONENTS and name not in OPTIONAL_COMPONENTS]
+    problems += [f"unexpected top-level entry {name} (optional component not in manifest)"
+                 for name in OPTIONAL_COMPONENTS if name not in recorded and (root / name).exists()]
+    names = [name for name in COMPONENTS if name in recorded]
+    names += [name for name in OPTIONAL_COMPONENTS if name in recorded]
+    return names, problems
+
+
 def load(root: Path) -> Toolchain:
     """Quick check (presence, type, size) for every recorded file; `verify` rehashes."""
     manifest = _read_manifest(root)
-    problems = [f"component {name} missing from manifest" for name in COMPONENTS
-                if name not in manifest.get("components", {})]
+    _, problems = _recorded_components(root, manifest)
     for rel, entry in manifest.get("files", {}).items():
         path = root / rel
         if "symlink" in entry:
@@ -208,11 +262,8 @@ def verify(root: Path) -> list[str]:
     """Rehash everything; return a list of problems (empty when the toolchain is intact)."""
     manifest = _read_manifest(root)
     recorded = manifest.get("files", {})
-    problems: list[str] = []
-    for name in COMPONENTS:
-        if name not in manifest.get("components", {}):
-            problems.append(f"component {name} missing from manifest")
-            continue
+    names, problems = _recorded_components(root, manifest)
+    for name in names:
         files, empty = scan(root, name)
         prefix = name + "/"
         expected = {rel: entry for rel, entry in recorded.items() if rel.startswith(prefix)}

@@ -96,6 +96,7 @@ public class Program
         Console.WriteLine($"  IL hooks:         {inventory.ILHooks.Count} hooks");
         Console.WriteLine($"  Runtime detours:  {inventory.RuntimeDetours.Count} detours");
         Console.WriteLine($"  Unsupported:      {inventory.Unsupported.Count} items");
+        Console.WriteLine($"  Missing members:  {inventory.MissingMembers.Count} referenced members not in this build");
 
         // Report overlaps
         var overlaps = inventory.OnHooks.Where(h => h.Registrations.Select(r => r.Mod).Distinct().Count() > 1).ToList();
