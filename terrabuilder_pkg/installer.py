@@ -10,6 +10,7 @@ from __future__ import annotations
 import datetime
 import hashlib
 import json
+import platform
 import re
 import shutil
 import subprocess
@@ -46,7 +47,34 @@ def windows_path(path: Path) -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
-def run_logged(heading: str, log_name: str, failure: str,
+HELP_HINT = "If you need help, send the Output/logs folder."
+
+
+def describe_setup(workdir: Path) -> list[str]:
+    """What a log needs to identify this copy of terrabuilder and this computer."""
+    try:
+        version = "git " + subprocess.run(["git", "-C", str(ROOT), "describe", "--always", "--dirty"],
+                                          capture_output=True, text=True, check=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        version = "not a git checkout"
+    return [f"terrabuilder: {ROOT} ({version})", f"system: {platform.platform()}",
+            f"python: {sys.version.split()[0]}", f"work directory: {workdir}"]
+
+
+def write_check_log(checks: list[dict], workdir: Path) -> Path:
+    """Save a failed machine check, with the engine's own report, as Output/logs/<stamp>-check.log."""
+    log = OUT_DIR / "logs" / f"{datetime.datetime.now().strftime('%Y-%m-%d_%H%M%S')}-check.log"
+    lines = [*describe_setup(workdir), ""]
+    lines += [f"{'ok  ' if c['ok'] else 'FAIL'} {c['name']}: {c['detail']}" for c in checks]
+    report = next((c.get("report") for c in checks if c.get("report")), "")
+    if report:
+        lines += ["", "container engine info:", *("  " + line for line in report.splitlines()[:100])]
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text("\n".join(lines) + "\n")
+    return log
+
+
+def run_logged(heading: str, log_name: str, failure: str, workdir: Path,
                work: Callable[[ui.Progress], Any]) -> tuple[Any, float, Path] | None:
     """Run `work` with a progress line per phase and command output in Output/logs/<stamp>-<log_name>.log.
     Returns (work's result, seconds taken, log path); on failure shows the error and the log's last
@@ -54,6 +82,8 @@ def run_logged(heading: str, log_name: str, failure: str,
     log = OUT_DIR / "logs" / f"{datetime.datetime.now().strftime('%Y-%m-%d_%H%M%S')}-{log_name}.log"
     ui.write("\n" + ui.bold(heading) + ui.dim(f"   log: {shown(log)}") + "\n")
     progress = ui.Progress(log)
+    for line in describe_setup(workdir):
+        progress.say(line)
     cli.OUTPUT = progress
     ok, error, result = False, "", None
     try:
@@ -69,7 +99,7 @@ def run_logged(heading: str, log_name: str, failure: str,
     if not ok:
         ui.write("\n" + ui.red(ui.bold(f"{failure}: ")) + error + "\n\n" + ui.dim("  Last lines of the log:") + "\n")
         ui.write("".join(ui.dim("    " + ui.clip(line, ui.size()[0] - 6)) + "\n" for line in progress.tail(15)))
-        ui.write(f"\n  Full log: {log}\n")
+        ui.write(f"\n  Full log: {log}\n  {HELP_HINT}\n")
         return None
     return result, took, log
 
@@ -475,11 +505,13 @@ class Wizard:
             if not failed:
                 self.tc = tclib.load(self.workdir / "toolchain")
                 return True
+            log = write_check_log(checks, self.workdir)
             lines = ["", *(f"  {ui.OK if c['ok'] else ui.FAIL} {c['name']}: {c['detail']}" for c in checks if c["required"])]
             # The prebuilt toolchain and the container image are the two things set up can provide.
             fixable = all(c["name"] == "toolchain" or c["name"].startswith("image ") for c in failed)
             if set_up or not fixable:
-                lines += ["", "  Fix the items marked " + ui.FAIL + "; docs/BUILDING.md has the setup steps."]
+                lines += ["", "  Fix the items marked " + ui.FAIL + "; docs/BUILDING.md has the setup steps.",
+                          f"  These results are saved in {shown(log)}. {HELP_HINT}"]
                 ui.screen("This computer can't build yet", lines, {"enter": "exit"})
                 return False
             fixes = []
@@ -489,7 +521,8 @@ class Wizard:
                 fixes.append("builds the container image that builds run in (about 5 GB)")
             lines += ["", "  Set up " + " and ".join(fixes) + "."]
             ui.screen("This computer needs setting up", lines, {"enter": "set up"})
-            if run_logged("Setting up", "setup", "Setup failed", lambda _: cli.set_up_from_bundle(self.workdir)) is None:
+            if run_logged("Setting up", "setup", "Setup failed", self.workdir,
+                          lambda _: cli.set_up_from_bundle(self.workdir)) is None:
                 return False
             set_up = True
 
@@ -565,7 +598,7 @@ class Wizard:
             progress.phase("Patching tModLoader")
             return cli.tmod_dlls_stage(release, cli.tmod_release_hash(release), self.workdir, self.tc)
 
-        done = run_logged("Preparing the mod check", "mod-check", "Preparing the mod check failed", prepare)
+        done = run_logged("Preparing the mod check", "mod-check", "Preparing the mod check failed", self.workdir, prepare)
         return None if done is None else done[0]
 
     def mod_items(self) -> list[ui.Item]:
@@ -686,7 +719,7 @@ class Wizard:
 
     def build(self) -> int:
         title = "Terraria" if self.target == "vanilla" else "tModLoader"
-        done = run_logged(f"Building {title}", self.target, "Build failed", self.run_build)
+        done = run_logged(f"Building {title}", self.target, "Build failed", self.workdir, self.run_build)
         if done is None:
             return 1
         self.finish(*done)

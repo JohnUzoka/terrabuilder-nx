@@ -11,7 +11,9 @@ XNB assets and hardware logs.
 ## Quick start
 
 With Podman or Docker installed (see [Build environment](#build-environment)), the
-whole build is one command:
+whole build is one command. Docker has to work for your user without `sudo`: if
+`docker info` says "permission denied", run `sudo usermod -aG docker $USER` and
+open a new terminal.
 
 ```sh
 ./terrabuilder
@@ -39,7 +41,11 @@ new machine it offers to set up the rest: it downloads the prebuilt toolchain
 3. **Summary:** the build type (Release, Debug or Profiler) and where the result
    goes.
 
-The build shows one line per stage and writes its full output to `Output/logs/`.
+The build shows one line per stage and writes its full output to `Output/logs/`,
+along with set-up output and any failed machine check (with the container engine's
+own report). If something goes wrong, send that folder; the logs include your
+folder paths.
+
 The first tModLoader build takes about an hour; later builds reuse unchanged
 stages. When it finishes, copy everything inside `Output/Terraria/sdcard` or
 `Output/tModLoader/sdcard` to the root of the SD card: the NRO lands in
