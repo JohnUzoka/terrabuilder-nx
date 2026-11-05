@@ -14,8 +14,10 @@ from pathlib import Path
 # (scripts/toolchain/Containerfile) with the extra compilers it needs.
 BUILD_IMAGE_TAG = "devkitpro/devkita64:20260219"
 BUILD_IMAGE = "docker.io/devkitpro/devkita64@sha256:1fc388c3a0d34bd2045a6dadcb1020e069d5f876a187fd705de14b4440c00282"
-# The working directory builds had in our earlier image (its WORKDIR). Compilers record it in
-# debug info, so running there keeps objects byte-identical to the hardware-tested builds.
+# The working directory builds had in our earlier image (its WORKDIR). GCC records it in debug
+# info, so running there keeps the launcher's objects byte-identical to that image's builds.
+# Mono's AOT objects never match between two builds, in any image: each gets a random 16-byte
+# AOT ID and unzeroed padding after some methods.
 BUILD_WORKDIR = "/mono-nx"
 
 
