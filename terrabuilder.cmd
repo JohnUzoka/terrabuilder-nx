@@ -16,27 +16,28 @@ set "DISTRO=%TERRABUILDER_DISTRO%"
 set "RC=0"
 
 where wsl.exe >nul 2>&1
-if errorlevel 1 (
+rem wsl.exe exits with -1 for its own errors, which "if errorlevel 1" (1 or more) misses.
+if %errorlevel% neq 0 (
     echo This Windows has no WSL. terrabuilder needs Windows 10 version 2004 or later, or Windows 11.
     goto failed
 )
 wsl.exe -d %DISTRO% -e true >nul 2>&1
-if errorlevel 1 goto install
+if %errorlevel% neq 0 goto install
 
 :ready
 echo Checking the Linux tools terrabuilder needs: Podman, git, rsync and Python.
 rem Podman only when neither Podman nor a Docker that works without sudo is there.
 set "ENGINE=podman"
 wsl.exe -d %DISTRO% -e sh -c "command -v podman || docker info" >nul 2>&1
-if not errorlevel 1 set "ENGINE="
+if %errorlevel% equ 0 set "ENGINE="
 wsl.exe -d %DISTRO% -u root -e sh -c "need=; for tool in git rsync python3 %ENGINE%; do command -v $tool >/dev/null || need=$need' '$tool; done; case $need in '') exit 0;; esac; echo Installing$need; export DEBIAN_FRONTEND=noninteractive; (apt-get update -qq && apt-get install -y -qq$need) >/tmp/terrabuilder-apt.log 2>&1 || { tail -n 20 /tmp/terrabuilder-apt.log; exit 1; }"
-if errorlevel 1 goto failed
+if %errorlevel% neq 0 goto failed
 
 wsl.exe -d %DISTRO% --cd ~ -e sh -c "if [ -d terrabuilder-nx/.git ]; then git -C terrabuilder-nx pull -q --ff-only || echo Could not update terrabuilder-nx, so the copy you have is used.; else echo Downloading terrabuilder-nx; git clone -q --branch %TERRABUILDER_BRANCH% %TERRABUILDER_REPO% terrabuilder-nx; fi"
-if errorlevel 1 goto failed
+if %errorlevel% neq 0 goto failed
 
 wsl.exe -d %DISTRO% --cd ~ -e terrabuilder-nx/scripts/windows/launch.sh "%~dp0." %*
-if errorlevel 1 goto failed
+if %errorlevel% neq 0 goto failed
 goto end
 
 :install
@@ -49,7 +50,7 @@ if /i "%ANSWER%"=="yes" set "ANSWER=y"
 if /i not "%ANSWER%"=="y" goto end
 wsl.exe --install -d %DISTRO%
 wsl.exe -d %DISTRO% -e true >nul 2>&1
-if not errorlevel 1 goto ready
+if %errorlevel% equ 0 goto ready
 echo.
 echo If Windows asks you to restart, restart first. If %DISTRO% asked for a user name and a
 echo password, create them; if it then shows a Linux prompt, type exit. Then double-click
