@@ -69,9 +69,10 @@ OPTIONAL_COMPONENTS: dict[str, tuple[str, ...]] = {
 
 # Container paths the launcher sources, link line and scripts are written against.
 ALIASES = {"sdk": "/mono-nx", "mono-nx-native": "/mono-nx/native", "native-deps": "/fna-install"}
-# A component mounted inside another one's mount (mono-nx-native at /mono-nx/native) makes the
-# container runtime create that mount point in the host directory (sdk/native). It belongs to no
-# component, so scans skip it while it is empty.
+# A component mounted inside another one's mount (mono-nx-native at /mono-nx/native) needs its
+# mount point in the host directory (sdk/native). Docker creates it there; Podman fails instead,
+# since the outer mount is read-only, so mounts() makes it. It belongs to no component, so scans
+# skip it while it is empty.
 MOUNT_POINTS = {f"{outer}{inner_path[len(outer_path):]}"
                 for outer, outer_path in ALIASES.items()
                 for inner, inner_path in ALIASES.items()
@@ -200,6 +201,8 @@ class Toolchain:
         return self.root / rel
 
     def mounts(self) -> list[str]:
+        for rel in MOUNT_POINTS:
+            (self.root / rel).mkdir(exist_ok=True)
         args = ["-v", f"{self.root}:{MOUNT}:ro"]
         for component, target in ALIASES.items():
             args += ["-v", f"{self.root / component}:{target}:ro"]

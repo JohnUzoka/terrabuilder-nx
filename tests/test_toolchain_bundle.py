@@ -67,6 +67,15 @@ class ToolchainBundleTests(unittest.TestCase):
         self.assertFalse((live / "sdk/native").exists())
         self.assertFalse((workdir / "toolchain.bundle").exists())
 
+    def test_container_mounts_create_the_nested_mount_point(self):
+        # Podman cannot create /mono-nx/native inside the read-only /mono-nx mount at container start.
+        workdir = self.tmp / "work"
+        cli.install_toolchain_bundle(workdir, self.archive)
+        live = workdir / "toolchain"
+        tclib.load(live).mounts()
+        self.assertTrue((live / "sdk/native").is_dir())
+        self.assertEqual(tclib.verify(live), [])
+
     def test_usable_toolchain_is_kept_unless_replace(self):
         workdir = self.tmp / "work"
         cli.install_toolchain_bundle(workdir, self.archive)
