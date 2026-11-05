@@ -58,6 +58,15 @@ holding exactly the files, symlinks and empty directories its manifest records.
 Publishing another toolchain means packing it, uploading the file as a release
 asset, and updating the pin.
 
+### Launchers
+
+The [Launchers release](https://github.com/JohnUzoka/terrabuilder-nx/releases/tag/launchers)
+carries `terrabuilder.cmd` (Windows) and `terrabuilder.sh` (Linux), which the README
+links. Release files don't follow `main`: after changing either launcher, upload it to
+that release again, replacing the old file. What they run after setting up is
+`scripts/launch.sh` in the checkout they keep up to date, so changes there need no
+upload.
+
 ### Automated path: building the toolchain from source
 
 ```sh

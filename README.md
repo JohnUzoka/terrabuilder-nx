@@ -11,7 +11,8 @@ XNB assets and hardware logs.
 ## Quick start
 
 **On Windows**, download
-[terrabuilder.cmd](https://github.com/JohnUzoka/terrabuilder-nx/releases/download/windows-launcher/terrabuilder.cmd),
+[terrabuilder.cmd](https://github.com/JohnUzoka/terrabuilder-nx/releases/download/launchers/terrabuilder.cmd)
+from the [Launchers release](https://github.com/JohnUzoka/terrabuilder-nx/releases/tag/launchers),
 put it in an empty folder and double-click it. It sets up WSL with Ubuntu if needed
 (it asks first; this needs administrator rights and maybe a restart), installs Podman,
 git, rsync and Python in Ubuntu, keeps a copy of this repository in Ubuntu's home
@@ -21,14 +22,19 @@ into Ubuntu before each run (an empty folder leaves Ubuntu's copy as it is), and
 `Output` is copied back afterwards. Arguments are passed on: `terrabuilder.cmd doctor`
 only checks the machine.
 
-**On Linux**, run this in an empty folder. It does the same without the WSL part: it
-offers to install what's missing with your package manager (`sudo`), keeps a copy of
-this repository in `~/terrabuilder-nx` and copies the folders.
+**On Linux**, download
+[terrabuilder.sh](https://github.com/JohnUzoka/terrabuilder-nx/releases/download/launchers/terrabuilder.sh)
+from the same release into an empty folder and run it there with `bash terrabuilder.sh`,
+or from a terminal in that folder:
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/JohnUzoka/terrabuilder-nx/main/terrabuilder.sh
+curl -fsSLO https://github.com/JohnUzoka/terrabuilder-nx/releases/download/launchers/terrabuilder.sh
 bash terrabuilder.sh
 ```
+
+It does the same without the WSL part: it offers to install what's missing with your
+package manager (`sudo`), keeps a copy of this repository in `~/terrabuilder-nx` and
+copies the folders.
 
 macOS is not supported: parts of the build run Linux x86-64 programs outside containers
 (the toolchain's .NET SDK prepares tModLoader and its mods), so a Mac needs a Linux
