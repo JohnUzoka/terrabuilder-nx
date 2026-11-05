@@ -3,6 +3,7 @@ import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from terrabuilder_pkg.containers import engine_status
 
@@ -36,6 +37,20 @@ class EngineStatusTests(unittest.TestCase):
         eng = fake_engine(self.folder, 'echo "error during connect: something new" >&2; exit 1')
         problem, _ = engine_status(eng)
         self.assertIn("something new", problem)
+
+    def test_snap_docker_is_reported_even_when_it_answers(self):
+        # The snap may not mount hidden folders such as ~/.cache, so builds would fail later.
+        eng = fake_engine(self.folder, 'echo "Server Version: 28"')
+        with patch("terrabuilder_pkg.containers.shutil.which", return_value="/snap/bin/docker"):
+            problem, _ = engine_status(eng)
+        self.assertIn("snap remove docker", problem)
+
+    def test_permission_fix_creates_a_missing_docker_group(self):
+        eng = fake_engine(self.folder, 'echo "permission denied while trying to connect to the docker API '
+                                       'at unix:///var/run/docker.sock" >&2; exit 1')
+        with patch("terrabuilder_pkg.containers.grp.getgrnam", side_effect=KeyError("docker")):
+            problem, _ = engine_status(eng)
+        self.assertIn("groupadd docker", problem)
 
 
 if __name__ == "__main__":

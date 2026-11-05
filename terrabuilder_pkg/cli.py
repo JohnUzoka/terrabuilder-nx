@@ -179,7 +179,9 @@ def image_id(image: str) -> str:
     try:
         return capture([eng, "image", "inspect", "--format", "{{.Id}}", image])
     except subprocess.CalledProcessError as error:
-        raise SystemExit(f"container image {image} is missing; see docs/BUILDING.md") from error
+        problem = engine_status(eng)[0]
+        raise SystemExit(f"the container image can't be used: {problem}" if problem else
+                         f"container image {image} is missing: `./terrabuilder toolchain --bundle` builds it") from error
 
 
 def toolchain_summary(tc: tclib.Toolchain) -> dict:
@@ -420,6 +422,10 @@ def validate_game(game: Path) -> dict:
     required = ["Terraria.exe", "FNA.dll", "Content"]
     missing = [n for n in required if not (game / n).exists()]
     if missing:
+        if missing == ["FNA.dll"]:
+            raise SystemExit(f"{game} has no FNA.dll: it is the Windows (XNA) version of Terraria, such as Steam's. "
+                             "Vanilla builds need GOG Terraria 1.4.5.8 for Linux; tModLoader builds can use this "
+                             "folder (build --target tmodloader --terraria DIR).")
         raise SystemExit("game directory missing: " + ", ".join(missing))
     terraria_sha = sha256(game / "Terraria.exe")
     fna_sha = sha256(game / "FNA.dll")

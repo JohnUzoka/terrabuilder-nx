@@ -13,7 +13,9 @@ XNB assets and hardware logs.
 With Podman or Docker installed (see [Build environment](#build-environment)), the
 whole build is one command. Docker has to work for your user without `sudo`: if
 `docker info` says "permission denied", run `sudo usermod -aG docker $USER` and
-open a new terminal.
+open a new terminal. Ubuntu's snap version of Docker can't read the builder's
+folders; use `sudo apt install docker.io` or Docker Desktop instead (the machine
+check says which you have).
 
 ```sh
 ./terrabuilder
