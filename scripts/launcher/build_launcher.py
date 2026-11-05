@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compile the native launcher objects from source.
 
-The script runs the devkitA64 compiler inside ``localhost/monobuild:local`` with the
+The script runs the devkitA64 compiler inside devkitPro's build image (containers.BUILD_IMAGE) with the
 toolchain mounted read-only, and writes only to the requested output directory, which
 must live under the work directory mounted as ``/build`` in the container. main.o is
 built by scripts/native/link_nro.py against each build's AOT registration header.
@@ -21,8 +21,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from terrabuilder_pkg import containers, toolchain  # noqa: E402
-
-IMAGE = "localhost/monobuild:local"
 
 ARCH = ["-march=armv8-a+crc+crypto", "-mtune=cortex-a57", "-mtp=soft", "-fPIE"]
 GCC = "/opt/devkitpro/devkitA64/bin/aarch64-none-elf-gcc"
@@ -193,7 +191,8 @@ def main() -> int:
 
     mounts = ["-v", f"{workdir}:/build", "-v", f"{ROOT}:/work:ro", *tc.mounts()]
     eng = containers.engine() or "podman"
-    cmd = [eng, "run", "--rm", *containers.user_args(eng), "--entrypoint", "sh", *mounts, IMAGE,
+    cmd = [eng, "run", "--rm", *containers.user_args(eng), "--entrypoint", "sh", *mounts, "-w", containers.BUILD_WORKDIR,
+           containers.BUILD_IMAGE,
            f"{out_container}/compile-commands.sh"]
     subprocess.run(cmd, check=True)
 

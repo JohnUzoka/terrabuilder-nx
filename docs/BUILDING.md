@@ -20,7 +20,7 @@ game (GOG Linux build 1.4.5.x). Nothing from the game is in this repository.
   ~3.9 GB (the Mono LLVM SDK package alone is ~1 GB), build images ~6 GB (shared
   layers), baselines ~5–10 GB, ~2–3 GB per build variant. Old variants can be
   deleted once their NRO is tested. The prebuilt toolchain needs 1.85 GB (the
-  274 MiB download plus 1.56 GB unpacked) and the build image about 5 GB.
+  274 MiB download plus 1.56 GB unpacked) and devkitPro's build image about 2.8 GB.
 - A legal copy of Terraria for Linux (GOG), e.g. `~/FNA-Game/Terraria/game`.
   tModLoader builds use only its `Content/` and also accept Terraria 1.4.4.9 or a
   copy of Steam's Terraria folder.
@@ -44,11 +44,10 @@ match the pinned SHA-256. It is unpacked next to the work directory's toolchain 
 rehashed file by file against its `manifest.json` (as `toolchain verify` does)
 before it becomes `<workdir>/toolchain`. A usable toolchain is kept unless
 `--replace` is given, which keeps the previous one as `toolchain.bak`;
-`--bundle <file>` installs a local copy of the same asset. The command then builds
-the container image from `scripts/toolchain/Containerfile` and tags it
-`localhost/monobuild:local` and `localhost/monobuild-llvm:local` (a present image
-is only re-tagged). The guided build offers both steps when its machine check finds
-them missing.
+`--bundle <file>` installs a local copy of the same asset. The command then downloads
+the build image: devkitPro's `devkitpro/devkita64:20260219` from Docker Hub, pinned
+by digest (`BUILD_IMAGE` in `terrabuilder_pkg/containers.py`) and used as published. The
+guided build offers both steps when its machine check finds them missing.
 
 The asset holds the from-source toolchain built 2026-10-03 plus the optional
 component `tmod-runtime`, which tModLoader builds need: the open-source runtime
@@ -101,7 +100,7 @@ the same stages through flags:
   --profile release --workdir ~/.cache/terrabuilder
 ```
 
-`doctor` checks Podman, the build images, the toolchain, free disk and memory.
+`doctor` checks Podman, the build image, the toolchain, free disk and memory.
 `toolchain` (or `toolchain status`) summarizes `<workdir>/toolchain`;
 `toolchain verify` rehashes every file against `toolchain/manifest.json`, which also
 records provenance. The toolchain's `notices/` holds `THIRD_PARTY_NOTICES.md`,
@@ -176,7 +175,7 @@ derived from the game or tModLoader is made on your machine:
 | launcher | `scripts/launcher/build_launcher.py` (3.1) | `launcher-src/<profile>/` |
 | mod sources | catalog and GitHub mods, built in the image | `tmod/packages/<key>/` |
 | prepare | `scripts/tmod/prepare_modset.py`: mod tuning, hook scan, IL and hook lowering | `tmod/<variant>/input/` |
-| compile, link, package | `scripts/tmod/build_tmod_modset_nro.py` in `localhost/monobuild-llvm:local` | `tmod/<variant>/` |
+| compile, link, package | `scripts/tmod/build_tmod_modset_nro.py` in devkitPro's build image | `tmod/<variant>/` |
 | verify | `scripts/tmod/verify_aot_dependencies.py`: AOT dependency MVIDs | `tmod/<variant>/aot-mvid-check.json` |
 
 The C# tools are built once per source digest into `<workdir>/tools/<name>-<digest>`

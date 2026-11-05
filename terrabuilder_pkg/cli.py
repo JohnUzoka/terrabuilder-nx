@@ -19,7 +19,8 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 from terrabuilder_pkg import toolchain as tclib
-from terrabuilder_pkg.containers import engine, engine_status, root_is_invoking_user, user_args
+from terrabuilder_pkg.containers import (BUILD_IMAGE, BUILD_IMAGE_TAG, BUILD_WORKDIR, engine, engine_status,
+                                         root_is_invoking_user, user_args)
 
 ROOT = Path(__file__).resolve().parents[1]
 # Source compatibility patches applied to curated mod checkouts (catalog "patches").
@@ -31,8 +32,6 @@ DEFAULT_OUT = ROOT / "Output"
 DEFAULT_TERRARIA = ROOT / "Terraria"
 # Per user rather than per workdir: it keeps concurrent builds from exhausting memory.
 HEAVY_LOCK = Path.home() / ".cache/terrabuilder/.heavy.lock"
-MONO_IMAGE = "localhost/monobuild:local"
-LLVM_IMAGE = "localhost/monobuild-llvm:local"
 # The prebuilt toolchain, a release asset written by `toolchain pack`. `toolchain --bundle`
 # downloads it, checks this SHA-256 and unpacks it as <workdir>/toolchain.
 TOOLCHAIN_BUNDLE = {
@@ -181,7 +180,7 @@ def image_id(image: str) -> str:
     except subprocess.CalledProcessError as error:
         problem = engine_status(eng)[0]
         raise SystemExit(f"the container image can't be used: {problem}" if problem else
-                         f"container image {image} is missing: `./terrabuilder toolchain --bundle` builds it") from error
+                         f"container image {image} is missing: `./terrabuilder toolchain --bundle` downloads it") from error
 
 
 def toolchain_summary(tc: tclib.Toolchain) -> dict:
@@ -207,13 +206,12 @@ def machine_checks(workdir: Path) -> list[dict]:
     # `report` is the engine's own `info` output: the guided build saves it in its check log.
     checks.append({"name": "container engine", "ok": not problem, "detail": problem or eng, "required": True,
                    "report": report})
-    for image in (MONO_IMAGE, LLVM_IMAGE):
-        present = not problem and subprocess.run(
-            [eng, "image", "inspect", image], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-        ).returncode == 0
-        detail = ("not checked: the container engine isn't working" if problem else
-                  "ok" if present else "missing: `./terrabuilder toolchain --bundle` builds it")
-        checks.append({"name": f"image {image}", "ok": present, "required": True, "detail": detail})
+    present = not problem and subprocess.run(
+        [eng, "image", "inspect", BUILD_IMAGE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    ).returncode == 0
+    detail = ("not checked: the container engine isn't working" if problem else
+              "ok" if present else "missing: `./terrabuilder toolchain --bundle` downloads it")
+    checks.append({"name": f"image {BUILD_IMAGE_TAG}", "ok": present, "required": True, "detail": detail})
     tc = None
     try:
         tc = tclib.load(workdir / "toolchain")
@@ -359,14 +357,18 @@ def install_toolchain_bundle(workdir: Path, archive: Path | None = None, *, repl
 
 
 def set_up_from_bundle(workdir: Path, archive: Path | None = None, *, replace: bool = False) -> None:
-    """The prebuilt route to a machine that can build: the toolchain bundle plus the container image."""
+    """The prebuilt route to a machine that can build: the toolchain bundle plus devkitPro's build image."""
     install_toolchain_bundle(workdir, archive, replace=replace)
-    phase("Building the container image")
+    phase("Downloading the build image")
     eng = engine()
     problem = engine_status(eng)[0] if eng else "Docker or Podman is not installed"
     if problem:
-        raise SystemExit(f"the container image can't be built: {problem}")
-    run([sys.executable, str(ROOT / "scripts/toolchain/build_from_source.py"), "--images-only"])
+        raise SystemExit(f"the build image can't be downloaded: {problem}")
+    if subprocess.run([eng, "image", "inspect", BUILD_IMAGE], stdout=subprocess.DEVNULL,
+                      stderr=subprocess.DEVNULL).returncode == 0:
+        say(f"build image {BUILD_IMAGE_TAG} already present")
+        return
+    run([eng, "pull", BUILD_IMAGE])
 
 
 def toolchain_command(args: argparse.Namespace) -> int:
@@ -709,7 +711,7 @@ def ensure_host_fna3d(workdir: Path, tmod_dir: Path) -> Path:
             # apt-get needs container root, which is real root under rootful Docker.
             script = f"trap 'chown -R {os.getuid()}:{os.getgid()} /tb/native-host' EXIT; " + script
         cmd = [eng, "run", "--rm", "--entrypoint", "/bin/bash",
-               "-v", f"{workdir}:/tb", MONO_IMAGE, "-lc", script]
+               "-v", f"{workdir}:/tb", BUILD_IMAGE, "-lc", script]
         run(cmd)
     out.mkdir(parents=True, exist_ok=True)
     for path in build.glob("libFNA3D.so*"):
@@ -810,7 +812,7 @@ def build_mod_sources(tmod_dir: Path, mods: list[str], workdir: Path, sources: d
                "-v", f"{tmod_dir}:/tml:ro",
                "-v", f"{tc.path('sdk')}:/mono-nx:ro",
                "-w", "/tb/" + mod_root.relative_to(workdir).as_posix(),
-               MONO_IMAGE,
+               BUILD_IMAGE,
                "build", f"{name}.csproj", "-c", "Debug", f"-p:tMLSteamPath=/tml/",
                "-p:TreatWarningsAsErrors=false", "-p:NoWarn=0619",
                "-p:DebugType=none", "-p:DebugSymbols=false",
@@ -1042,7 +1044,7 @@ def run_tmod_pipeline(out: Path, base: Path, workdir: Path, tc: tclib.Toolchain)
     cmd = [eng, "run", "--rm", *user_args(eng), "--entrypoint", "python3",
            "-e", f"TMOD_VARIANT={out.name}", "-e", f"TMOD_BASE=/build/{base.relative_to(workdir).as_posix()}",
            "-e", f"TMPDIR={variant}/container-tmp",
-           *container_mounts(workdir, tc), LLVM_IMAGE, "/work/scripts/tmod/build_tmod_modset_nro.py"]
+           *container_mounts(workdir, tc), BUILD_IMAGE, "/work/scripts/tmod/build_tmod_modset_nro.py"]
     run(cmd, heavy=True)
     verify = [sys.executable, str(ROOT / "scripts/tmod/verify_aot_dependencies.py"),
               "--variant-dir", str(out), "--base-dir", str(base), "--tmod-runtime", str(tc.path("tmod-runtime")),
@@ -1206,7 +1208,7 @@ def patch_stage(game_dir: Path, workdir: Path, tc: tclib.Toolchain, stamps: Path
         "FNA.dll": sha256(game_dir / "FNA.dll"),
         "sources": source_shas(*sources),
         "toolchain": tc.digests("cecil", "dotnet"),
-        "image": image_id(MONO_IMAGE),
+        "image": image_id(BUILD_IMAGE),
     }
     out = workdir / "patch" / hashlib.sha256(json.dumps(key, sort_keys=True).encode()).hexdigest()[:16]
     stamp = stamps / "patch.json"
@@ -1250,7 +1252,8 @@ def tree_hash(root: Path, files: list[Path] | None = None) -> str:
 
 
 def container_mounts(workdir: Path, tc: tclib.Toolchain) -> list[str]:
-    return ["-v", f"{workdir}:/build", "-v", f"{ROOT}:/work:ro", *tc.mounts()]
+    """The mounts every build container gets, and the working directory builds run in."""
+    return ["-v", f"{workdir}:/build", "-v", f"{ROOT}:/work:ro", *tc.mounts(), "-w", BUILD_WORKDIR]
 
 
 def aot_stage(romfs_hash: str, workdir: Path, tc: tclib.Toolchain, stamps: Path, info: dict) -> Path:
@@ -1260,7 +1263,7 @@ def aot_stage(romfs_hash: str, workdir: Path, tc: tclib.Toolchain, stamps: Path,
         "sources": source_shas(ROOT / "scripts/compile_terraria_aot.py", ROOT / "scripts/prepare_aot/PrepareAot.cs",
                                ROOT / "scripts/prepare_aot/PrepareAot.csproj"),
         "toolchain": tc.digests("sdk", "runtime", "aot-compiler", "framework-aot", "cecil", "dotnet"),
-        "image": image_id(LLVM_IMAGE),
+        "image": image_id(BUILD_IMAGE),
         "llvm_modules": ["Terraria", "FNA"],
     }
     stamp = stamps / "aot.json"
@@ -1271,7 +1274,7 @@ def aot_stage(romfs_hash: str, workdir: Path, tc: tclib.Toolchain, stamps: Path,
         eng = engine() or "podman"
         cmd = [eng, "run", "--rm", *user_args(eng), "--entrypoint", "/usr/bin/python3",
                "-e", "PATH=/opt/devkitpro/devkitA64/bin:/opt/devkitpro/tools/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-               *container_mounts(workdir, tc), LLVM_IMAGE,
+               *container_mounts(workdir, tc), BUILD_IMAGE,
                "/work/scripts/compile_terraria_aot.py", "--game-dir", "/build/vanilla/romfs", "--output-dir", "/build/vanilla/aot",
                "--corelib-dir", "/toolchain/runtime/corelib", "--runtime-dir", "/toolchain/runtime/framework",
                "--cross-compiler", "/mono-nx/dotnet_runtime/artifacts/bin/mono/linux.x64.Debug/cross/linux-x64/libnx-arm64/mono-aot-cross",
@@ -1293,7 +1296,7 @@ def launcher_stage(workdir: Path, out: Path, tc: tclib.Toolchain, profile: str, 
         "sources": source_shas(ROOT / "scripts/launcher/build_launcher.py"),
         "native": tree_hash(ROOT / "native"),
         "toolchain": tc.digests("sdk", "mono-nx-native", "native-deps"),
-        "image": image_id(MONO_IMAGE),
+        "image": image_id(BUILD_IMAGE),
     }
     if not stage_cached(f"launcher ({profile})", stamp, key, [out / "launcher-build.json"]):
         cmd = [sys.executable, str(ROOT / "scripts/launcher/build_launcher.py"), "--workdir", str(workdir),
@@ -1323,7 +1326,7 @@ def native_stage(workdir: Path, romfs_hash: str, aot: Path, launcher: Path, tc: 
         "wraps": wraps,
         "defines": defines,
         "toolchain": tc.digests("sdk", "mono-nx-native", "runtime", "mesa", "native-deps", "framework-aot"),
-        "image": image_id(LLVM_IMAGE),
+        "image": image_id(BUILD_IMAGE),
     }
     stamp = stamps / f"native-{profile}.json"
     if not stage_cached(f"native link ({profile})", stamp, key, [out / "mono_nx_fna.nro"]):
@@ -1331,7 +1334,7 @@ def native_stage(workdir: Path, romfs_hash: str, aot: Path, launcher: Path, tc: 
             shutil.rmtree(out)
         eng = engine() or "podman"
         cmd = [eng, "run", "--rm", *user_args(eng), "--entrypoint", "/usr/bin/python3",
-               *container_mounts(workdir, tc), LLVM_IMAGE, "/work/scripts/native/link_nro.py",
+               *container_mounts(workdir, tc), BUILD_IMAGE, "/work/scripts/native/link_nro.py",
                "--aot-manifest", "/build/vanilla/aot/build-manifest.json", "--romfs", "/build/vanilla/romfs",
                "--launcher", "/build/" + launcher.relative_to(workdir).as_posix(),
                "--out", "/build/" + out.relative_to(workdir).as_posix(),

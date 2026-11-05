@@ -560,8 +560,6 @@ def main() -> int:
     ap.add_argument("--lock", type=Path, default=REPO_ROOT / "toolchain.lock.json")
     ap.add_argument("--out", type=Path, default=None,
                     help="final toolchain output dir (default: <workdir>/toolchain.fromsource)")
-    ap.add_argument("--images-only", action="store_true",
-                    help="only build the container image; builds with a prebuilt toolchain need it too")
     args = ap.parse_args()
 
     workdir = args.workdir.expanduser().resolve()
@@ -572,8 +570,6 @@ def main() -> int:
     eng = engine()
 
     step_images(lock, scratch, eng)
-    if args.images_only:
-        return 0
     scratch.mkdir(parents=True, exist_ok=True)
     mesa_out = step_mesa(lock, scratch, eng)
     sdk_pristine = step_mono_nx_sdk(lock, scratch, eng)

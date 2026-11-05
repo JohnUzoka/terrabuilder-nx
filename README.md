@@ -57,7 +57,7 @@ script:
 
 It checks the machine (container engine, build image, toolchain, disk space). On a
 new machine it offers to set up the rest: it downloads the prebuilt toolchain
-(274 MiB) and builds the container image (about 5 GB). Then it asks three things:
+(274 MiB) and downloads devkitPro's build image (about 2.8 GB). Then it asks three things:
 
 1. **What to build:** Terraria (vanilla) or tModLoader with mods (experimental).
    Each choice shows what was found in the folders; `r` checks them again.
@@ -160,10 +160,12 @@ build options are:
 
 ## Build environment
 
-One Podman or Docker image, built from `scripts/toolchain/Containerfile` (devkitA64,
-.NET SDK, clang-19) and tagged `localhost/monobuild:local` and
-`localhost/monobuild-llvm:local`; `toolchain --bundle` and `toolchain --from-source`
-build it. Builds run in a work directory (default `~/.cache/terrabuilder`; override
+Builds run in devkitPro's published devkitA64 image (`devkitpro/devkita64:20260219` from
+Docker Hub, pinned by digest in `terrabuilder_pkg/containers.py`), under Podman or Docker, as
+devkitPro publishes it: nothing is added to it or built on top of it. `toolchain --bundle`
+downloads it. `toolchain --from-source` builds its own image from
+`scripts/toolchain/Containerfile` (that image plus clang-19 and the .NET SDK) for the
+components it compiles. Builds run in a work directory (default `~/.cache/terrabuilder`; override
 with `--workdir` or `TERRABUILDER_WORKDIR`) mounted as `/build`. This repo is
 mounted read-only as `/work`, and the toolchain in `<workdir>/toolchain` read-only
 as `/toolchain`.
