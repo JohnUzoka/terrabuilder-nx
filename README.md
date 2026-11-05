@@ -21,7 +21,20 @@ into Ubuntu before each run (an empty folder leaves Ubuntu's copy as it is), and
 `Output` is copied back afterwards. Arguments are passed on: `terrabuilder.cmd doctor`
 only checks the machine.
 
-On Linux, with Podman or Docker installed (see [Build environment](#build-environment)), the
+**On Linux**, run this in an empty folder. It does the same without the WSL part: it
+offers to install what's missing with your package manager (`sudo`), keeps a copy of
+this repository in `~/terrabuilder-nx` and copies the folders.
+
+```sh
+curl -fsSLO https://raw.githubusercontent.com/JohnUzoka/terrabuilder-nx/main/terrabuilder.sh
+bash terrabuilder.sh
+```
+
+macOS is not supported: parts of the build run Linux x86-64 programs outside containers
+(the toolchain's .NET SDK prepares tModLoader and its mods), so a Mac needs a Linux
+virtual machine.
+
+In a clone of this repository, with Podman or Docker installed (see [Build environment](#build-environment)), the
 whole build is one command. Docker has to work for your user without `sudo`: if
 `docker info` says "permission denied", run `sudo usermod -aG docker $USER` and
 open a new terminal. Ubuntu's snap version of Docker can't read the builder's
