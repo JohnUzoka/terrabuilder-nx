@@ -1,0 +1,3 @@
+# cmd.exe needs CRLF line endings in terrabuilder.cmd. Stored as is, a raw download from
+# GitHub has them too.
+terrabuilder.cmd -text
