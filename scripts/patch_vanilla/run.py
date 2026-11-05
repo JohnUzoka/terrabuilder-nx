@@ -8,7 +8,9 @@ import argparse, hashlib, shutil, subprocess, sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-IMAGE = 'localhost/monobuild:local'
+sys.path.insert(0, str(ROOT))
+from terrabuilder_pkg import containers  # noqa: E402
+
 CECIL = '/toolchain/cecil/Mono.Cecil.dll'
 DOTNET = '/toolchain/dotnet/dotnet'
 
@@ -17,14 +19,14 @@ def run(cmd, **kw):
     subprocess.run(cmd, check=True, **kw)
 
 def pod(script, workdir, toolchain, mounts, network=False):
-    cmd=['podman','run','--rm','--userns=keep-id','--entrypoint','sh',
+    eng = containers.engine() or 'podman'
+    cmd=[eng,'run','--rm',*([] if network else ['--network=none']),*containers.user_args(eng),'--entrypoint','sh',
          '-e','HOME=/build/patch-vanilla-work/home',
          '-e','DOTNET_CLI_HOME=/build/patch-vanilla-work/home',
          '-e','NUGET_PACKAGES=/build/nuget-packages',
          '-e','DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1',
-         '-v',f'{ROOT}:/work:ro','-v',f'{workdir}:/build','-v',f'{toolchain}:/toolchain:ro', *mounts]
-    if not network: cmd.insert(3,'--network=none')
-    cmd += [IMAGE,'-lc',script]
+         '-v',f'{ROOT}:/work:ro','-v',f'{workdir}:/build','-v',f'{toolchain}:/toolchain:ro', *mounts,
+         containers.BUILD_IMAGE,'-lc',script]
     run(cmd)
 
 def sha(p):

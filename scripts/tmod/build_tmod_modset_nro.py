@@ -1,9 +1,9 @@
 """Build one pinned mod set, with exact .tmod DLLs compiled into the NRO.
 
-Run in monobuild-llvm:local with the CLI's mounts: the work directory at /build, this repo at
-/work and the toolchain (with its tmod-runtime component) at /toolchain. TMOD_BASE is the base
-stage (romfs/, flat_libs/, native/{icon.jpg,tmodloader.nacp}, manifest.json); TMOD_VARIANT names
-a fresh /build/tmod/<variant> with input/modset.json:
+Run in the build image (containers.BUILD_IMAGE) with the CLI's mounts: the work directory at
+/build, this repo at /work and the toolchain (with its tmod-runtime component) at /toolchain.
+TMOD_BASE is the base stage (romfs/, flat_libs/, native/{icon.jpg,tmodloader.nacp},
+manifest.json); TMOD_VARIANT names a fresh /build/tmod/<variant> with input/modset.json:
   {"mod": "BossCursor", "label": "Boss Cursor", "aot_replacements": [],
    "replacements": {"System.Reflection.Metadata.dll": ["System.Reflection.Metadata.dll"]}}
 input also contains tModLoader.dll, FNA.dll, <mod>.tmod and all replacement DLLs.

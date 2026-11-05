@@ -507,7 +507,7 @@ class Wizard:
                 return True
             log = write_check_log(checks, self.workdir)
             lines = ["", *(f"  {ui.OK if c['ok'] else ui.FAIL} {c['name']}: {c['detail']}" for c in checks if c["required"])]
-            # The prebuilt toolchain and the container image are the two things set up can provide.
+            # The prebuilt toolchain and devkitPro's build image are the two things set up can provide.
             fixable = all(c["name"] == "toolchain" or c["name"].startswith("image ") for c in failed)
             if set_up or not fixable:
                 lines += ["", "  Fix the items marked " + ui.FAIL + "; docs/BUILDING.md has the setup steps.",
@@ -518,7 +518,7 @@ class Wizard:
             if any(c["name"] == "toolchain" for c in failed):
                 fixes.append(f"downloads the prebuilt toolchain ({cli.TOOLCHAIN_BUNDLE['bytes'] / 2**20:.0f} MiB)")
             if any(c["name"].startswith("image ") for c in failed):
-                fixes.append("builds the container image that builds run in (about 5 GB)")
+                fixes.append(f"downloads devkitPro's build image {cli.BUILD_IMAGE_TAG} (about 2.8 GB)")
             lines += ["", "  Set up " + " and ".join(fixes) + "."]
             ui.screen("This computer needs setting up", lines, {"enter": "set up"})
             if run_logged("Setting up", "setup", "Setup failed", self.workdir,
