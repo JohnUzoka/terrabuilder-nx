@@ -29,7 +29,7 @@ rem Podman only when neither Podman nor a Docker that works without sudo is ther
 set "ENGINE=podman"
 wsl.exe -d %DISTRO% -e sh -c "command -v podman || docker info" >nul 2>&1
 if not errorlevel 1 set "ENGINE="
-wsl.exe -d %DISTRO% -u root -e sh -c "need=; for tool in git rsync python3 %ENGINE%; do command -v $tool >/dev/null || need=$need' '$tool; done; case $need in '') exit 0;; esac; echo Installing$need; export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq$need"
+wsl.exe -d %DISTRO% -u root -e sh -c "need=; for tool in git rsync python3 %ENGINE%; do command -v $tool >/dev/null || need=$need' '$tool; done; case $need in '') exit 0;; esac; echo Installing$need; export DEBIAN_FRONTEND=noninteractive; (apt-get update -qq && apt-get install -y -qq$need) >/tmp/terrabuilder-apt.log 2>&1 || { tail -n 20 /tmp/terrabuilder-apt.log; exit 1; }"
 if errorlevel 1 goto failed
 
 wsl.exe -d %DISTRO% --cd ~ -e sh -c "if [ -d terrabuilder-nx/.git ]; then git -C terrabuilder-nx pull -q --ff-only || echo Could not update terrabuilder-nx, so the copy you have is used.; else echo Downloading terrabuilder-nx; git clone -q --branch %TERRABUILDER_BRANCH% %TERRABUILDER_REPO% terrabuilder-nx; fi"
