@@ -10,7 +10,18 @@ XNB assets and hardware logs.
 
 ## Quick start
 
-With Podman or Docker installed (see [Build environment](#build-environment)), the
+**On Windows**, download
+[terrabuilder.cmd](https://github.com/JohnUzoka/terrabuilder-nx/releases/download/windows-launcher/terrabuilder.cmd),
+put it in an empty folder and double-click it. It sets up WSL with Ubuntu if needed
+(it asks first; this needs administrator rights and maybe a restart), installs Podman,
+git, rsync and Python in Ubuntu, keeps a copy of this repository in Ubuntu's home
+folder up to date and runs `./terrabuilder` there. The folders below appear next to
+`terrabuilder.cmd`: what you put in `Terraria`, `tModLoader` and `Mods` is copied
+into Ubuntu before each run (an empty folder leaves Ubuntu's copy as it is), and
+`Output` is copied back afterwards. Arguments are passed on: `terrabuilder.cmd doctor`
+only checks the machine.
+
+On Linux, with Podman or Docker installed (see [Build environment](#build-environment)), the
 whole build is one command. Docker has to work for your user without `sudo`: if
 `docker info` says "permission denied", run `sudo usermod -aG docker $USER` and
 open a new terminal. Ubuntu's snap version of Docker can't read the builder's
